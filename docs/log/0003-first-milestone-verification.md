@@ -1,4 +1,10 @@
-# Milestone verification
+# First milestone verification
+
+2026-09-07 · Milestone implementation: `1f24467`.
+
+Records checks performed for the first milestone and their results. Passing
+checks here are historical evidence, not a guarantee about later revisions.
+See the [README](../../README.md) for current setup and supported behavior.
 
 Historical verification performed locally on 2026-09-07, macOS ARM64, Go 1.26.1,
 Node 25.8.1, Chromium 140 (Playwright 1.55.1).

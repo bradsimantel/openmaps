@@ -76,5 +76,16 @@ remains undecided. Do not present a proposal as an established project decision.
   Use representative queries and routes to evaluate data quality.
 - Update documentation when behavior, architecture, or development commands
   change. Do not invent setup instructions for tooling that does not exist yet.
+- Put milestone decisions, investigations, sample findings and verification
+  reports in `docs/log/` by default. Use sequential four-digit names such as
+  `0001-places-api-target.md`, and include a date and relevant revision or scope.
+  Write these as useful project records, not session transcripts.
+- Use the README and documentation outside `docs/log/` to explain how the
+  project works: its architecture, data model, API behavior and component
+  relationships. Keep these explanations accurate as the implementation changes.
+- Keep instructions for agents and how we work in `AGENTS.md`. Label log entries
+  as historical when linking to them; do not present them as current
+  specifications. Record later decisions in new entries and link superseded
+  records, while correcting factual errors in place.
 - Documentation-only changes need a content and formatting review; they do not
   require unrelated code tests.

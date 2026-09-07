@@ -96,8 +96,9 @@ attributes are fabricated. API keys are accepted for client compatibility but
 are **not authenticated**; there are no billing, quota or production access
 controls.
 
-See [the exact request, field-mask and error contract](docs/api.md), with links
-to Google's official references.
+The [initial API target decision](docs/log/0001-places-api-target.md) records the
+first milestone’s request, field-mask and error contract, with links to Google’s
+official references.
 
 ## Region, sources and identity
 
@@ -115,7 +116,7 @@ It covers downtown Newport and nearby streets, not the full municipality.
 There are 1,181 conservative business/address links and three area-parent links.
 The four areas include available parents outside the launch rectangle.
 
-[The regional inspection report](docs/data.md) records field completeness,
+[The initial regional inspection](docs/log/0002-newport-data-and-import-design.md) records field completeness,
 duplicate labels, relationships, coverage gaps and the decision to defer a
 supplemental source. It distinguishes address points from business address
 strings and area label points from boundaries. `data/audit.json` is regenerated
@@ -132,7 +133,7 @@ Additional sources can supply new records or enrich existing entities through
 renumbering existing entities. Highest source priority wins each nonempty
 attribute; ties use source key order. All contributing values remain stored.
 There is no fuzzy identity merging or speculative provider plugin framework.
-See [matching and conflict rules](docs/data.md#matching-identity-and-conflict-resolution).
+See the [initial matching and conflict rules](docs/log/0002-newport-data-and-import-design.md#matching-identity-and-conflict-resolution).
 
 The [basemap lock](imports/basemap.lock.json) separately pins a Protomaps
 2026-09-06 regional cutout at zooms 0–15. The Go service serves it locally; tiles
@@ -187,7 +188,7 @@ sprites require network access.
 Check a real business, address, street and area through autocomplete, details and
 map placement. Also check keyboard selection, empty results, fast input changes,
 mobile layout and JavaScript errors. Blocking esm.sh should leave search and
-details available. See [previous verification results](docs/verification.md).
+details available. See [previous verification results](docs/log/0003-first-milestone-verification.md).
 
 ## Current limitations and next work
 

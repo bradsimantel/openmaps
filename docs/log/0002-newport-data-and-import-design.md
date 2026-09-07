@@ -1,4 +1,10 @@
-# Newport data findings and import design
+# Newport data inspection and import design
+
+2026-09-07 · Milestone implementation: `1f24467`.
+
+Records the regional sample findings, source choices and import rules used for
+the first milestone. Counts, gaps and commands describe that snapshot.
+See the [README](../../README.md) for current setup and supported behavior.
 
 ## Inspected samples
 
@@ -11,7 +17,7 @@ OSM extract. No claim of complete city coverage is made.
 
 Overture snapshot: **2026-08-19.0**. Geofabrik snapshot:
 **rhode-island-260801.osm.pbf**, 51,849,634 bytes. Inputs, URLs, SHA-256 digests,
-versions and bounds are in [the lock file](../imports/newport.lock.json).
+versions and bounds are in [the lock file](../../imports/newport.lock.json).
 The Overture hashes cover canonical regional GeoJSON exports, not whole global
 Parquet files. Exports use Go `encoding/json` with one final newline, features
 sorted by source ID and Parquet map entries represented as key-sorted pairs.
@@ -94,7 +100,7 @@ and status remain available for subsequent investigation.
    `osm:way:<id>`. Releases, coordinates, names and SQLite row numbers do not enter
    the ID. OSM way versions are stored separately from the stable way ID.
 2. A concrete future importer emits the existing normalized bundle shape.
-   [identities.json](../imports/identities.json) explicitly maps verified new
+   [identities.json](../../imports/identities.json) explicitly maps verified new
    source keys to existing anchors. Preserve that mapping as part of the dataset
    when rebuilding, even if the original provider record is removed. There are
    no runtime provider plugins and no fuzzy automatic identity merges. New
@@ -181,7 +187,7 @@ node index is appropriate for Rhode Island, not planet-scale imports.
 
 ## Attribution
 
-The [demo attribution page](../web/attribution.html) identifies the datasets and
+The [demo attribution page](../../web/attribution.html) identifies the datasets and
 links their upstream terms. Places in this sample include Meta, Microsoft,
 BrightQuery, Foursquare, AllThePlaces and DAC; Divisions use OpenStreetMap;
 Addresses use NAD. See [Overture's attribution inventory](https://docs.overturemaps.org/attribution/),

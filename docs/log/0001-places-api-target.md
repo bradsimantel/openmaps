@@ -1,4 +1,10 @@
-# Places compatibility
+# Places API target for the first milestone
+
+2026-09-07 · Milestone implementation: `1f24467`.
+
+Records the compatibility target and supported subset chosen for the first
+milestone. This is a dated decision record, not a maintained API reference.
+See the [README](../../README.md) for current setup and supported behavior.
 
 Target: Google Places API (New), REST v1, checked 2026-09-07 against
 [Autocomplete reference](https://developers.google.com/maps/documentation/places/web-service/reference/rest/v1/places/autocomplete),
