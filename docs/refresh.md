@@ -1,0 +1,237 @@
+# Newport data refreshes
+
+Refreshes are explicit, offline-reviewed snapshot changes. `cmd/prepare` acquires
+and normalizes pinned sources; `cmd/refresh build` constructs a new SQLite file
+with identity history; `compare` validates it and produces the review artifact.
+`review` records the reviewer and findings against that artifact's SHA-256.
+`activate` selects it for the server; `rollback` restores the previous selection.
+There is no release discovery, scheduler, background downloader or automatic
+identity matching.
+
+The original August snapshot remains the default demo and retained baseline.
+The checked-in second source lock selects **Overture 2026-07-22.0**, with the same
+Geofabrik 2026-08-01 streets and region. This is an intentionally older historical
+rehearsal: August was already the latest Overture release when it was prepared.
+See the [historical investigation](log/0004-newport-refresh-investigation.md) and
+[historical verification](log/0005-newport-refresh-verification.md).
+
+## Build and validate
+
+Run from the repository root. Retain `data/openmaps.sqlite` and its original
+inputs, `imports/newport.lock.json`, `imports/newport.bundle.sha256` and
+`imports/identities.json`. Do not overwrite them to prepare a refresh. Basemap
+pins and tiles are independent and do not change with this lookup refresh.
+
+```sh
+go run ./cmd/prepare -fetch \
+  -manifest imports/newport-2026-07-22.lock.json \
+  -data data/newport-2026-07-22 \
+  -checksum imports/newport-2026-07-22.bundle.sha256
+
+go run ./cmd/refresh build \
+  -baseline data/openmaps.sqlite \
+  -bundle data/newport-2026-07-22/newport.json \
+  -checksum imports/newport-2026-07-22.bundle.sha256 \
+  -replacements imports/newport-2026-07-22.replacements.json \
+  -candidate data/newport-2026-07-22/openmaps-reviewed.sqlite
+
+go run ./cmd/refresh compare \
+  -baseline data/openmaps.sqlite \
+  -candidate data/newport-2026-07-22/openmaps-reviewed.sqlite \
+  -report data/newport-2026-07-22/reviewed-report.json
+```
+
+Preparation without `-fetch` verifies and uses archived local sources. All
+normal commands enforce checksums; none fall back to latest. Builds refuse an
+existing candidate path. Choose a new filename for another build; logical rows
+are reproducible, SQLite file bytes are not guaranteed to be identical. Keep
+large source files, databases, reports and review receipts in ignored `data/`.
+
+The comparison contains:
+
+- Baseline and candidate manifests and whole-database SHA-256 fingerprints.
+- Counts by entity kind; every added, absent and changed entity, including full
+  before/after public attributes and changed-field names.
+- Added/removed source keys and changes in release, raw JSON, normalized
+  attributes, attribute paths, source priority and public ID.
+- Added/removed relationships including their evidence; an evidence change
+  appears as removal plus addition.
+- Possible identity matches for review, and ordered search results on both sides.
+- Validation violations. Any violation prevents review and activation.
+
+Validation checks SQLite integrity and foreign keys, source-derived public IDs,
+identity history, complete normalized FTS content and row coverage, expected
+first results or empty results, and details for every returned candidate
+suggestion. `imports/newport.queries.json` holds the deterministic representative
+expectations. Review all result positions as well as the first result: a passing
+check is a smoke test, not a coverage or accuracy certification. Raw source
+records and winning attribute provenance remain in each SQLite snapshot.
+
+## Identity and disappearance rules
+
+Continuing source-qualified keys retain their anchor and public ID. Name,
+address, coordinates and releases cannot change that ID. Continuing kinds must
+also agree. Builds inherit all previous explicit mappings and append identity
+history for every source key, including keys absent from the new data. A
+returning historical key must use its original anchor and kind.
+
+A record absent from the regional snapshot is unavailable: its details return
+`NOT_FOUND` if no other contributing source or reviewed replacement preserves
+the entity. It is removed from autocomplete and its former relationships are
+absent. This does **not** assert a real-world closure or provider deletion: it
+could reflect boundary movement, filtering or source coverage. Explicitly closed
+businesses remain available through details and are excluded from autocomplete,
+as before. Retained snapshots and identity history preserve the distinction.
+
+A replacement file is an array of `old`, `new`, `reviewer`, and `evidence` source
+key decisions. Only reviewed **one-to-one** replacement is supported:
+
+- The old key must exist in the baseline and be absent from the candidate.
+- The new key must exist in the candidate and have no prior identity history.
+- Kinds must match. No source of the old entity may remain in the candidate.
+- An old entity or new key cannot be used twice. Chains, remapping an existing
+  identity, and unreviewed new aliases fail.
+
+The new key gets the old entity's permanent anchor, even if that anchor's source
+record is no longer present. Evidence and the cumulative history are stored in
+candidate metadata; relationships are rebuilt against resolved public IDs.
+The input bundle checksum remains recorded separately from this effective
+identity mapping. Keep replacement files with the source locks; a replacement
+is an assertion for the compared snapshots, not a reusable fuzzy rule.
+
+Splits and merges are handled conservatively. Surviving keys keep their own IDs;
+new records get separate IDs; absent ones become unavailable. Multiple old IDs
+cannot redirect to a survivor, and multiple split children cannot inherit one
+old ID. A reviewer may establish one continuing entity through a one-to-one
+replacement when the above conditions hold. All other identities stay distinct.
+There is no automatic redirect, fuzzy merge or cross-kind conflation.
+
+The review report flags same-kind pairs within **50 metres** with an equal
+normalized name, or businesses with an equal nonempty website. At least one
+side must be added or absent. Comparing against surviving counterparts exposes
+possible splits and merges, not just replacement pairs. These are deliberately
+limited review leads, not a complete churn detector; every addition and absence
+is still listed even without a lead. Shared names, sites or coordinates alone do
+not authorize a merge. Resolve uncertain cases with more evidence or explicitly
+retain them as distinct in the review findings.
+
+## Review and select a snapshot
+
+Initialize the deployment **once**, pointing at the retained baseline:
+
+```sh
+go run ./cmd/refresh init -baseline data/openmaps.sqlite
+```
+
+Stop the fixed-database demo before reusing port 8080, then start:
+
+```sh
+go run ./cmd/server -deployment data/deployment.json
+```
+
+`-deployment` supersedes `-db`; without it, the server continues to use a fixed
+SQLite file as before. `refresh status` shows the selected files, while
+`/healthz` reports the database actually loaded by this process.
+
+Inspect the full comparison and provenance. Record specific findings, especially
+unresolved matches, before recording a review. For this historical rehearsal:
+
+```sh
+go run ./cmd/refresh review \
+  -report data/newport-2026-07-22/reviewed-report.json \
+  -review data/newport-2026-07-22/review.json \
+  -reviewer 'Your name' \
+  -reason 'Reviewed historical July changes and search results; Pearl replacement has source evidence; seven uncertain pairs remain distinct; restore August after the rehearsal.'
+
+go run ./cmd/refresh activate \
+  -candidate data/newport-2026-07-22/openmaps-reviewed.sqlite \
+  -report data/newport-2026-07-22/reviewed-report.json \
+  -review data/newport-2026-07-22/review.json
+
+curl -fsS http://127.0.0.1:8080/healthz
+```
+
+Activation checks the review fingerprint, requires the report's baseline to be
+the current selection, and recomputes the entire comparison. Changing the
+candidate, baseline, report or expectations invalidates the review. This is a
+local operator workflow, not a cryptographic signature or authentication system.
+
+Deployment state is a single atomically replaced, synced JSON document with
+baseline, current and previous file references and checksums. An exclusive
+sibling `.lock` serializes writers. A crash may leave this lock: confirm no
+refresh writer is running before removing the stale lock. Never edit a selected
+SQLite file in place. Archive it along with its lock, bundle and identity evidence.
+
+On the next API or health request, the server detects a changed selection,
+validates and opens it before replacing its handler. It holds a lock through each
+lookup request; requests are serialized for this small demo. A failed reload
+retains the last working handler and makes health return HTTP 503 with an error.
+Successful API responses include `X-OpenMaps-Dataset`. Check health after every
+switch. Autocomplete and details are separate requests; an ID removed between
+those requests can correctly return `NOT_FOUND`.
+
+## Roll back
+
+```sh
+go run ./cmd/refresh rollback
+curl -fsS http://127.0.0.1:8080/healthz
+go run ./cmd/refresh status
+```
+
+Rollback verifies the previous file before changing selection. It exchanges
+current and previous, so a second rollback exchanges them again. It restores the
+exact prior snapshot, including that snapshot's identity history. The original
+baseline reference is retained across activations. Validation failures during activation or rollback
+do not alter the state. If a directory sync fails after publication, the command
+explicitly reports that state was published; check status and health. The command changes desired state; health confirms
+whether a running server has loaded it.
+
+Retain the candidate and its replacement decisions after rollback. For a later
+refresh, compare against the currently deployed snapshot and carry forward all
+applicable reviewed mappings. Historical candidate decisions must be revisited
+if the same keys reappear with different coexistence or kind evidence; a rollback
+does not approve a new merge. Do not discard the prior snapshot chain or treat a
+fresh `cmd/import` database as a substitute for a refresh built with history.
+
+## Verification
+
+Routine checks need no network or regional files:
+
+```sh
+gofmt -w cmd internal
+go test ./...
+go vet ./...
+```
+
+An explicit check against a running deployment validates autocomplete, returned
+IDs, details, coordinates, and a consistent dataset fingerprint across requests:
+
+```sh
+OPENMAPS_URL=http://127.0.0.1:8080 \
+  go test -tags=integration ./internal/api -run TestLiveDemo -count=1 -v
+```
+
+It does not verify browser rendering. Use the Codex desktop in-app browser plugin
+for the real business and address autocomplete → details → marker flow. This
+connection passed the [historical desktop verification](log/0006-desktop-browser-verification.md);
+the external Chrome extension connection remains unresolved. Do not infer a
+rendered map from successful HTTP responses.
+
+To reproduce all logical candidate rows from archived inputs, use absolute paths:
+
+```sh
+OPENMAPS_BASELINE="$PWD/data/openmaps.sqlite" \
+OPENMAPS_CANDIDATE="$PWD/data/newport-2026-07-22/openmaps-reviewed.sqlite" \
+OPENMAPS_BUNDLE="$PWD/data/newport-2026-07-22/newport.json" \
+OPENMAPS_CHECKSUM="$PWD/imports/newport-2026-07-22.bundle.sha256" \
+OPENMAPS_REPLACEMENTS="$PWD/imports/newport-2026-07-22.replacements.json" \
+  go test -tags=integration ./internal/importer -run TestRefreshRebuild -count=1 -v
+```
+
+For a new release, copy the source lock to a new named file, explicitly select
+releases and unchanged or deliberately reviewed bounds, and obtain trusted
+catalog/PBF hashes. Use the existing maintainer `prepare -write-lock` operation
+only to establish the new export and bundle hashes; independently fetch again
+without that flag. Build, inspect churn, establish replacements, rebuild to a
+new candidate path, compare and review before selecting it. Never use
+`-write-lock` to bypass an unexpected mismatch in an established pin.

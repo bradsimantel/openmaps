@@ -8,6 +8,11 @@ streets and areas in downtown Newport, Rhode Island; retrieve details using the
 returned ID; and display the selected result on a map. It uses real regional
 imports, not demo data embedded in the client.
 
+Repeatable snapshot builds, identity review, comparison, live selection and rollback
+are implemented in the [Newport refresh workflow](docs/refresh.md). The original
+August data remains the baseline; the second pinned release is a historical July
+rehearsal, not a newer Overture release.
+
 Routing, dedicated forward/reverse geocoding, nearby search and text search are
 future milestones. They are not implemented.
 
@@ -85,7 +90,7 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 | --- | --- |
 | `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, and response field mask; up to five place predictions |
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
-| `GET /healthz` | Local process health |
+| `GET /healthz` | Process health; in deployment mode, loaded database fingerprint and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
 
 Details exposes IDs, display name, coordinates, conservative types, attribution,
@@ -96,7 +101,7 @@ attributes are fabricated. API keys are accepted for client compatibility but
 are **not authenticated**; there are no billing, quota or production access
 controls.
 
-The [initial API target decision](docs/log/0001-places-api-target.md) records the
+The [historical initial API target decision](docs/log/0001-places-api-target.md) records the
 first milestone’s request, field-mask and error contract, with links to Google’s
 official references.
 
@@ -116,7 +121,7 @@ It covers downtown Newport and nearby streets, not the full municipality.
 There are 1,181 conservative business/address links and three area-parent links.
 The four areas include available parents outside the launch rectangle.
 
-[The initial regional inspection](docs/log/0002-newport-data-and-import-design.md) records field completeness,
+[The historical initial regional inspection](docs/log/0002-newport-data-and-import-design.md) records field completeness,
 duplicate labels, relationships, coverage gaps and the decision to defer a
 supplemental source. It distinguishes address points from business address
 strings and area label points from boundaries. `data/audit.json` is regenerated
@@ -133,7 +138,7 @@ Additional sources can supply new records or enrich existing entities through
 renumbering existing entities. Highest source priority wins each nonempty
 attribute; ties use source key order. All contributing values remain stored.
 There is no fuzzy identity merging or speculative provider plugin framework.
-See the [initial matching and conflict rules](docs/log/0002-newport-data-and-import-design.md#matching-identity-and-conflict-resolution).
+See the [historical initial matching and conflict rules](docs/log/0002-newport-data-and-import-design.md#matching-identity-and-conflict-resolution).
 
 The [basemap lock](imports/basemap.lock.json) separately pins a Protomaps
 2026-09-06 regional cutout at zooms 0–15. The Go service serves it locally; tiles
@@ -147,9 +152,11 @@ cmd/server/         Go HTTP service
 cmd/prepare/        Pinned acquisition, regional normalization and audit
 cmd/import/         Checksum-verified SQLite builder
 cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
+cmd/refresh/        Snapshot build, comparison, review, activation and rollback
 internal/places/    Domain entities, autocomplete, details and search normalization
 internal/api/       Google request/response translation and errors
-internal/importer/  Concrete Go source adapters, schema, identities and provenance
+internal/importer/  Source adapters, schema, identity history and refresh comparison
+internal/dataset/   Atomic deployment selection and live HTTP handler replacement
 imports/           Source locks, bundle checksum and identity mappings
 public/            Browser ES modules and styles; libraries loaded from esm.sh
 ```
@@ -177,18 +184,24 @@ street abbreviations, repeated street labels, distinct repeated address labels,
 closed-place behavior, dateline coordinates, multilingual Parquet and PBF parsing,
 HTTP range validation, cancellation, checksums,
 relationships, rejected imports, stable IDs across reordered/released imports,
-and source enrichment/replacement without changing existing IDs. No regional
+and source enrichment/replacement without changing existing IDs. Refresh tests cover
+reviewed replacements, split/merge ambiguity, absent-source history, search-index
+corruption, stale reviews, failed switches and live rollback. No regional
 source downloads are part of `go test ./...`.
 
-Browser verification uses a running demo and the Codex browser connection once
-connected. The connection is currently unresolved; there is no browser test
-runner or Node.js tooling in this repository. Browser libraries, fonts and
-sprites require network access.
+Browser verification now works through the Codex desktop in-app browser plugin.
+On 2026-09-07, a real business and standalone address passed autocomplete,
+details and visible map placement on both the August baseline and July candidate;
+rollback restored August results. The external Chrome extension connection
+remains unresolved. No standalone browser runner or npm tooling was added.
+Browser libraries, fonts and sprites require network access. See the
+[historical desktop browser verification](docs/log/0006-desktop-browser-verification.md)
+and [historical refresh verification](docs/log/0005-newport-refresh-verification.md).
 
 Check a real business, address, street and area through autocomplete, details and
 map placement. Also check keyboard selection, empty results, fast input changes,
 mobile layout and JavaScript errors. Blocking esm.sh should leave search and
-details available. See [previous verification results](docs/log/0003-first-milestone-verification.md).
+details available. See [historical first-milestone verification results](docs/log/0003-first-milestone-verification.md).
 
 ## Current limitations and next work
 
@@ -200,8 +213,10 @@ details available. See [previous verification results](docs/log/0003-first-miles
   missing here; address ranges are retained verbatim. Coverage is not certified.
 - Streets are source ways, with a representative vertex. Area locations are
   labels. Neither means an entrance, rooftop guarantee, boundary or routing snap.
-- Freshness follows pinned snapshots; no automated updates or source-ID churn
-  reconciliation. Identity mappings must be retained across rebuilds.
+- Freshness follows pinned snapshots. Refreshes support reviewed one-to-one
+  provider ID replacements and retain uncertain splits/merges as distinct IDs.
+  No scheduling or automatic release discovery is implemented. Retain source
+  locks, replacement evidence and snapshot identity history across rebuilds.
 - The local map cutout is finite; zooming or panning far outside Newport can show
   missing tiles. Browser libraries, fonts and sprites use external hosts.
 - Deployment hardening, continuous coverage evaluation and richer data are
