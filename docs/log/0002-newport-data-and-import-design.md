@@ -187,7 +187,7 @@ node index is appropriate for Rhode Island, not planet-scale imports.
 
 ## Attribution
 
-The [demo attribution page](../../web/attribution.html) identifies the datasets and
+The [demo attribution page](../../public/attribution.html) identifies the datasets and
 links their upstream terms. Places in this sample include Meta, Microsoft,
 BrightQuery, Foursquare, AllThePlaces and DAC; Divisions use OpenStreetMap;
 Addresses use NAD. See [Overture's attribution inventory](https://docs.overturemaps.org/attribution/),

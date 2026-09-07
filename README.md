@@ -24,7 +24,7 @@ go run ./cmd/import
 
 go run ./cmd/basemap
 
-go run ./cmd/openmaps
+go run ./cmd/server
 ```
 
 The pipeline is Go code in this repository. If a C compiler or zlib headers are
@@ -45,7 +45,7 @@ and local basemap tile requests work without external services after import.
 The browser imports MapLibre GL JS 5.0.1, PMTiles 4.2.1 and Protomaps basemaps
 5.7.2 directly from [esm.sh](https://esm.sh/); MapLibre CSS uses the same version.
 There is no frontend install, build step or vendored asset directory. Dependency
-versions are explicit in `web/app.js` and `web/index.html`. A CDN failure leaves
+versions are explicit in `public/app.js` and `public/index.html`. A CDN failure leaves
 search and details available, but the map cannot initialize.
 
 Data snapshots are pinned. Overture and Protomaps may expire old hosted releases;
@@ -58,12 +58,12 @@ Already have source files? Rebuild offline into a **new** database:
 ```sh
 go run ./cmd/prepare
 go run ./cmd/import -db data/openmaps-next.sqlite
-go run ./cmd/openmaps -db data/openmaps-next.sqlite -listen 127.0.0.1:8081
+go run ./cmd/server -db data/openmaps-next.sqlite -listen 127.0.0.1:8081
 ```
 
 The import refuses to overwrite an existing database. Stop the earlier service
 before reusing its port. The service defaults to loopback and supports `-db`,
-`-listen`, `-web` and `-tiles`; `go run ./cmd/openmaps -help` lists defaults.
+`-listen`, `-public` and `-tiles`; `go run ./cmd/server -help` lists defaults.
 
 ## Supported API
 
@@ -138,12 +138,12 @@ See the [initial matching and conflict rules](docs/log/0002-newport-data-and-imp
 The [basemap lock](imports/basemap.lock.json) separately pins a Protomaps
 2026-09-06 regional cutout at zooms 0–15. The Go service serves it locally; tiles
 are never used as lookup data. Upstream notices are linked on the demo's
-[attribution page](web/attribution.html).
+[attribution page](public/attribution.html).
 
 ## Code layout
 
 ```text
-cmd/openmaps/       Go HTTP service
+cmd/server/         Go HTTP service
 cmd/prepare/        Pinned acquisition, regional normalization and audit
 cmd/import/         Checksum-verified SQLite builder
 cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
@@ -151,7 +151,7 @@ internal/places/    Domain entities, autocomplete, details and search normalizat
 internal/api/       Google request/response translation and errors
 internal/importer/  Concrete Go source adapters, schema, identities and provenance
 imports/           Source locks, bundle checksum and identity mappings
-web/               Browser ES modules and styles; libraries loaded from esm.sh
+public/            Browser ES modules and styles; libraries loaded from esm.sh
 ```
 
 One Go service reads SQLite with FTS5. The owned Go import pipeline uses
