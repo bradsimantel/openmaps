@@ -87,17 +87,62 @@ The routing engine and graph representation have not been selected.
 MapLibre GL JS renders the map using Protomaps tiles. The basemap is separate from
 the searchable geographic records and routable road graph used by the APIs.
 
-Data sources, import tooling, and the first supported region remain open
-decisions. Imports should be reproducible and retain source identifiers,
-provenance, and dataset versions. Public identifiers must remain stable across
-rebuilds rather than depend on transient SQLite row IDs.
+## Data sources
+
+The proposed starting sources are Overture Maps for places, addresses, and
+geographic areas, and OpenStreetMap for streets and routing. Validate these
+choices against a small launch region before committing to coverage or quality
+claims.
+
+These sources are an initial foundation. Open Maps is intended to incorporate
+additional datasets over time to expand coverage, improve accuracy and
+freshness, and add richer attributes or new capabilities. The list below is not
+exhaustive, and no entity type is permanently tied to a single provider.
+
+| Data | Starting source | Use |
+| --- | --- | --- |
+| Businesses and points of interest | [Overture Places](https://docs.overturemaps.org/guides/places/) | Autocomplete, text/nearby search, and details |
+| Address points | [Overture Addresses](https://docs.overturemaps.org/guides/addresses/) | Address autocomplete and forward/reverse geocoding |
+| Named settlements and administrative areas | [Overture Divisions](https://docs.overturemaps.org/guides/divisions/) | Area suggestions, geographic context, and containment |
+| Streets and road network | OpenStreetMap regional PBF extracts from [Geofabrik](https://download.geofabrik.de/) | Street lookup and a routing graph built from road geometry, access tags, and restriction relations |
+| Basemap tiles | [Protomaps](https://docs.protomaps.com/) | Map display in MapLibre GL JS |
+
+Overture Places alone is not an address database. Import standalone address
+records and geographic areas as well as businesses so autocomplete can support
+all of these entity types. Preserve the distinction between a place's associated
+address and an independently sourced address point.
+
+Before building the first importer, inspect regional samples for missing
+addresses, duplicates, name variants, and field completeness. If coverage is
+insufficient, evaluate local government address datasets or additional OSM data
+for the specific gaps. Define matching and deduplication rules before combining
+overlapping sources.
+
+Keep source-specific parsing and mappings in import code, with API operations
+working against Open Maps entities. An entity may have records from multiple
+sources; preserve their source-qualified IDs and the provenance of contributed
+attributes. Adding or replacing a source should not require changing the public
+API or renumbering existing entities. Define explicit conflict-resolution and
+merge rules as sources are integrated, while keeping the initial implementation
+simple rather than building a general plugin framework in advance.
+
+Pin source releases or extract timestamps and record download locations,
+checksums, region bounds, source IDs, and attribution in an import manifest.
+Review the [Overture source-specific licensing information](https://docs.overturemaps.org/attribution/)
+and the terms for each additional dataset when defining the import and
+distribution process.
+
+Imports should be reproducible. Public identifiers must remain stable across
+rebuilds rather than depend on transient SQLite row IDs. Import tooling and the
+first supported region remain open decisions.
 
 ## Starting point
 
 Build a complete flow for one region: search for a place or address, select a
 result, display it on the map, and calculate a driving route to it.
 
-1. Choose the region, data sources, and initial Google API compatibility targets.
+1. Choose the region, validate the proposed data sources, and define the initial
+   Google API compatibility targets.
 2. Build a reproducible import pipeline and SQLite schema.
 3. Implement autocomplete and details with a small map client.
 4. Add forward and reverse geocoding.

@@ -52,6 +52,12 @@ remains undecided. Do not present a proposal as an established project decision.
 - Keep public IDs stable across imports and independent of transient row IDs.
 - Retain data provenance, source IDs, release versions, and applicable
   attribution information. Make imports reproducible.
+- Treat the README's data sources as a starting set, open to expansion. Keep
+  provider-specific formats in import code and public entities independent of
+  any one provider. Support multiple source records per entity, preserving
+  attribute provenance and explicit conflict-resolution rules as needed.
+- Adding a data source should preserve public API contracts and existing entity
+  IDs. Build concrete importers first; avoid a speculative plugin framework.
 - Be explicit about coordinate order, distance units, and match precision at
   boundaries. Distinguish address matches from street or locality fallbacks.
 - Keep basemap tiles separate from the source data used for lookup and routing.
