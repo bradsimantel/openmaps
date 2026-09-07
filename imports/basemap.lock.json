@@ -1,0 +1,15 @@
+{
+  "url": "https://build.protomaps.com/20260906.pmtiles",
+  "release": "2026-09-06",
+  "source_etag": "fab2d5723fc67aa2540872bd57c80b0d-514",
+  "tool_version": "v1.31.2",
+  "bbox": [
+    -71.37,
+    41.43,
+    -71.25,
+    41.55
+  ],
+  "maxzoom": 15,
+  "sha256": "dce3186c1659cbf2f76fea756c6fc80269ea53b2e8312e28a551271cdbbad9a0",
+  "attribution": "https://www.openstreetmap.org/copyright"
+}

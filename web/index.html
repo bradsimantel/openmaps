@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1">
+ <title>Open Maps · Newport</title>
+ <link rel="stylesheet" href="https://esm.sh/maplibre-gl@5.0.1/dist/maplibre-gl.css">
+ <link rel="stylesheet" href="/style.css">
+ <script type="module" src="/app.js"></script>
+</head>
+<body>
+ <main>
+  <section class="panel" aria-label="Place search">
+   <header><a class="brand" href="/">◎ <span>Open Maps</span></a><span class="badge">FIRST LOOK</span></header>
+   <div class="intro"><p class="eyebrow">RHODE ISLAND / 01</p><h1>A little more<br> of Newport.</h1><p>Find a local spot, a street, or an address.<br>Choose a result to put it on the map.</p></div>
+   <label for="search">Explore Newport</label>
+   <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Place, street, or address" autocomplete="off" aria-controls="results" aria-describedby="search-status"></div>
+   <p id="search-status" class="status" role="status">Search downtown Newport and its nearby streets.</p>
+   <ul id="results" aria-label="Search suggestions"></ul>
+   <div id="welcome"><p class="eyebrow">START SOMEWHERE</p><div class="examples"><button data-query="White Horse">White Horse Tavern <span>↗</span></button><button data-query="50 Bellevue">50 Bellevue Avenue <span>↗</span></button><button data-query="Thames">Thames Street <span>↗</span></button></div><p class="hint">A small region. Real open data.<br>Coverage is a work in progress.</p></div>
+   <article id="details" hidden aria-label="Selected place"></article>
+   <footer>Lookup data: <a href="/attribution.html">Overture Maps &amp; OpenStreetMap</a><br>Newport preview · August 2026 source snapshots</footer>
+  </section>
+  <section class="map-wrap" aria-label="Newport map"><div id="map"></div><div class="map-label"><span class="dot"></span> NEWPORT, RI <span id="map-status" role="status">Loading map…</span></div><div class="map-note">An open view of the world.<br><span>MapLibre + Protomaps</span></div></section>
+ </main>
+</body>
+</html>

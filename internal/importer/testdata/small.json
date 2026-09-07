@@ -1,0 +1,393 @@
+{
+  "schema": 1,
+  "manifest": {
+    "region": "synthetic",
+    "release": "fixture-v1"
+  },
+  "identities": {},
+  "records": [
+    {
+      "source": "fixture:place",
+      "source_id": "tavern",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "business",
+      "attributes": {
+        "name": "White Horse Tavern",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.31
+        },
+        "address": "26 Marlborough St, Newport, RI",
+        "website": "https://example.org/tavern"
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location",
+        "address": "/fixture/address",
+        "website": "/fixture/website"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:address",
+      "source_id": "26",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "address",
+      "attributes": {
+        "name": "26 Marlborough Street",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.31
+        },
+        "address": "26 Marlborough Street, RI, 02840, US"
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location",
+        "address": "/fixture/address"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:way",
+      "source_id": "1",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "street",
+      "attributes": {
+        "name": "Marlborough Street",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.31
+        }
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:way",
+      "source_id": "2",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "street",
+      "attributes": {
+        "name": "Marlborough Street",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.32
+        }
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:division",
+      "source_id": "newport",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "area",
+      "attributes": {
+        "name": "Newport",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.31
+        },
+        "subtype": "locality"
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location",
+        "subtype": "/fixture/subtype"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:division",
+      "source_id": "county",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "area",
+      "attributes": {
+        "name": "Newport County",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.31
+        },
+        "subtype": "county"
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location",
+        "subtype": "/fixture/subtype"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:place",
+      "source_id": "cafe",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "business",
+      "attributes": {
+        "name": "Caf\u00e9 Bellevue",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.31
+        },
+        "aliases": [
+          "Bellevue Coffee"
+        ]
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location",
+        "aliases": "/fixture/aliases"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:place",
+      "source_id": "closed",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "business",
+      "attributes": {
+        "name": "White Horse Closed",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.31
+        },
+        "closed": true
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location",
+        "closed": "/fixture/closed"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:place",
+      "source_id": "context",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "business",
+      "attributes": {
+        "name": "A Shop",
+        "location": {
+          "lat": 41.49,
+          "lng": -71.31
+        },
+        "address": "26 Marlborough Street"
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location",
+        "address": "/fixture/address"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:place",
+      "source_id": "east",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "business",
+      "attributes": {
+        "name": "Dateline East",
+        "location": {
+          "lat": 0,
+          "lng": 179.999
+        }
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:place",
+      "source_id": "west",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "business",
+      "attributes": {
+        "name": "Dateline West",
+        "location": {
+          "lat": 0,
+          "lng": -179.999
+        }
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:address",
+      "source_id": "unit-a",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "address",
+      "attributes": {
+        "name": "10 Shared Street",
+        "location": {
+          "lat": 41.48001,
+          "lng": -71.31
+        }
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    },
+    {
+      "source": "fixture:address",
+      "source_id": "unit-b",
+      "release": "fixture-v1",
+      "priority": 100,
+      "kind": "address",
+      "attributes": {
+        "name": "10 Shared Street",
+        "location": {
+          "lat": 41.48002,
+          "lng": -71.31
+        }
+      },
+      "paths": {
+        "name": "/fixture/name",
+        "location": "/fixture/location"
+      },
+      "raw": {
+        "fixture": true
+      },
+      "attributions": [
+        {
+          "provider": "Synthetic test data",
+          "providerUri": "https://example.org/fixtures"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "fixture:place:tavern",
+      "to": "fixture:address:26",
+      "kind": "address",
+      "evidence": "fixture relationship"
+    },
+    {
+      "from": "fixture:division:newport",
+      "to": "fixture:division:county",
+      "kind": "parent_area",
+      "evidence": "fixture hierarchy"
+    }
+  ]
+}
