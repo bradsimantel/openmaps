@@ -20,7 +20,7 @@ import (
 
 // FlatVersion fixes field widths, little-endian encoding, zero padding and order.
 // Only pointer-free arrays are mapped. SQLite remains the authoritative snapshot.
-const FlatVersion = "routing-hot-le64-v1"
+const FlatVersion = "routing-hot-le64-v2"
 const flatHeaderBytes = 4096
 
 type flatSection struct {
@@ -168,6 +168,10 @@ func (s *Store) UseMappedQueryData(ctx context.Context, cacheDir string) error {
 	s.zones = flatSlice[int](section(6))
 	s.components = flatSlice[int32](section(7))
 	s.junctions = section(8)
+	s.cellBounds = flatSlice[cellBounds](section(9))
+	s.cellEntries = flatSlice[cellEntry](section(10))
+	s.cellTransfers = flatSlice[cellTransfer](section(11))
+	s.cellPaths = flatSlice[cellPath](section(12))
 	s.mapping = &queryMapping{data: mapped}
 	s.mappingCleanup = runtime.AddCleanup(s, func(m *queryMapping) { m.close() }, s.mapping)
 	success = true
@@ -207,8 +211,19 @@ func (s *Store) MappedBytes() int {
 func flatABI() error {
 	var e edge
 	var one uint64 = 1
-	if unsafe.Sizeof(int(0)) != 8 || *(*byte)(unsafe.Pointer(&one)) != 1 || unsafe.Sizeof(e) != 48 || unsafe.Offsetof(e.from) != 0 || unsafe.Offsetof(e.to) != 8 || unsafe.Offsetof(e.segment) != 16 || unsafe.Offsetof(e.reverse) != 24 || unsafe.Offsetof(e.length) != 32 || unsafe.Offsetof(e.seconds) != 40 || unsafe.Sizeof(Point{}) != 16 {
+	if unsafe.Sizeof(int(0)) != 8 || *(*byte)(unsafe.Pointer(&one)) != 1 ||
+		unsafe.Sizeof(e) != 48 || unsafe.Offsetof(e.from) != 0 || unsafe.Offsetof(e.to) != 8 ||
+		unsafe.Offsetof(e.segment) != 16 || unsafe.Offsetof(e.reverse) != 24 || unsafe.Offsetof(e.cellEntry) != 28 ||
+		unsafe.Offsetof(e.length) != 32 || unsafe.Offsetof(e.seconds) != 40 || unsafe.Sizeof(Point{}) != 16 {
 		return fmt.Errorf("unsupported routing flat memory ABI")
+	}
+	if unsafe.Sizeof(cellBounds{}) != 32 || unsafe.Offsetof(cellBounds{}.minX) != 0 ||
+		unsafe.Offsetof(cellBounds{}.minY) != 8 || unsafe.Offsetof(cellBounds{}.maxX) != 16 || unsafe.Offsetof(cellBounds{}.maxY) != 24 ||
+		unsafe.Sizeof(cellEntry{}) != 16 || unsafe.Offsetof(cellEntry{}.edge) != 0 || unsafe.Offsetof(cellEntry{}.cell) != 4 ||
+		unsafe.Offsetof(cellEntry{}.offset) != 8 || unsafe.Offsetof(cellEntry{}.count) != 12 ||
+		unsafe.Sizeof(cellTransfer{}) != 16 || unsafe.Offsetof(cellTransfer{}.cost) != 0 || unsafe.Offsetof(cellTransfer{}.path) != 8 || unsafe.Offsetof(cellTransfer{}.last) != 12 ||
+		unsafe.Sizeof(cellPath{}) != 12 || unsafe.Offsetof(cellPath{}.parent) != 0 || unsafe.Offsetof(cellPath{}.first) != 4 || unsafe.Offsetof(cellPath{}.last) != 8 {
+		return fmt.Errorf("unsupported routing cell flat memory ABI")
 	}
 	return nil
 }
@@ -228,6 +243,7 @@ func (s *Store) flatHeader() flatHeader {
 		width int64
 	}{
 		{"points", len(s.points), 16}, {"edges", len(s.edges), 48}, {"offsets", len(s.offsets), 4}, {"adjacency", len(s.adjacency), 8}, {"directions", len(s.directions), 16}, {"continuation", len(s.continuation), 4}, {"zones", len(s.zones), 8}, {"components", len(s.components), 4}, {"junctions", len(s.junctions), 1},
+		{"cell_bounds", len(s.cellBounds), 32}, {"cell_entries", len(s.cellEntries), 16}, {"cell_transfers", len(s.cellTransfers), 16}, {"cell_paths", len(s.cellPaths), 12},
 	} {
 		offset = (offset + 7) &^ 7
 		h.Sections = append(h.Sections, flatSection{v.name, offset, int64(v.count), v.width})
@@ -268,6 +284,7 @@ func (s *Store) writeFlat(ctx context.Context, output io.Writer) error {
 				if e.reverse {
 					buf[24] = 1
 				}
+				binary.LittleEndian.PutUint32(buf[28:], uint32(e.cellEntry))
 				put(32, math.Float64bits(e.length))
 				put(40, math.Float64bits(e.seconds))
 			case 2:
@@ -285,6 +302,27 @@ func (s *Store) writeFlat(ctx context.Context, output io.Writer) error {
 				binary.LittleEndian.PutUint32(buf[:], uint32(s.components[j]))
 			case 8:
 				buf[0] = s.junctions[j]
+			case 9:
+				b := s.cellBounds[j]
+				put(0, math.Float64bits(b.minX))
+				put(8, math.Float64bits(b.minY))
+				put(16, math.Float64bits(b.maxX))
+				put(24, math.Float64bits(b.maxY))
+			case 10:
+				e := s.cellEntries[j]
+				for k, v := range []int32{e.edge, e.cell, e.offset, e.count} {
+					binary.LittleEndian.PutUint32(buf[k*4:], uint32(v))
+				}
+			case 11:
+				t := s.cellTransfers[j]
+				put(0, math.Float64bits(t.cost))
+				binary.LittleEndian.PutUint32(buf[8:], uint32(t.path))
+				binary.LittleEndian.PutUint32(buf[12:], uint32(t.last))
+			case 12:
+				p := s.cellPaths[j]
+				for k, v := range []int32{p.parent, p.first, p.last} {
+					binary.LittleEndian.PutUint32(buf[k*4:], uint32(v))
+				}
 			}
 			if err := write(buf[:section.Width]); err != nil {
 				return err

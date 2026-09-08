@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -27,10 +28,19 @@ type Handler struct {
 }
 type object = map[string]any
 
+// Optional internal instrumentation; no timing fields enter the public API.
+type jsonEncodingObserver interface{ observeJSONEncoding(time.Duration) }
+
 func write(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	if observer, ok := w.(jsonEncodingObserver); ok {
+		start := time.Now()
+		_ = json.NewEncoder(w).Encode(v)
+		observer.observeJSONEncoding(time.Since(start))
+	} else {
+		_ = json.NewEncoder(w).Encode(v)
+	}
 }
 func failure(w http.ResponseWriter, code int, status, message string) {
 	write(w, code, object{"error": object{"code": code, "status": status, "message": message}})

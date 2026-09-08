@@ -484,9 +484,9 @@ states. This can still underprice a particular turn, queue or signal; small
 modeled savings should not be treated as observed improvements.
 
 The accelerated search uses nonnegative deterministic costs and preserves last
-edge, prohibited-path history and destination phase. Geometry-chain and conservative junction preprocessing
-and an admissible A* bound reduce work; the original Dijkstra remains an internal
-correctness reference. V4 adjacency is ordered by stable segment reference,
+edge, prohibited-path history and destination phase. Forced chains, recursive
+transfers through bounded junction cells and an admissible A* bound reduce work.
+The original Dijkstra remains an internal correctness reference. V4 adjacency is ordered by stable segment reference,
 forward before reverse. See [search semantics and tie handling](routing-scale.md#endpoint-indexing-and-search).
 No epsilon discards a small cost improvement. Endpoints are selected once,
 independently of route cost or trip success. `RouteDistanceEndpoints` remains an

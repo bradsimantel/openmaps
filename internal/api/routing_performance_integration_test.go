@@ -22,6 +22,27 @@ import (
 	"openmaps/internal/routing"
 )
 
+type measuredEncodingWriter struct {
+	http.ResponseWriter
+	elapsed time.Duration
+}
+
+func (w *measuredEncodingWriter) observeJSONEncoding(d time.Duration) { w.elapsed += d }
+
+// Hold a completed route's first encoded write to verify real HTTP admission
+// remains occupied through response encoding, independently of search duration.
+type heldEncodingWriter struct {
+	http.ResponseWriter
+	entered chan<- struct{}
+	release <-chan struct{}
+	once    sync.Once
+}
+
+func (w *heldEncodingWriter) Write(b []byte) (int, error) {
+	w.once.Do(func() { w.entered <- struct{}{}; <-w.release })
+	return w.ResponseWriter.Write(b)
+}
+
 // Uses a private loopback server. Encode samples re-encode actual HTTP envelopes;
 // handler residual includes parse, translation, encoding and loopback transport.
 func TestRoutingHTTPPerformance(t *testing.T) {
@@ -51,20 +72,33 @@ func TestRoutingHTTPPerformance(t *testing.T) {
 	}
 	var mu sync.Mutex
 	observations := []routing.SearchMetrics{}
+	encodings := []time.Duration{}
+	holdEntered, holdRelease := make(chan struct{}, 4), make(chan struct{})
 	cancelEntered, cancelFinished := make(chan struct{}, 1), make(chan routing.SearchMetrics, 1)
 	handler := Handler{Routing: s}
 	server := httptest.NewServer(RoutingAdmission(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A non-routing probe exercises admission bypass; dataset integration
+		// separately verifies the real deployment health/failure envelope.
+		if r.URL.Path == "/healthz" {
+			write(w, 200, object{"routing_available": s != nil})
+			return
+		}
 		var m routing.SearchMetrics
 		cancelling := r.Header.Get("X-OpenMaps-Test-Cancel") == "1"
 		if cancelling {
 			cancelEntered <- struct{}{}
 		}
-		handler.ServeHTTP(w, r.WithContext(routing.WithSearchMetrics(r.Context(), &m)))
+		ew := &measuredEncodingWriter{ResponseWriter: w}
+		if r.Header.Get("X-OpenMaps-Test-Hold") == "1" {
+			ew.ResponseWriter = &heldEncodingWriter{ResponseWriter: w, entered: holdEntered, release: holdRelease}
+		}
+		handler.ServeHTTP(ew, r.WithContext(routing.WithSearchMetrics(r.Context(), &m)))
 		if cancelling {
 			cancelFinished <- m
 		}
 		mu.Lock()
 		observations = append(observations, m)
+		encodings = append(encodings, ew.elapsed)
 		mu.Unlock()
 	}), 4))
 	defer server.Close()
@@ -99,8 +133,9 @@ func TestRoutingHTTPPerformance(t *testing.T) {
 		}
 		mu.Lock()
 		m := observations[len(observations)-1]
+		encoding := encodings[len(encodings)-1]
 		mu.Unlock()
-		t.Logf("HTTP_PHASE name=%q snap_us=%d search_us=%d geometry_us=%d residual_us=%d", c.Name, m.Snap.Microseconds(), m.Search.Microseconds(), m.Geometry.Microseconds(), (elapsed - m.Snap - m.Search - m.Geometry).Microseconds())
+		t.Logf("HTTP_PHASE name=%q snap_us=%d search_us=%d geometry_us=%d encoding_us=%d residual_us=%d", c.Name, m.Snap.Microseconds(), m.Search.Microseconds(), m.Geometry.Microseconds(), encoding.Microseconds(), (elapsed - m.Snap - m.Search - m.Geometry - encoding).Microseconds())
 		var envelope any
 		if err = json.Unmarshal(raw, &envelope); err != nil {
 			t.Fatal(err)
@@ -116,6 +151,7 @@ func TestRoutingHTTPPerformance(t *testing.T) {
 	for _, workers := range []int{1, 2, 4} {
 		mu.Lock()
 		observations = nil
+		encodings = nil
 		mu.Unlock()
 		var wg sync.WaitGroup
 		var timingMu sync.Mutex
@@ -149,6 +185,25 @@ func TestRoutingHTTPPerformance(t *testing.T) {
 		elapsed := time.Since(started).Seconds()
 		sort.Float64s(times)
 		t.Logf("HTTP concurrency=%d requests=%d rps=%.2f p50_ms=%.3f p95_ms=%.3f max_ms=%.3f", workers, len(times), float64(len(times))/elapsed, times[len(times)/2], times[(len(times)-1)*95/100], times[len(times)-1])
+		mu.Lock()
+		for _, phase := range []string{"snap", "search", "geometry", "encoding"} {
+			samples := make([]float64, len(observations))
+			for i, m := range observations {
+				duration := m.Snap
+				switch phase {
+				case "search":
+					duration = m.Search
+				case "geometry":
+					duration = m.Geometry
+				case "encoding":
+					duration = encodings[i]
+				}
+				samples[i] = float64(duration.Nanoseconds()) / 1e6
+			}
+			sort.Float64s(samples)
+			t.Logf("HTTP_DISTRIBUTION concurrency=%d phase=%s p50_ms=%.3f p95_ms=%.3f max_ms=%.3f", workers, phase, samples[len(samples)/2], samples[(len(samples)-1)*95/100], samples[len(samples)-1])
+		}
+		mu.Unlock()
 	}
 	for _, c := range cases {
 		if !strings.Contains(c.Name, "Portland to Ashland") && !strings.Contains(c.Name, "Seattle to Boise") {
@@ -187,7 +242,70 @@ func TestRoutingHTTPPerformance(t *testing.T) {
 		if _, err := request(ctx, body(c.Origin, c.Origin)); err != nil {
 			t.Fatal("cancellation damaged next request", err)
 		}
-		break
 	}
+	// Four responses hold their admission permits in encoding; a fifth must
+	// fail promptly, while health continues to work. Release before teardown.
+	holdDone := make(chan error, 4)
+	for i := 0; i < 4; i++ {
+		go func() {
+			p := cases[0].Origin
+			r, _ := http.NewRequest("POST", server.URL+"/directions/v2:computeRoutes", bytes.NewReader(body(p, p)))
+			r.Header.Set("X-Goog-FieldMask", "routes.distanceMeters,routes.duration")
+			r.Header.Set("X-OpenMaps-Test-Hold", "1")
+			response, err := client.Do(r)
+			if response != nil {
+				_, readErr := io.Copy(io.Discard, response.Body)
+				response.Body.Close()
+				if err == nil {
+					err = readErr
+				}
+			}
+			holdDone <- err
+		}()
+	}
+	released := false
+	defer func() {
+		if !released {
+			close(holdRelease)
+		}
+	}()
+	for i := 0; i < 4; i++ {
+		select {
+		case <-holdEntered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("encoded response did not hold admission")
+		}
+	}
+	p := cases[0].Origin
+	r, _ := http.NewRequest("POST", server.URL+"/directions/v2:computeRoutes", bytes.NewReader(body(p, p)))
+	r.Header.Set("X-Goog-FieldMask", "routes.distanceMeters")
+	response, err := client.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err = io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || response.StatusCode != 429 || response.Header.Get("Retry-After") != "1" || !bytes.Contains(raw, []byte("RESOURCE_EXHAUSTED")) {
+		t.Fatal("HTTP admission failed", response.StatusCode, string(raw), err)
+	}
+	health, err := client.Get(server.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	health.Body.Close()
+	if health.StatusCode != 200 {
+		t.Fatal("admission blocked health", health.StatusCode)
+	}
+	close(holdRelease)
+	released = true
+	for i := 0; i < 4; i++ {
+		if err := <-holdDone; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := request(ctx, body(p, p)); err != nil {
+		t.Fatal("encoding retained admission", err)
+	}
+	t.Log("HTTP_ADMISSION four encoded responses held; fifth rejected with 429; health and subsequent routing passed")
 	runtime.KeepAlive(s)
 }

@@ -3,12 +3,13 @@
 Routing remains one Go service with immutable SQLite snapshots. The current
 implementation supports separate Oregon and Oregon–Washington–Idaho coordinate-routing
 evaluations, in addition to the Newport coordinate/address candidate. **It is not nationwide
-ready.** Spatial lookup, geometry-chain preprocessing and a conservative junction-elimination
-level address measured regional bottlenecks. A complete restriction-aware hierarchy
+ready.** Spatial lookup, geometry chains and a recursive junction-cell overlay address
+measured regional search bottlenecks. A complete restriction-aware hierarchy
 and a backend with bounded national construction memory remain unfinished.
 
-The [historical Oregon evaluation](log/0019-routing-scale-and-oregon.md) and
-[historical junction/mapping experiment](log/0020-junction-hierarchy-and-mapped-query-data.md)
+The [historical Oregon evaluation](log/0019-routing-scale-and-oregon.md),
+[historical junction/mapping experiment](log/0020-junction-hierarchy-and-mapped-query-data.md), and
+[historical recursive-cell experiment](log/0021-recursive-junction-cell-overlay.md)
 record inputs, targets, measurements, comparisons and limitations. The API contract and
 car profile remain in [routing](routing.md). The browser is an example client and
 was not changed for this work.
@@ -17,7 +18,7 @@ was not changed for this work.
 
 New builds retain graph semantics **4**, profile `driving-time-v4` and cost model
 `estimated-driving-v1`. Storage layout **`routing-chunks-v1`** and preprocessing
-semantics **`independent-junction-v1`** are versioned independently in the manifest and
+semantics **`junction-cells-v1`** are versioned independently in the manifest and
 snapshot comparison summary. Changing any of these semantics requires explicit
 version handling; an unknown version fails loading.
 
@@ -227,27 +228,51 @@ request-triggered reload, not asynchronous operator orchestration.
 `OPENMAPS_LIFETIME_BASELINE` and `OPENMAPS_LIFETIME_CANDIDATE`. It sends concurrent
 real HTTP requests during replacement, checks snapshot-consistent responses,
 retains old query data through the overlap measurement, forces a failed selection
-and rolls back. Neither retained database nor the active deployment is changed.
+and rolls back under the shared HTTP admission budget. Neither retained database
+nor the active deployment is changed. `OPENMAPS_LIFETIME_TIMEOUT` can extend the
+default 90-second harness deadline (up to ten minutes) for a measured slow-load
+experiment; the report still identifies whether publication met the original
+90-second gate. This does not change the production server timeout.
 
 ## Junction elimination and request memory
 
-The current runtime adds **`independent-junction-v1`** above forced chains. It
-selects a deterministic independent set of ordinary three- and four-departure
-junctions on the chain core. Every node touched by a prohibited path and every
-node incident to a destination-access segment stays explicit. A selected
-junction represents the product of its incoming and outgoing edges, excluding
-immediate reversal. This factorized shortcut representation avoids storing the
-same outbound geometry once per approach. The query bypasses the intermediate
-queue state and reconstructs both original edge sequences afterward.
+The runtime's **`junction-cells-v1`** adds bounded cells above forced chains.
+Deterministic source-ordered unions group at most **32** ordinary junctions.
+Candidates have two to four departures and a non-forced incoming approach;
+one-way forks qualify, ordinary degree-two geometry does not. Every prohibited-path
+node and every node incident to a destination-access segment stays explicit.
 
-Incoming-edge identity, the restriction automaton and destination phase remain
-in every search label. Each original edge still advances both state machines;
-costs add in source traversal order with their original directional values.
-The two nodes of the destination segment stay explicit for partial arrivals;
-origins still start with the existing selected heading choices. This is one
-conservative junction level, **not full CH**, and it retains a large searchable
-core. Restricted junction contraction, recursive shortcut levels, witness searches
-and a complete hierarchy over turn-history/destination state remain future work.
+For each cell entrance, local Dijkstra labels **incoming directed edges** and
+stores the cheapest legal transfer to each distinct outgoing boundary edge.
+Immediate reversal remains forbidden. Cycles, directional costs and parallel
+approaches retain their edge identities; no node-only witness search is used.
+Recursive predecessor records share equal prefixes and unpack original forced
+chains. Interior origin states search normally until leaving their cell. The
+previous independent-junction bypass remains a fallback for detailed local work
+and the internal distance-objective comparison on time-model snapshots.
+
+Every transferred edge is absent from the entire restriction alphabet, because
+its source node is outside every prohibited path. Its first edge therefore resets
+any incoming trie history to zero. All transfer edges are public: phases 0/1 become
+phase 1, and destination suffix phase 2 cannot enter. This narrow proven reset
+avoids replaying each skipped edge during search. Restriction/access boundaries
+still run the full original transitions; query labels retain incoming edge,
+restriction history and phase throughout.
+
+Cell bounds contain all interior and outgoing chain vertices. If either destination
+segment endpoint falls inside a cell's bounds, that cell uses detailed search,
+conservatively preserving partial destinations. Forced walks still stop at target
+segment nodes; origins keep their original headings and partial costs. A terminal
+approach whose only exit is the forbidden immediate reversal is omitted from the
+overlay and queue unless needed at a destination-segment node. Target cell opening
+retains interior dead-end destinations, and origins can still choose a fresh heading.
+
+Search groups sums of unchanged directional costs. Reconstruction expands every
+source segment and sums output distance/duration in source traversal order. Cost
+verification uses the documented tolerance; equal-cost ties may choose different
+source paths. This is a partial overlay with recursive paths, **not full CH/CCH**.
+Restricted-junction contraction, a deeper geographic hierarchy and complete
+turn-history/access-state contraction remain unfinished.
 
 A weak-component array rejects endpoints in different components after both snaps
 are selected. It never certifies reachability inside one component. Dijkstra skips
@@ -255,13 +280,16 @@ this filter and remains the ordinary full-graph correctness reference. A single
 label map holds distance and predecessor data; a typed heap avoids per-operation
 interface allocations. Queue tie ordering and strict cost improvements are
 unchanged. Diagnostic `SearchMetrics` separates endpoint selection, search and
-geometry, with counts for expansions, states, queue capacity and bypasses.
+geometry, with counts for expansions, states, queue capacity, junction bypasses
+and cell transfers. The opt-in HTTP harness also measures the original encoder
+(including writes) separately and reports phase latency distributions.
 
-New SQLite manifests name `independent-junction-v1`; retained `forced-chain-v1`
-manifests remain readable and regenerate current runtime preprocessing from their
+New SQLite manifests name `junction-cells-v1`; retained `forced-chain-v1` and
+`independent-junction-v1` manifests remain readable and regenerate current runtime preprocessing from their
 validated source topology. Unknown versions fail. No preprocessed source path is
 trusted from a legacy file. The optional flat artifact below fixes and checks the
-actual generated arrays, including components and selected junctions.
+actual generated arrays, including components, selected junctions and recursive
+cell transfers. Cell construction observes cancellation and checks index capacity.
 
 The server admits at most **four concurrent Compute Routes HTTP requests** by
 default, including encoding. `-routing-concurrency` accepts 1–64. The budget is
@@ -274,12 +302,16 @@ billing, or a throughput guarantee.
 ## Optional mapped numeric query data
 
 On 64-bit little-endian Linux/macOS, `-routing-cache data/routing-cache` enables
-**`routing-hot-le64-v1`**. A fixed 4 KiB header identifies graph checksum,
+**`routing-hot-le64-v2`**. A fixed 4 KiB header identifies graph checksum,
 preprocessing, section offsets/counts/widths and payload SHA-256. Fields use
 explicit little-endian integers and IEEE-754 float64 values; padding is zero.
 Sections contain coordinates, directed edges, CSR offsets/adjacency, segment
 directions, forced continuations, destination zones, weak components and junction
-selection. Source IDs and exact numeric costs are preserved without quantization.
+selection, cell bounds, entrance ranges, directional transfers and recursive path
+records. The 48-byte edge record uses four former padding bytes for its entrance
+index. Source IDs and numeric costs are preserved without quantization. Retained
+v1 cache files remain untouched; the current loader generates separately named
+v2 caches from legacy SQLite graphs.
 The reader checks native widths and every edge-field offset before creating
 pointer-free typed views of a read-only mapping. Other ABIs fail explicitly.
 
@@ -330,10 +362,13 @@ Bellingham, Yakima/Wenatchee, northern Idaho, McCall, Idaho Falls, Oregon bridge
 access streets, the two Oregon-to-Oregon optima through Idaho, and both directions
 of a disconnected case. All searches can traverse the entire merged graph.
 
-It passes the measured correctness suite but misses the one-worker p95 and
-four-worker throughput experiment targets. This is an intermediate dataset,
-not a nationwide-ready deployment. The historical report distinguishes baseline,
-regional measurements, source-model detours and unmeasured national scenarios.
+The historical single-junction runtime missed the one-worker p95 and four-worker
+throughput targets. The [historical recursive-cell evaluation](log/0021-recursive-junction-cell-overlay.md)
+records the cell overlay meeting those query targets on the retained workload,
+with its comparisons and startup/storage tradeoffs. This
+is an intermediate dataset, not a nationwide-ready deployment. Improved search
+does not solve full startup reconstruction, resident geometry/index memory or
+unverified cold-file-cache behavior.
 
 Reproduce the merged input with Osmium 1.19.1 into a new output:
 

@@ -70,6 +70,7 @@ func TestRoutingPerformance(t *testing.T) {
 		}
 	}
 	t.Logf("PREPROCESS version=%s seconds=%.3f nodes=%d edges=%d selected_junctions=%d mapped_bytes=%d", JunctionPreprocessingVersion, s.preprocessingSeconds, len(s.points), len(s.edges), selected, s.MappedBytes())
+	t.Logf("CELLS count=%d entries=%d transfers=%d paths=%d", len(s.cellBounds), len(s.cellEntries), len(s.cellTransfers), len(s.cellPaths))
 	var before, retained runtime.MemStats
 	runtime.ReadMemStats(&before)
 	runtime.GC()
@@ -109,7 +110,7 @@ func TestRoutingPerformance(t *testing.T) {
 			var m SearchMetrics
 			result, err := s.routeMeasured(ctx, Endpoint{Point: c.Origin}, Endpoint{Point: c.Destination}, false, true, &m)
 			runtime.ReadMemStats(&after)
-			t.Logf("DETAIL name=%q outcome=%s snap_us=%d search_us=%d geometry_us=%d expanded=%d pushes=%d chain_edges=%d states=%d queue_peak=%d queue_capacity=%d junction_shortcuts=%d allocated_bytes=%d vertices=%d", c.Name, errorOutcome(err), m.Snap.Microseconds(), m.Search.Microseconds(), m.Geometry.Microseconds(), m.Expanded, m.Pushes, m.ChainEdges, m.States, m.QueuePeak, m.QueueCapacity, m.JunctionShortcuts, after.TotalAlloc-before.TotalAlloc, len(result.Geometry))
+			t.Logf("DETAIL name=%q outcome=%s snap_us=%d search_us=%d geometry_us=%d expanded=%d pushes=%d chain_edges=%d states=%d queue_peak=%d queue_capacity=%d junction_shortcuts=%d cell_shortcuts=%d allocated_bytes=%d vertices=%d", c.Name, errorOutcome(err), m.Snap.Microseconds(), m.Search.Microseconds(), m.Geometry.Microseconds(), m.Expanded, m.Pushes, m.ChainEdges, m.States, m.QueuePeak, m.QueueCapacity, m.JunctionShortcuts, m.CellShortcuts, after.TotalAlloc-before.TotalAlloc, len(result.Geometry))
 		}
 	}
 	levels := []int{1, 4, 8}

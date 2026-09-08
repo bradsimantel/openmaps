@@ -1,8 +1,9 @@
 package routing
 
-// JunctionPreprocessingVersion fixes the conservative junction-elimination rule.
-// This is a partial hierarchy: restriction/access boundaries remain in its core.
-const JunctionPreprocessingVersion = "independent-junction-v1"
+// JunctionPreprocessingVersion fixes chains, the independent-junction fallback,
+// bounded 32-junction cells, edge-state transfers and terminal-approach pruning.
+// Restriction/access boundaries remain explicit in this partial hierarchy.
+const JunctionPreprocessingVersion = "junction-cells-v1"
 
 // buildJunctions stores a factorized shortcut table. At each selected junction,
 // every incoming/outgoing pair except immediate segment reversal is represented

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"openmaps/internal/api"
 	"openmaps/internal/routing"
 )
 
@@ -46,7 +47,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	defer live.Close()
 	old := live.router
 	oldMapped := old.MappedBytes()
-	server := httptest.NewServer(live)
+	server := httptest.NewServer(api.RoutingAdmission(live, 4))
 	defer server.Close()
 	point := routing.Point{-122.67966965, 45.51925845}
 	if old.Metadata().EndpointBounds[0] > -100 {
@@ -54,7 +55,15 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	}
 	wp := map[string]any{"location": map[string]any{"latLng": map[string]float64{"longitude": point[0], "latitude": point[1]}}}
 	body, _ := json.Marshal(map[string]any{"origin": wp, "destination": wp, "polylineEncoding": "GEO_JSON_LINESTRING"})
-	client := &http.Client{Timeout: 90 * time.Second}
+	timeout := 90 * time.Second
+	if value := os.Getenv("OPENMAPS_LIFETIME_TIMEOUT"); value != "" {
+		var err error
+		timeout, err = time.ParseDuration(value)
+		if err != nil || timeout < 90*time.Second || timeout > 10*time.Minute {
+			t.Fatal("invalid lifetime timeout", value)
+		}
+	}
+	client := &http.Client{Timeout: timeout}
 	request := func() error {
 		r, _ := http.NewRequest("POST", server.URL+"/directions/v2:computeRoutes", bytes.NewReader(body))
 		r.Header.Set("X-Goog-FieldMask", "routes.distanceMeters,routes.duration")
@@ -139,7 +148,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A worker may own the load. Poll health at a bounded rate until publication.
-	deadline := time.Now().Add(90 * time.Second)
+	deadline := time.Now().Add(timeout)
 	for {
 		res, e := client.Get(server.URL + "/healthz")
 		if e != nil {
@@ -162,6 +171,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	publication := time.Since(start)
 	close(stop)
 	workers.Wait()
 	close(errs)
@@ -173,7 +183,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	runtime.GC()
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	t.Logf("SWITCH seconds=%.3f sampled_peak_heap_mib=%.2f retained_two_graph_heap_mib=%.2f", time.Since(start).Seconds(), float64(peak)/1048576, float64(mem.HeapAlloc)/1048576)
+	t.Logf("SWITCH seconds=%.3f publication_seconds=%.3f prior_90s_gate=%t sampled_peak_heap_mib=%.2f retained_two_graph_heap_mib=%.2f", time.Since(start).Seconds(), publication.Seconds(), publication <= 90*time.Second, float64(peak)/1048576, float64(mem.HeapAlloc)/1048576)
 	if old != live.router {
 		if old.MappedBytes() != 0 {
 			t.Fatal("retired mapping retained")

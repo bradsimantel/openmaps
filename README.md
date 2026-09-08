@@ -25,7 +25,7 @@ retained Rhode Island extract for detours. The active August baseline is unchang
 and has no routing graph. See [the routing contract and candidate build](docs/routing.md).
 Separate Oregon and full Oregon–Washington–Idaho coordinate-routing candidates
 cover regional scaling and boundary detours. [Storage and scaling](docs/routing-scale.md)
-describes the partial junction hierarchy, optional mapped numeric arrays, concurrent
+describes the recursive junction-cell overlay, optional mapped numeric arrays, concurrent
 snapshot leases and measured limits. Nationwide routing remains unfinished; these
 regional candidates have no address coverage. Nearby place search and general
 text search remain future milestones.
@@ -221,7 +221,7 @@ parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
 Routing remains independent of text search and address resolution. Its accelerated
-search skips forced geometry chains and selected ordinary junctions, and uses A*
+search skips forced geometry chains and bounded cells of ordinary junctions, and uses A*
 while preserving directed-edge turn history and destination access. Dijkstra
 remains an internal correctness reference; optional verified read-only numeric
 mappings, bounded SQLite chunks and spatial indexes use the existing import/snapshot

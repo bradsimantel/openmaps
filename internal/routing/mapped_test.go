@@ -57,9 +57,9 @@ func TestMappedRoutesAndLifetime(t *testing.T) {
 }
 
 func TestMappedCorruption(t *testing.T) {
-	for _, mode := range []string{"version", "preprocessing", "checksum", "padding", "truncated", "foreign graph", "cancelled"} {
+	for _, mode := range []string{"version", "preprocessing", "checksum", "padding", "truncated", "foreign graph", "foreign cell path", "cancelled"} {
 		t.Run(mode, func(t *testing.T) {
-			d := uniformCosts(fixture())
+			d := cellFixture()
 			s := store(t, d)
 			dir := t.TempDir()
 			if err := s.UseMappedQueryData(context.Background(), dir); err != nil {
@@ -97,8 +97,12 @@ func TestMappedCorruption(t *testing.T) {
 				raw[flatHeaderBytes-1] = 1
 			case "truncated":
 				raw = raw[:len(raw)-1]
-			case "foreign graph":
-				raw[flatHeaderBytes+8] ^= 1
+			case "foreign graph", "foreign cell path":
+				if mode == "foreign cell path" {
+					raw[len(raw)-1] ^= 1
+				} else {
+					raw[flatHeaderBytes+8] ^= 1
+				}
 				// A self-consistent checksum must not authorize changed graph data.
 				n := binary.LittleEndian.Uint32(raw)
 				var h flatHeader

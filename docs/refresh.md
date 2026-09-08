@@ -338,3 +338,10 @@ HTTP response leases finish, then close. Failed cache validation keeps the old
 handler usable and degrades health, just like failed SQLite validation. The
 server's shared `-routing-concurrency` budget also spans replacements. See
 [mapped data and admission behavior](routing-scale.md).
+
+Current routing builds use `junction-cells-v1` preprocessing with unchanged graph
+and cost semantics. Its recursive cell transfers use the separately versioned
+`routing-hot-le64-v2` cache; old SQLite preprocessing versions remain readable and
+regenerate current arrays into new cache filenames. Replacement still reconstructs
+the full graph before publication. Faster route queries do not remove its loading
+and old/new overlap costs; see the [historical cell-overlay evaluation](log/0021-recursive-junction-cell-overlay.md).

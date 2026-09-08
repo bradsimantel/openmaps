@@ -64,7 +64,7 @@ func Load(ctx context.Context, db graphReader) (*Store, *Summary, error) {
 	if err := validateProvenance(d, visit); err != nil {
 		return nil, nil, err
 	}
-	store, err := newStore(d, true)
+	store, err := newStoreContext(ctx, d, true)
 	if err != nil {
 		return nil, nil, err
 	}

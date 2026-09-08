@@ -261,6 +261,38 @@ func TestChunkStorageValidation(t *testing.T) {
 	}
 }
 
+// Retained preprocessing manifests describe their source-era build. Runtime
+// regenerates the current overlay without rewriting those authoritative records.
+func TestLegacyChunkPreprocessing(t *testing.T) {
+	for _, version := range []string{"forced-chain-v1", "independent-junction-v1"} {
+		t.Run(version, func(t *testing.T) {
+			db := writeFixture(t, persistedFixture())
+			m, _, _, err := readManifest(context.Background(), db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.Preprocessing = version
+			raw, _ := json.Marshal(m)
+			if _, err = db.Exec("UPDATE routing_graph SET data=?,sha256=?", raw, Digest(raw)); err != nil {
+				t.Fatal(err)
+			}
+			s, summary, err := Load(context.Background(), db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			if summary.Preprocessing != version {
+				t.Fatal("legacy summary rewritten")
+			}
+			fast, e := s.Route(context.Background(), Point{.001, 0}, Point{.008, .004})
+			ref, f := s.RouteReferenceEndpoints(context.Background(), Endpoint{Point: Point{.001, 0}}, Endpoint{Point: Point{.008, .004}})
+			if errorText(e) != errorText(f) || math.Abs(fast.Duration-ref.Duration) > 1e-6 {
+				t.Fatal("legacy source changed", e, f)
+			}
+		})
+	}
+}
+
 func TestSpatialAddressSelectionMatchesFullScan(t *testing.T) {
 	d, e := associationFixture()
 	s := store(t, d)

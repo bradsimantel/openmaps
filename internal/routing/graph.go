@@ -114,11 +114,12 @@ type Summary struct {
 func Digest(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
 type edge struct {
-	from, to int64
-	segment  int
-	reverse  bool
-	length   float64
-	seconds  float64
+	from, to  int64
+	segment   int
+	reverse   bool
+	cellEntry int32
+	length    float64
+	seconds   float64
 }
 type trieNode struct {
 	next   map[int]int
@@ -134,6 +135,10 @@ type Store struct {
 	mappingCleanup                                   runtime.Cleanup
 	graphSHA                                         string
 	preprocessingSeconds                             float64
+	cellBounds                                       []cellBounds
+	cellEntries                                      []cellEntry
+	cellTransfers                                    []cellTransfer
+	cellPaths                                        []cellPath
 	junctions                                        []uint8
 	components                                       []int32
 	continuation                                     []int32
@@ -158,6 +163,12 @@ type Store struct {
 
 func New(d Data) (*Store, error) { return newStore(d, false) }
 func newStore(d Data, owned bool) (*Store, error) {
+	return newStoreContext(context.Background(), d, owned)
+}
+func newStoreContext(ctx context.Context, d Data, owned bool) (*Store, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(d.Nodes) > math.MaxInt32 || len(d.Segments) > math.MaxInt32/2 || len(d.Guards) > math.MaxInt32 {
 		return nil, fmt.Errorf("routing array capacity exceeded")
 	}
@@ -243,7 +254,7 @@ func newStore(d Data, owned bool) (*Store, error) {
 			if !allow {
 				continue
 			}
-			e := edge{from: v.From, to: v.To, segment: i, reverse: dir == 1, length: l}
+			e := edge{from: v.From, to: v.To, segment: i, reverse: dir == 1, cellEntry: -1, length: l}
 			if d.Metadata.Version == GraphVersion {
 				c, ok := costs[v.Way]
 				if !ok {
@@ -374,6 +385,9 @@ func newStore(d Data, owned bool) (*Store, error) {
 	preprocessingStarted := time.Now()
 	s.buildChains()
 	s.buildJunctions()
+	if err := s.buildCells(ctx); err != nil {
+		return nil, err
+	}
 	s.preprocessingSeconds = time.Since(preprocessingStarted).Seconds()
 	return s, nil
 }
@@ -681,7 +695,7 @@ func WithSearchMetrics(ctx context.Context, metrics *SearchMetrics) context.Cont
 type SearchMetrics struct {
 	Snap, Search, Geometry                                         time.Duration
 	Expanded, Pushes, ChainEdges, States, QueuePeak, QueueCapacity int
-	JunctionShortcuts                                              int
+	JunctionShortcuts, CellShortcuts                               int
 }
 
 func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint, distanceOnly, accelerated bool, metrics *SearchMetrics) (Result, error) {
@@ -725,6 +739,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		snapped = true
 	}
 	result := Result{Origin: a, Destination: b}
+	targetFrom, targetTo := s.point(s.segments[b.index].From), s.point(s.segments[b.index].To)
 	if accelerated && s.components[s.nodeIndex[s.segments[a.index].From]] != s.components[s.nodeIndex[s.segments[b.index].From]] {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -783,8 +798,8 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	}
 	type trace struct {
 		parent state
-		first  int
-		via    int
+		first  int // initial source edge, or -1 for a transfer directly from parent
+		via    int // -1: chain; >=0: junction departure; <=-2: recursive path (-2-via)
 	}
 	type label struct {
 		distance float64
@@ -832,6 +847,9 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		return st, d
 	}
 	enqueue := func(st state, d float64, prev state, first, via int) {
+		if accelerated && s.edges[st.edge].cellEntry == terminalCellEntry && s.edges[st.edge].to != s.segments[b.index].From && s.edges[st.edge].to != s.segments[b.index].To {
+			return
+		}
 		if old, ok := labels[st]; !ok || d < old.distance {
 			labels[st] = label{d, trace{prev, first, via}}
 			priority := d
@@ -854,6 +872,18 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		first := st.edge
 		st, d = walk(st, d)
 		in := s.edges[st.edge]
+		if accelerated && (!distanceOnly || !s.HasDuration()) && st.phase != 2 {
+			if transfers, ok := s.cellEscapes(st.edge, targetFrom, targetTo); ok {
+				for _, transfer := range transfers {
+					if metrics != nil {
+						metrics.JunctionShortcuts++
+						metrics.CellShortcuts++
+					}
+					enqueue(state{int(transfer.last), 0, 1}, d+transfer.cost, prev, first, -2-int(transfer.path))
+				}
+				return
+			}
+		}
 		if accelerated && s.junctions[s.nodeIndex[in.to]] == 2 && in.to != s.segments[b.index].From && in.to != s.segments[b.index].To {
 			for _, id := range s.out(in.to) {
 				if s.edges[id].segment == in.segment {
@@ -951,6 +981,18 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		}
 		in := s.edges[cur.state.edge]
 		checkEnd(in.to, cur.state, cur.distance)
+		if accelerated && (!distanceOnly || !s.HasDuration()) && cur.state.phase != 2 {
+			if transfers, ok := s.cellEscapes(cur.state.edge, targetFrom, targetTo); ok {
+				for _, transfer := range transfers {
+					if metrics != nil {
+						metrics.JunctionShortcuts++
+						metrics.CellShortcuts++
+					}
+					enqueue(state{int(transfer.last), 0, 1}, cur.distance+transfer.cost, cur.state, -1, -2-int(transfer.path))
+				}
+				continue
+			}
+		}
 		for _, id := range s.out(in.to) {
 			out := s.edges[id]
 			if out.segment == in.segment {
@@ -978,7 +1020,28 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	if !direct {
 		path := []int{}
 		for st := endState; st.edge >= 0; st = labels[st].trace.parent {
-			block := []int{labels[st].trace.first}
+			block := []int{}
+			if first := labels[st].trace.first; first >= 0 {
+				block = append(block, first)
+			}
+			if via := labels[st].trace.via; via < -1 {
+				for len(block) > 0 && s.continuation[block[len(block)-1]] >= 0 {
+					block = append(block, int(s.continuation[block[len(block)-1]]))
+				}
+				parts := []int32{}
+				for p := int32(-2 - via); p >= 0; p = s.cellPaths[p].parent {
+					parts = append(parts, p)
+				}
+				for i := len(parts) - 1; i >= 0; i-- {
+					p := s.cellPaths[parts[i]]
+					for id := p.first; ; id = s.continuation[id] {
+						block = append(block, int(id))
+						if id == p.last {
+							break
+						}
+					}
+				}
+			}
 			if via := labels[st].trace.via; via >= 0 {
 				for s.continuation[block[len(block)-1]] >= 0 {
 					block = append(block, int(s.continuation[block[len(block)-1]]))

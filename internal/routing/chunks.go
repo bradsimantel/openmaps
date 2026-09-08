@@ -123,7 +123,7 @@ func readManifest(ctx context.Context, db graphReader) (graphManifest, []byte, s
 		}
 		return m, raw, sum, nil
 	}
-	if m.Layout != LayoutVersion || (m.Preprocessing != PreprocessingVersion && m.Preprocessing != "forced-chain-v1") {
+	if m.Layout != LayoutVersion || (m.Preprocessing != PreprocessingVersion && m.Preprocessing != "forced-chain-v1" && m.Preprocessing != "independent-junction-v1") {
 		return m, nil, "", fmt.Errorf("unsupported routing layout/preprocessing %q/%q", m.Layout, m.Preprocessing)
 	}
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM routing_chunks").Scan(&count); err != nil {
