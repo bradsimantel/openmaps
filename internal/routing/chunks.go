@@ -15,7 +15,7 @@ import (
 // chunk is a bounded gob slice of the named domain record type, DEFLATE encoded.
 // There are no maps in binary records. The JSON manifest commits to every chunk.
 const LayoutVersion = "routing-chunks-v1"
-const PreprocessingVersion = "forced-chain-v1"
+const PreprocessingVersion = JunctionPreprocessingVersion
 const chunkRecords = 4096
 const maxChunkBytes = 32 << 20
 
@@ -93,7 +93,7 @@ func WriteGraph(ctx context.Context, tx *sql.Tx, d Data) error {
 	_, err = tx.ExecContext(ctx, "INSERT INTO routing_graph VALUES(1,?,?)", raw, Digest(raw))
 	return err
 }
-func readManifest(ctx context.Context, db *sql.DB) (graphManifest, []byte, string, error) {
+func readManifest(ctx context.Context, db graphReader) (graphManifest, []byte, string, error) {
 	var m graphManifest
 	var raw []byte
 	var sum string
@@ -123,7 +123,7 @@ func readManifest(ctx context.Context, db *sql.DB) (graphManifest, []byte, strin
 		}
 		return m, raw, sum, nil
 	}
-	if m.Layout != LayoutVersion || m.Preprocessing != PreprocessingVersion {
+	if m.Layout != LayoutVersion || (m.Preprocessing != PreprocessingVersion && m.Preprocessing != "forced-chain-v1") {
 		return m, nil, "", fmt.Errorf("unsupported routing layout/preprocessing %q/%q", m.Layout, m.Preprocessing)
 	}
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM routing_chunks").Scan(&count); err != nil {
@@ -146,7 +146,7 @@ func readManifest(ctx context.Context, db *sql.DB) (graphManifest, []byte, strin
 	}
 	return m, nil, sum, nil
 }
-func readChunk[T any](ctx context.Context, db *sql.DB, c chunkRef) ([]T, error) {
+func readChunk[T any](ctx context.Context, db graphReader, c chunkRef) ([]T, error) {
 	var raw []byte
 	if err := db.QueryRowContext(ctx, "SELECT data FROM routing_chunks WHERE kind=? AND ordinal=?", c.Kind, c.Ordinal).Scan(&raw); err != nil {
 		return nil, err
@@ -177,14 +177,14 @@ func readChunk[T any](ctx context.Context, db *sql.DB, c chunkRef) ([]T, error) 
 	}
 	return values, nil
 }
-func appendChunk[T any](ctx context.Context, db *sql.DB, c chunkRef, to *[]T) error {
+func appendChunk[T any](ctx context.Context, db graphReader, c chunkRef, to *[]T) error {
 	v, err := readChunk[T](ctx, db, c)
 	if err == nil {
 		*to = append(*to, v...)
 	}
 	return err
 }
-func readGraphData(ctx context.Context, db *sql.DB, withSources bool) (Data, graphManifest, string, error) {
+func readGraphData(ctx context.Context, db graphReader, withSources bool) (Data, graphManifest, string, error) {
 	m, raw, sum, err := readManifest(ctx, db)
 	var d Data
 	if err != nil {
@@ -253,7 +253,7 @@ func readGraphData(ctx context.Context, db *sql.DB, withSources bool) (Data, gra
 
 // ReadData is the offline inspection/rebuild interface. Runtime loading streams
 // provenance independently; callers opting into ReadData retain full raw records.
-func ReadData(ctx context.Context, db *sql.DB) (Data, error) {
+func ReadData(ctx context.Context, db graphReader) (Data, error) {
 	d, _, _, err := readGraphData(ctx, db, true)
 	return d, err
 }

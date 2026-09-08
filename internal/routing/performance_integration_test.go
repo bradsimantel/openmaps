@@ -38,13 +38,38 @@ func TestRoutingPerformance(t *testing.T) {
 	if err = json.Unmarshal(raw, &cases); err != nil {
 		t.Fatal(err)
 	}
+	// Include the reverse of the independently disconnected source case. Searching
+	// outward from its tiny component alone did not exercise worst-case rejection.
+	if os.Getenv("OPENMAPS_PERF_REVERSE_UNREACHABLE") == "1" {
+		for _, c := range cases {
+			if strings.Contains(c.Name, "Disconnected retained") {
+				c.Name = "Large component to disconnected road"
+				c.Origin, c.Destination = c.Destination, c.Origin
+				cases = append(cases, c)
+				break
+			}
+		}
+	}
 	ctx := context.Background()
 	started := time.Now()
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if cache := os.Getenv("OPENMAPS_ROUTING_CACHE"); cache != "" {
+		if err := s.UseMappedQueryData(ctx, cache); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer s.Close()
 	load := time.Since(started).Seconds()
+	selected := 0
+	for _, v := range s.junctions {
+		if v == 2 {
+			selected++
+		}
+	}
+	t.Logf("PREPROCESS version=%s seconds=%.3f nodes=%d edges=%d selected_junctions=%d mapped_bytes=%d", JunctionPreprocessingVersion, s.preprocessingSeconds, len(s.points), len(s.edges), selected, s.MappedBytes())
 	var before, retained runtime.MemStats
 	runtime.ReadMemStats(&before)
 	runtime.GC()
@@ -74,7 +99,19 @@ func TestRoutingPerformance(t *testing.T) {
 		s.snap(ctx, c.Destination, "destination")
 		snaps = append(snaps, float64(time.Since(start).Microseconds())/1000)
 	}
+	t.Logf("BACKEND mapped_bytes=%d", s.MappedBytes())
 	t.Logf("LOAD seconds=%.3f pre_gc_heap_mib=%.2f retained_heap_mib=%.2f heap_sys_mib=%.2f snap_pair_ms=%+v", load, float64(before.HeapAlloc)/1048576, float64(retained.HeapAlloc)/1048576, float64(retained.HeapSys)/1048576, stats(snaps))
+	if os.Getenv("OPENMAPS_PERF_DETAIL") == "1" {
+		for _, c := range cases {
+			runtime.GC()
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			var m SearchMetrics
+			result, err := s.routeMeasured(ctx, Endpoint{Point: c.Origin}, Endpoint{Point: c.Destination}, false, true, &m)
+			runtime.ReadMemStats(&after)
+			t.Logf("DETAIL name=%q outcome=%s snap_us=%d search_us=%d geometry_us=%d expanded=%d pushes=%d chain_edges=%d states=%d queue_peak=%d queue_capacity=%d junction_shortcuts=%d allocated_bytes=%d vertices=%d", c.Name, errorOutcome(err), m.Snap.Microseconds(), m.Search.Microseconds(), m.Geometry.Microseconds(), m.Expanded, m.Pushes, m.ChainEdges, m.States, m.QueuePeak, m.QueueCapacity, m.JunctionShortcuts, after.TotalAlloc-before.TotalAlloc, len(result.Geometry))
+		}
+	}
 	levels := []int{1, 4, 8}
 	if text := os.Getenv("OPENMAPS_PERF_CONCURRENCY"); text != "" {
 		levels = nil

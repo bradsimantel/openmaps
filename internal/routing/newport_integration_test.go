@@ -48,6 +48,10 @@ func TestNewportRouting(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	if err := s.UseMappedQueryData(ctx, os.Getenv("OPENMAPS_ROUTING_CACHE")); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
 	costs := map[int64]routing.WayCost{}
 	for _, c := range data.Costs {
 		costs[c.Way] = c

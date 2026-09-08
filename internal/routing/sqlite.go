@@ -11,9 +11,14 @@ import (
 	"slices"
 )
 
+// graphReader allows validation of an unpublished snapshot transaction.
+type graphReader interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
 // Load reads an optional independently versioned graph. Absence is supported for
 // retained schema-1 snapshots; partial/corrupt routing data is never treated as absence.
-func Load(ctx context.Context, db *sql.DB) (*Store, *Summary, error) {
+func Load(ctx context.Context, db graphReader) (*Store, *Summary, error) {
 	var exists int
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='routing_graph'").Scan(&exists); err != nil {
 		return nil, nil, err
@@ -66,6 +71,7 @@ func Load(ctx context.Context, db *sql.DB) (*Store, *Summary, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
+	store.graphSHA = sum
 	return store, &Summary{Metadata: d.Metadata, SHA256: sum, Layout: m.Layout, Preprocessing: m.Preprocessing}, nil
 }
 func Open(ctx context.Context, path string) (*Store, error) {

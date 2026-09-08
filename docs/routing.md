@@ -100,6 +100,7 @@ return zero distance, `"0s"` duration when requested/available, and a two-positi
 | Address on retained graph v1/v2 | 503, `UNAVAILABLE`, `openmaps.outcome=address_routing_unavailable` |
 | Duration mask on retained graph v1/v2/v3 | 503, `UNAVAILABLE`, `openmaps.outcome=time_estimate_unavailable`; distance-only requests still work |
 | Snapshot has no graph | 503, `error.status=UNAVAILABLE` |
+| Concurrent routing budget exhausted | 429, `RESOURCE_EXHAUSTED`, `Retry-After: 1`; server default is four in-flight requests |
 | Internal calculation failure | 500, `error.status=INTERNAL` |
 | Wrong method | 405 with `Allow: POST` |
 
@@ -483,13 +484,23 @@ states. This can still underprice a particular turn, queue or signal; small
 modeled savings should not be treated as observed improvements.
 
 The accelerated search uses nonnegative deterministic costs and preserves last
-edge, prohibited-path history and destination phase. Geometry-chain preprocessing
+edge, prohibited-path history and destination phase. Geometry-chain and conservative junction preprocessing
 and an admissible A* bound reduce work; the original Dijkstra remains an internal
 correctness reference. V4 adjacency is ordered by stable segment reference,
 forward before reverse. See [search semantics and tie handling](routing-scale.md#endpoint-indexing-and-search).
 No epsilon discards a small cost improvement. Endpoints are selected once,
 independently of route cost or trip success. `RouteDistanceEndpoints` remains an
 internal comparator under identical endpoint and elapsed-time assumptions.
+
+The larger Northwest evaluation exposed a concrete model limitation: unsupported
+`maxspeed:variable` metadata, including `no`, invokes the existing 5 km/h fallback.
+On I-90 this prices tens of kilometres at that fallback and can favor long US 2
+or I-5/I-84 detours. A separate `maxweight:hazmat` suffix also produces a conservative
+closure under the current unsupported-dimension rule. These are retained profile
+limitations, not hierarchy errors or observed driving conditions. See the
+[historical source-backed investigation](log/0020-junction-hierarchy-and-mapped-query-data.md).
+This scaling change preserves `estimated-driving-v1`; any revised interpretation
+needs separate profile/cost-model review and version handling.
 
 The response’s `openmaps.cost_model` identifies these semantics;
 `openmaps.time_estimate_note` states uncalibrated speeds, missing traffic and
@@ -512,7 +523,10 @@ provenance. Runtime coordinates and adjacency use contiguous arrays; source
 references, full geometry, directional costs, prohibited-path history and
 endpoint evidence retain their meanings. Spatial indexes replace regional
 endpoint/guard scans. The graph adds about 34 MiB to the Newport SQLite candidate;
-query data still consumes substantially more RAM than its compressed storage.
+query data still consumes substantially more memory than its compressed storage.
+The optional `-routing-cache` backend moves numeric arrays to verified read-only
+files; it does not yet bound full startup memory. The server defaults to four
+concurrent routing requests; see [routing scale](routing-scale.md).
 
 Retained JSON formats 1–4 remain readable and validated without changing their
 source data, profile, cost model or public IDs. New storage and preprocessing

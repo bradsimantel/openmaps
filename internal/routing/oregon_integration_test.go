@@ -23,9 +23,10 @@ type oregonCase struct {
 	Name                string
 	Origin, Destination Point
 	Outcome             string
-	Max                 float64 `json:"max_meters"`
-	RequireBridge       bool    `json:"require_bridge"`
-	Note                string  `json:"evidence_note"`
+	Max                 float64    `json:"max_meters"`
+	RequireBridge       bool       `json:"require_bridge"`
+	RequireBox          [4]float64 `json:"require_box"`
+	Note                string     `json:"evidence_note"`
 	Evidence            []struct {
 		Way     int64
 		Segment string
@@ -45,11 +46,16 @@ func errorOutcome(err error) string {
 	return err.Error()
 }
 func TestOregonRouting(t *testing.T) {
-	path := os.Getenv("OPENMAPS_OREGON_DB")
+	testRegionalRouting(t, os.Getenv("OPENMAPS_OREGON_DB"), "testdata/oregon.json")
+}
+func TestNorthwestRouting(t *testing.T) {
+	testRegionalRouting(t, os.Getenv("OPENMAPS_NORTHWEST_DB"), "testdata/northwest.json")
+}
+func testRegionalRouting(t *testing.T, path, fixture string) {
 	if path == "" {
-		t.Skip("set OPENMAPS_OREGON_DB")
+		t.Skip("set regional routing database")
 	}
-	raw, err := os.ReadFile("testdata/oregon.json")
+	raw, err := os.ReadFile(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +68,10 @@ func TestOregonRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := s.UseMappedQueryData(ctx, os.Getenv("OPENMAPS_ROUTING_CACHE")); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
 	results := make([]Result, len(cases))
 	wanted := map[int64]bool{}
 	segment := func(id string) Segment {
@@ -105,6 +115,16 @@ func TestOregonRouting(t *testing.T) {
 			}
 			if fast.Distance+1e-5 < Distance(fast.Origin.Point, fast.Destination.Point) || fast.Distance > tc.Max {
 				t.Error("geographic distance bound", fast.Distance, tc.Max)
+			}
+			if tc.RequireBox != [4]float64{} {
+				crossed := false
+				box := tc.RequireBox
+				for _, p := range fast.Geometry {
+					crossed = crossed || p[0] > box[0] && p[0] < box[2] && p[1] > box[1] && p[1] < box[3]
+				}
+				if !crossed {
+					t.Error("route did not enter independently required boundary detour box")
+				}
 			}
 			if fast.Origin.Distance > 1e-5 || fast.Destination.Distance > 1e-5 {
 				t.Error("source midpoint moved off road", fast.Origin.Distance, fast.Destination.Distance)
@@ -363,20 +383,33 @@ func TestLiveOregonRouting(t *testing.T) {
 }
 
 func TestOregonSensitivity(t *testing.T) {
-	path := os.Getenv("OPENMAPS_OREGON_DB")
+	testSensitivity(t, os.Getenv("OPENMAPS_OREGON_DB"), "testdata/oregon.json", []string{"Bend to Medford", "Klamath Falls to Ashland"})
+}
+func TestNorthwestSensitivity(t *testing.T) {
+	testSensitivity(t, os.Getenv("OPENMAPS_NORTHWEST_DB"), "testdata/northwest.json", []string{"Seattle to Spokane", "Seattle to Boise", "Boise to Seattle"})
+}
+func testSensitivity(t *testing.T, path, fixture string, names []string) {
 	if path == "" {
-		t.Skip("set OPENMAPS_OREGON_DB")
+		t.Skip("set regional routing database")
 	}
 	ctx := context.Background()
 	s, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := os.ReadFile("testdata/oregon.json")
+	if err := s.UseMappedQueryData(ctx, os.Getenv("OPENMAPS_ROUTING_CACHE")); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	raw, _ := os.ReadFile(fixture)
 	var cases []oregonCase
 	json.Unmarshal(raw, &cases)
 	for _, tc := range cases {
-		if tc.Name != "Bend to Medford" && tc.Name != "Klamath Falls to Ashland" {
+		wantedCase := false
+		for _, name := range names {
+			wantedCase = wantedCase || tc.Name == name
+		}
+		if !wantedCase {
 			continue
 		}
 		t.Run(tc.Name, func(t *testing.T) {

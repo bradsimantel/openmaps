@@ -1,14 +1,15 @@
 # Routing storage, search and regional evaluation
 
 Routing remains one Go service with immutable SQLite snapshots. The current
-implementation supports a separate Oregon coordinate-routing evaluation, in
-addition to the Newport coordinate/address candidate. **It is not nationwide
-ready.** Spatial lookup and geometry-chain preprocessing address measured regional
-bottlenecks; a hierarchy above the remaining junction graph and a bounded national
-query-data backend remain unfinished.
+implementation supports separate Oregon and Oregon–Washington–Idaho coordinate-routing
+evaluations, in addition to the Newport coordinate/address candidate. **It is not nationwide
+ready.** Spatial lookup, geometry-chain preprocessing and a conservative junction-elimination
+level address measured regional bottlenecks. A complete restriction-aware hierarchy
+and a backend with bounded national construction memory remain unfinished.
 
-The [historical scaling evaluation](log/0019-routing-scale-and-oregon.md) records
-inputs, targets, measurements, comparisons and limitations. The API contract and
+The [historical Oregon evaluation](log/0019-routing-scale-and-oregon.md) and
+[historical junction/mapping experiment](log/0020-junction-hierarchy-and-mapped-query-data.md)
+record inputs, targets, measurements, comparisons and limitations. The API contract and
 car profile remain in [routing](routing.md). The browser is an example client and
 was not changed for this work.
 
@@ -16,7 +17,7 @@ was not changed for this work.
 
 New builds retain graph semantics **4**, profile `driving-time-v4` and cost model
 `estimated-driving-v1`. Storage layout **`routing-chunks-v1`** and preprocessing
-semantics **`forced-chain-v1`** are versioned independently in the manifest and
+semantics **`independent-junction-v1`** are versioned independently in the manifest and
 snapshot comparison summary. Changing any of these semantics requires explicit
 version handling; an unknown version fails loading.
 
@@ -84,7 +85,7 @@ arrivals, and at branches and relevant restriction/access boundaries. Functional
 graph cycles have a deterministic break point. Every traversed edge still applies
 the existing restriction automaton and destination phase, and costs accumulate
 in source traversal order. Reconstruction expands every source segment and vertex.
-This is useful geometry-node elimination, not full contraction hierarchies.
+This remains the bottom level of the partial hierarchy described below.
 
 A* uses spherical distance to the selected road destination divided by the
 maximum effective speed in the loaded graph (distance alone for a distance
@@ -107,7 +108,7 @@ Sources for the algorithm choices:
 [Goldberg and Harrelson, A* and landmark lower bounds](https://www.microsoft.com/en-us/research/publication/computing-the-shortest-path-a-search-meets-graph-theory/),
 [Geisberger et al., contraction hierarchies](https://ae.iti.kit.edu/download/contract.pdf),
 and [turn-aware contraction research](https://publikationen.bibliothek.kit.edu/1000097647).
-ALT and full turn-aware CH/CCH were considered; neither is implemented here.
+Full turn-aware CH/CCH and ALT remain unimplemented.
 The measured remaining core search motivates a next hierarchy experiment rather
 than a claim that geometric A* alone solves nationwide queries.
 
@@ -227,3 +228,151 @@ request-triggered reload, not asynchronous operator orchestration.
 real HTTP requests during replacement, checks snapshot-consistent responses,
 retains old query data through the overlap measurement, forces a failed selection
 and rolls back. Neither retained database nor the active deployment is changed.
+
+## Junction elimination and request memory
+
+The current runtime adds **`independent-junction-v1`** above forced chains. It
+selects a deterministic independent set of ordinary three- and four-departure
+junctions on the chain core. Every node touched by a prohibited path and every
+node incident to a destination-access segment stays explicit. A selected
+junction represents the product of its incoming and outgoing edges, excluding
+immediate reversal. This factorized shortcut representation avoids storing the
+same outbound geometry once per approach. The query bypasses the intermediate
+queue state and reconstructs both original edge sequences afterward.
+
+Incoming-edge identity, the restriction automaton and destination phase remain
+in every search label. Each original edge still advances both state machines;
+costs add in source traversal order with their original directional values.
+The two nodes of the destination segment stay explicit for partial arrivals;
+origins still start with the existing selected heading choices. This is one
+conservative junction level, **not full CH**, and it retains a large searchable
+core. Restricted junction contraction, recursive shortcut levels, witness searches
+and a complete hierarchy over turn-history/destination state remain future work.
+
+A weak-component array rejects endpoints in different components after both snaps
+are selected. It never certifies reachability inside one component. Dijkstra skips
+this filter and remains the ordinary full-graph correctness reference. A single
+label map holds distance and predecessor data; a typed heap avoids per-operation
+interface allocations. Queue tie ordering and strict cost improvements are
+unchanged. Diagnostic `SearchMetrics` separates endpoint selection, search and
+geometry, with counts for expansions, states, queue capacity and bypasses.
+
+New SQLite manifests name `independent-junction-v1`; retained `forced-chain-v1`
+manifests remain readable and regenerate current runtime preprocessing from their
+validated source topology. Unknown versions fail. No preprocessed source path is
+trusted from a legacy file. The optional flat artifact below fixes and checks the
+actual generated arrays, including components and selected junctions.
+
+The server admits at most **four concurrent Compute Routes HTTP requests** by
+default, including encoding. `-routing-concurrency` accepts 1–64. The budget is
+shared across snapshot replacements, with no waiting queue. Excess requests get
+HTTP **429**, `error.status=RESOURCE_EXHAUSTED` and `Retry-After: 1`. Health and
+lookup requests retain their existing behavior. This bounds concurrent query
+work, not the memory of one arbitrarily large search. It is not authentication,
+billing, or a throughput guarantee.
+
+## Optional mapped numeric query data
+
+On 64-bit little-endian Linux/macOS, `-routing-cache data/routing-cache` enables
+**`routing-hot-le64-v1`**. A fixed 4 KiB header identifies graph checksum,
+preprocessing, section offsets/counts/widths and payload SHA-256. Fields use
+explicit little-endian integers and IEEE-754 float64 values; padding is zero.
+Sections contain coordinates, directed edges, CSR offsets/adjacency, segment
+directions, forced continuations, destination zones, weak components and junction
+selection. Source IDs and exact numeric costs are preserved without quantization.
+The reader checks native widths and every edge-field offset before creating
+pointer-free typed views of a read-only mapping. Other ABIs fail explicitly.
+
+SQLite remains authoritative. Loading first validates its complete graph and
+provenance, reconstructs the canonical arrays, and hashes their explicit encoding.
+An existing flat file must exactly match this independently reconstructed header
+and payload hash. Wrong versions, foreign data, corrupt payloads, truncation and
+nonzero header padding fail; a corrupt cache is never silently rebuilt. New files
+are synced and atomically linked without replacing another file. Concurrent
+publishers must validate the winning artifact. Keep cache files immutable while
+mapped; remove obsolete files only after their readers are retired.
+
+This is an integrated runtime backend for these arrays, **not a complete national
+loader**. It releases their Go heap allocation and lets the OS manage residency;
+it does not impose an RSS bound. Segment records/strings, source-ID lookup maps,
+spatial indexes, the restriction automaton and address evidence remain resident.
+Source provenance stays in SQLite. There is no SQL per visited edge. Canonical
+reconstruction and checksumming still incur full construction memory and touch
+the mapped pages at startup. First requests after validation are therefore not
+cold-disk measurements. The integration harness distinguishes these from warmed
+requests and reports process faults; a true system-cache-cold run needs a separate
+controlled host.
+
+A routing store holds a read lease through search and reconstruction. Explicit
+`Close` waits for those calls and unmaps once; a cleanup is a fallback for abandoned
+stores. Dataset replacement also keeps its existing HTTP response lease, so mapped
+arrays survive until old responses finish encoding. Failed loads close unpublished
+resources and leave the previous snapshot usable. Fixed-database servers close
+the router on shutdown. Direct users of `OpenMapped` must close after use.
+
+The importer now limits temporary restriction adjacency to from/via-way nodes,
+retaining every legal departure there, including unrelated alternatives that an
+only-turn restriction must prohibit. It writes chunks inside the unpublished
+transaction, releases source construction data, then validates the exact written
+graph before commit. This avoids constructing a second full graph alongside the
+importer's raw sources; rollback still protects against invalid graph data.
+
+The [historical junction and mapped-backend experiment](log/0020-junction-hierarchy-and-mapped-query-data.md)
+records targets, measured regional results, failed attempts and remaining gates.
+
+## Northwest intermediate evaluation
+
+The [Northwest source lock](../imports/northwest-routing.lock.json) reuses the same
+pinned complete Oregon, Washington and Idaho extracts, merged without clipping.
+The routing-only candidate has 13.7 million routing nodes and no address coverage.
+Its 29-case source-backed suite includes Seattle–Spokane, Seattle–Boise,
+Bellingham, Yakima/Wenatchee, northern Idaho, McCall, Idaho Falls, Oregon bridges,
+access streets, the two Oregon-to-Oregon optima through Idaho, and both directions
+of a disconnected case. All searches can traverse the entire merged graph.
+
+It passes the measured correctness suite but misses the one-worker p95 and
+four-worker throughput experiment targets. This is an intermediate dataset,
+not a nationwide-ready deployment. The historical report distinguishes baseline,
+regional measurements, source-model detours and unmeasured national scenarios.
+
+Reproduce the merged input with Osmium 1.19.1 into a new output:
+
+```sh
+osmium merge data/scaling/oregon-260907.osm.pbf \
+  data/scaling/washington-260907.osm.pbf data/scaling/idaho-260907.osm.pbf \
+  -o data/junction-scale/northwest-260907.osm.pbf
+osmium check-refs data/junction-scale/northwest-260907.osm.pbf
+```
+
+Create an empty routing-only normalized bundle from
+`imports/northwest-routing.lock.json` using the same bundle construction shown
+above for Oregon, and build it into a new database with `cmd/import`. Verify all
+source checksums first. The historical report retains the precise local filenames.
+Run the new suite and isolated performance/HTTP harnesses from the repository root:
+
+```sh
+OPENMAPS_NORTHWEST_DB="$PWD/data/junction-scale/northwest-final.sqlite" \
+OPENMAPS_ROUTING_CACHE="$PWD/data/junction-scale/cache" GOMEMLIMIT=6GiB \
+  go test -tags=integration ./internal/routing -run '^TestNorthwestRouting$' -count=1 -v
+
+OPENMAPS_PERF_DB="$PWD/data/junction-scale/northwest-final.sqlite" \
+OPENMAPS_PERF_CASES="$PWD/internal/routing/testdata/northwest.json" \
+OPENMAPS_ROUTING_CACHE="$PWD/data/junction-scale/cache" \
+OPENMAPS_PERF_DETAIL=1 OPENMAPS_PERF_CONCURRENCY=1,2,4 GOMEMLIMIT=6GiB \
+  go test -tags=integration ./internal/routing -run '^TestRoutingPerformance$' -count=1 -v
+
+OPENMAPS_PERF_DB="$PWD/data/junction-scale/northwest-final.sqlite" \
+OPENMAPS_PERF_CASES="$PWD/internal/routing/testdata/northwest.json" \
+OPENMAPS_ROUTING_CACHE="$PWD/data/junction-scale/cache" GOMEMLIMIT=6GiB \
+  go test -tags=integration ./internal/api -run '^TestRoutingHTTPPerformance$' -count=1 -v
+```
+
+`TestMappedRoutingAccess` uses the same three path variables to report RSS/virtual
+size, heap, minor/major faults and first/repeated access after a `MADV_DONTNEED`
+hint. It does not purge the OS file cache. `TestNorthwestSensitivity` compares
+distance/time objectives without altering costs. `TestNorthwestSourceSeeds`
+streams only the source records needed to select independently named city/road
+endpoints; it takes `OPENMAPS_NORTHWEST_SEEDS` as a new output path.
+`TestNorthwestI90Sources` takes `OPENMAPS_I90_REPORT` as a new output path for
+source decisions and tagged nodes on the investigated corridor. These opt-in
+tests never acquire data or select a deployment.

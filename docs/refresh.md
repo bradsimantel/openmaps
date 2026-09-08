@@ -329,3 +329,12 @@ The regional snapshot lifetime test exercises concurrent replacement, failure an
 rollback exclusively through temporary deployment state. The initiating reload
 request can take a full graph load; server writes allow two minutes for this
 regional operation. Building Oregon candidates never changes the active selection.
+
+
+The optional server `-routing-cache` stores verified immutable numeric routing
+arrays separately from authoritative SQLite snapshots. A replacement loads and
+validates its mapping before publication; old mappings stay valid until their
+HTTP response leases finish, then close. Failed cache validation keeps the old
+handler usable and degrades health, just like failed SQLite validation. The
+server's shared `-routing-concurrency` budget also spans replacements. See
+[mapped data and admission behavior](routing-scale.md).

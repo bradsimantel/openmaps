@@ -65,6 +65,10 @@ func TestNewportAddressRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := graph.UseMappedQueryData(ctx, os.Getenv("OPENMAPS_ROUTING_CACHE")); err != nil {
+		t.Fatal(err)
+	}
+	defer graph.Close()
 	geocoder, err := geocoding.Open(ctx, next)
 	if err != nil {
 		t.Fatal(err)

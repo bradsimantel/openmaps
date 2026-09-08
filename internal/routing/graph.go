@@ -3,14 +3,16 @@
 package routing
 
 import (
-	"container/heap"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
+	"runtime"
 	"sort"
+	"sync"
+	"time"
 )
 
 const Profile = "driving-time-v4"
@@ -123,7 +125,17 @@ type trieNode struct {
 	fail   int
 	banned bool
 }
+
+// Store is an immutable graph with owned mapping lifetime. Do not copy a Store.
 type Store struct {
+	life                                             sync.RWMutex
+	closed                                           bool
+	mapping                                          *queryMapping
+	mappingCleanup                                   runtime.Cleanup
+	graphSHA                                         string
+	preprocessingSeconds                             float64
+	junctions                                        []uint8
+	components                                       []int32
 	continuation                                     []int32
 	maxMetersPerSecond                               float64
 	segmentIndex, guardIndex, areaIndex, accessIndex spatialIndex
@@ -359,7 +371,10 @@ func newStore(d Data, owned bool) (*Store, error) {
 	}
 	s.packAdjacency()
 	s.buildSpatial()
+	preprocessingStarted := time.Now()
 	s.buildChains()
+	s.buildJunctions()
+	s.preprocessingSeconds = time.Since(preprocessingStarted).Seconds()
 	return s, nil
 }
 func (s *Store) advance(t, e int) (int, bool) {
@@ -599,8 +614,38 @@ func (q queue) Less(i, j int) bool {
 	return q[i].state.phase < q[j].state.phase
 }
 func (q queue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
-func (q *queue) Push(x any)   { *q = append(*q, x.(item)) }
-func (q *queue) Pop() any     { x := (*q)[len(*q)-1]; *q = (*q)[:len(*q)-1]; return x }
+func (q *queue) push(x item) {
+	*q = append(*q, x)
+	for i := len(*q) - 1; i > 0; {
+		p := (i - 1) / 2
+		if !q.Less(i, p) {
+			break
+		}
+		q.Swap(i, p)
+		i = p
+	}
+}
+func (q *queue) pop() item {
+	x := (*q)[0]
+	last := len(*q) - 1
+	(*q)[0] = (*q)[last]
+	*q = (*q)[:last]
+	for i := 0; ; {
+		child := 2*i + 1
+		if child >= last {
+			break
+		}
+		if child+1 < last && q.Less(child+1, child) {
+			child++
+		}
+		if !q.Less(child, i) {
+			break
+		}
+		q.Swap(child, i)
+		i = child
+	}
+	return x
+}
 func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, error) {
 	return s.RouteEndpoints(ctx, Endpoint{Point: origin}, Endpoint{Point: destination})
 }
@@ -619,8 +664,46 @@ func (s *Store) RouteReferenceEndpoints(ctx context.Context, origin, destination
 	return s.routeEndpoints(ctx, origin, destination, false, false)
 }
 func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint, distanceOnly, accelerated bool) (Result, error) {
+	metrics, _ := ctx.Value(searchMetricsKey{}).(*SearchMetrics)
+	return s.routeMeasured(ctx, origin, destination, distanceOnly, accelerated, metrics)
+}
+
+// SearchMetrics isolates search from endpoint selection and path materialization.
+// Counters are request-local; byte counts for Go maps must be measured separately.
+type searchMetricsKey struct{}
+
+// WithSearchMetrics enables request-local diagnostic counters for internal tools.
+// The caller must not share metrics between concurrent requests.
+func WithSearchMetrics(ctx context.Context, metrics *SearchMetrics) context.Context {
+	return context.WithValue(ctx, searchMetricsKey{}, metrics)
+}
+
+type SearchMetrics struct {
+	Snap, Search, Geometry                                         time.Duration
+	Expanded, Pushes, ChainEdges, States, QueuePeak, QueueCapacity int
+	JunctionShortcuts                                              int
+}
+
+func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint, distanceOnly, accelerated bool, metrics *SearchMetrics) (Result, error) {
+	var started time.Time
+	snapped := false
+	if metrics != nil {
+		*metrics = SearchMetrics{}
+		started = time.Now()
+		defer func() {
+			if !snapped {
+				metrics.Snap = time.Since(started)
+			}
+		}()
+	}
 	if s == nil {
 		return Result{}, &Error{"unavailable", "routing"}
+	}
+	s.life.RLock()
+	defer s.life.RUnlock()
+	defer runtime.KeepAlive(s)
+	if s.closed {
+		return Result{}, fmt.Errorf("routing store closed")
 	}
 	cost := func(id int, length float64) float64 {
 		if !distanceOnly && s.meta.CostModel == CostModel {
@@ -636,7 +719,21 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 	if e != nil {
 		return Result{Origin: a, Destination: b}, e
 	}
+	if metrics != nil {
+		metrics.Snap = time.Since(started)
+		started = time.Now()
+		snapped = true
+	}
 	result := Result{Origin: a, Destination: b}
+	if accelerated && s.components[s.nodeIndex[s.segments[a.index].From]] != s.components[s.nodeIndex[s.segments[b.index].From]] {
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
+		if metrics != nil {
+			metrics.Search = time.Since(started)
+		}
+		return result, &Error{"unreachable", "destination"}
+	}
 	aZone, bZone := 0, 0
 	if a.DestinationAccess {
 		aZone = s.zones[a.index]
@@ -684,20 +781,31 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 		best = 0
 		direct = true
 	}
-	distances := map[state]float64{}
 	type trace struct {
 		parent state
 		first  int
+		via    int
 	}
-	previous := map[state]trace{}
+	type label struct {
+		distance float64
+		trace    trace
+	}
+	labels := map[state]label{}
 	q := &queue{}
-	heap.Init(q)
+	if metrics != nil {
+		defer func() {
+			metrics.States = len(labels)
+			metrics.QueueCapacity = cap(*q)
+			if metrics.Search == 0 {
+				metrics.Search = time.Since(started)
+			}
+		}()
+	}
 	root := state{-1, 0, 0}
 	if aZone == 0 {
 		root.phase = 1
 	}
-	add := func(st state, d float64, prev state) {
-		first := st.edge
+	walk := func(st state, d float64) (state, float64) {
 		if accelerated {
 			for steps := 0; s.continuation[st.edge] >= 0; steps++ {
 				in := s.edges[st.edge]
@@ -705,7 +813,7 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 					break
 				}
 				if steps%1024 == 0 && ctx.Err() != nil {
-					return
+					return st, d
 				}
 				id := int(s.continuation[st.edge])
 				tr, ok := s.advance(st.trie, id)
@@ -713,14 +821,19 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 				if !ok || !allowed {
 					break
 				}
+				if metrics != nil {
+					metrics.ChainEdges++
+				}
 				d += cost(id, s.edges[id].length)
 				st = state{id, tr, phase}
 			}
 		}
 
-		if old, ok := distances[st]; !ok || d < old {
-			distances[st] = d
-			previous[st] = trace{prev, first}
+		return st, d
+	}
+	enqueue := func(st state, d float64, prev state, first, via int) {
+		if old, ok := labels[st]; !ok || d < old.distance {
+			labels[st] = label{d, trace{prev, first, via}}
 			priority := d
 			if accelerated {
 				lower := Distance(s.point(s.edges[st.edge].to), b.Point)
@@ -730,9 +843,38 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 				// Downward margin protects pruning against floating-point roundoff.
 				priority += math.Max(0, lower*(1-1e-12)-1e-8)
 			}
-			heap.Push(q, item{state: st, distance: d, priority: priority})
+			q.push(item{state: st, distance: d, priority: priority})
+			if metrics != nil {
+				metrics.Pushes++
+				metrics.QueuePeak = max(metrics.QueuePeak, q.Len())
+			}
 		}
 	}
+	add := func(st state, d float64, prev state) {
+		first := st.edge
+		st, d = walk(st, d)
+		in := s.edges[st.edge]
+		if accelerated && s.junctions[s.nodeIndex[in.to]] == 2 && in.to != s.segments[b.index].From && in.to != s.segments[b.index].To {
+			for _, id := range s.out(in.to) {
+				if s.edges[id].segment == in.segment {
+					continue
+				}
+				tr, ok := s.advance(st.trie, id)
+				phase, allowed := transition(st.phase, id)
+				if !ok || !allowed {
+					continue
+				}
+				next, length := walk(state{id, tr, phase}, d+cost(id, s.edges[id].length))
+				if metrics != nil {
+					metrics.JunctionShortcuts++
+				}
+				enqueue(next, length, prev, first, id)
+			}
+		} else {
+			enqueue(st, d, prev, first, -1)
+		}
+	}
+
 	if a.node != 0 {
 		for _, id := range s.out(a.node) {
 			tr, ok := s.advance(0, id)
@@ -791,14 +933,17 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 		checkEnd(a.node, root, 0)
 	}
 	for q.Len() > 0 {
-		cur := heap.Pop(q).(item)
-		if cur.distance != distances[cur.state] {
+		cur := q.pop()
+		if cur.distance != labels[cur.state].distance {
 			continue
 		}
 		if cur.priority >= best {
 			break
 		}
 		iterations++
+		if metrics != nil {
+			metrics.Expanded++
+		}
 		if iterations%1024 == 0 {
 			if e := ctx.Err(); e != nil {
 				return Result{}, e
@@ -823,12 +968,23 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 	if math.IsInf(best, 1) {
 		return result, &Error{"unreachable", "destination"}
 	}
+	if metrics != nil {
+		metrics.Search = time.Since(started)
+		started = time.Now()
+		defer func() { metrics.Geometry = time.Since(started) }()
+	}
 	result.Geometry = []Point{a.Point}
 	travel := []int{}
 	if !direct {
 		path := []int{}
-		for st := endState; st.edge >= 0; st = previous[st].parent {
-			block := []int{previous[st].first}
+		for st := endState; st.edge >= 0; st = labels[st].trace.parent {
+			block := []int{labels[st].trace.first}
+			if via := labels[st].trace.via; via >= 0 {
+				for s.continuation[block[len(block)-1]] >= 0 {
+					block = append(block, int(s.continuation[block[len(block)-1]]))
+				}
+				block = append(block, via)
+			}
 			for block[len(block)-1] != st.edge {
 				block = append(block, int(s.continuation[block[len(block)-1]]))
 			}

@@ -194,19 +194,25 @@ func Rollback(ctx context.Context, path string) error {
 }
 
 type Live struct {
-	mu        sync.RWMutex
-	reloadMu  sync.Mutex
-	closed    bool
-	statePath string
-	current   File
-	store     *places.Store
-	geocoder  *geocoding.Store
-	router    *routing.Store
-	lastError string
+	mu           sync.RWMutex
+	reloadMu     sync.Mutex
+	closed       bool
+	statePath    string
+	routingCache string
+	current      File
+	store        *places.Store
+	geocoder     *geocoding.Store
+	router       *routing.Store
+	lastError    string
 }
 
 func Open(ctx context.Context, statePath string) (*Live, error) {
-	l := &Live{statePath: statePath}
+	return OpenWithRoutingCache(ctx, statePath, "")
+}
+
+// OpenWithRoutingCache optionally maps validated numeric routing arrays in cacheDir.
+func OpenWithRoutingCache(ctx context.Context, statePath, cacheDir string) (*Live, error) {
+	l := &Live{statePath: statePath, routingCache: cacheDir}
 	if e := l.reload(ctx); e != nil {
 		return nil, e
 	}
@@ -236,22 +242,30 @@ func (l *Live) reload(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	if e = router.UseMappedQueryData(ctx, l.routingCache); e != nil {
+		router.Close()
+		return e
+	}
 	next, e := places.Open(s.Current.Path)
 	if e != nil {
+		router.Close()
 		return e
 	}
 	geocoder, e := geocoding.Open(ctx, s.Current.Path)
 	if e != nil {
+		router.Close()
 		next.Close()
 		return e
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	old := l.store
+	oldRouter := l.router
 	l.store = next
 	l.geocoder = geocoder
 	l.router = router
 	l.current = s.Current
+	oldRouter.Close()
 	if old != nil {
 		old.Close()
 	}
@@ -266,6 +280,7 @@ func (l *Live) Close() error {
 		return nil
 	}
 	l.closed = true
+	l.router.Close()
 	if l.store != nil {
 		return l.store.Close()
 	}

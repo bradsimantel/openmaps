@@ -22,19 +22,24 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	public := flag.String("public", "public", "public files directory")
 	tiles := flag.String("tiles", "data/newport.pmtiles", "local Protomaps regional archive")
+	routingCache := flag.String("routing-cache", "", "optional directory for verified read-only mapped routing arrays (Linux/macOS)")
+	routingConcurrency := flag.Int("routing-concurrency", 4, "maximum concurrent Compute Routes HTTP requests (1-64)")
 	flag.Parse()
+	if *routingConcurrency < 1 || *routingConcurrency > 64 {
+		log.Fatal("routing-concurrency must be 1-64")
+	}
 	abs, err := filepath.Abs(*db)
 	if err != nil {
 		log.Fatal(err)
 	}
 	mux := http.NewServeMux()
 	if *state != "" {
-		live, err := dataset.Open(context.Background(), *state)
+		live, err := dataset.OpenWithRoutingCache(context.Background(), *state, *routingCache)
 		if err != nil {
 			log.Fatal(err)
 		}
 		defer live.Close()
-		mux.Handle("/directions/", live)
+		mux.Handle("/directions/", api.RoutingAdmission(live, *routingConcurrency))
 		mux.Handle("/v1/", live)
 		mux.Handle("/maps/api/", live)
 		mux.Handle("/healthz", live)
@@ -48,12 +53,18 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		router, err := routing.Open(context.Background(), abs)
+		var router *routing.Store
+		if *routingCache != "" {
+			router, err = routing.OpenMapped(context.Background(), abs, *routingCache)
+		} else {
+			router, err = routing.Open(context.Background(), abs)
+		}
 		if err != nil {
 			log.Fatal(err)
 		}
+		defer router.Close()
 		handler := api.Handler{Places: store, Geocoding: geocoder, Routing: router}
-		mux.Handle("/directions/", handler)
+		mux.Handle("/directions/", api.RoutingAdmission(handler, *routingConcurrency))
 		mux.Handle("/v1/", handler)
 		mux.Handle("/maps/api/", handler)
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

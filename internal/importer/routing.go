@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,9 +44,6 @@ func AddRouting(ctx context.Context, dbPath, pbf string, manifest json.RawMessag
 	if err != nil {
 		return err
 	}
-	if _, err = routing.New(d); err != nil {
-		return err
-	}
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return err
@@ -59,6 +57,16 @@ func AddRouting(ctx context.Context, dbPath, pbf string, manifest json.RawMessag
 	if err = routing.WriteGraph(ctx, tx, d); err != nil {
 		return err
 	}
+	// Validate the exact unpublished representation after releasing importer data.
+	// Building a second complete query graph alongside all raw source records made
+	// multistate validation exceed the host's heap budget.
+	d = routing.Data{}
+	runtime.GC()
+	validated, _, err := routing.Load(ctx, tx)
+	if err != nil {
+		return err
+	}
+	defer validated.Close()
 	return tx.Commit()
 }
 
@@ -347,11 +355,36 @@ func readRoutingScope(ctx context.Context, path string, source Input, bounds [4]
 		ids = append(ids, id)
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	// Restriction enumeration only visits from-way and via-way nodes. Keep all
+	// departures at those nodes (including unrelated only-turn alternatives), but
+	// avoid materializing two copies of every directed road arc nationwide.
+	restrictionFrom := map[int64]bool{}
+	restrictionNodes := map[int64]bool{}
+	for _, relation := range valid {
+		from, _, via, _ := restrictionMembers(relation)
+		restrictionFrom[from] = true
+		ways := []int64{from}
+		for _, member := range via {
+			if member.Type == osm.TypeNode {
+				restrictionNodes[member.Ref] = true
+			} else {
+				ways = append(ways, member.Ref)
+			}
+		}
+		for _, id := range ways {
+			if way := motorWays[id]; way != nil {
+				for _, n := range way.Nodes {
+					restrictionNodes[int64(n.ID)] = true
+				}
+			}
+		}
+	}
 	outgoing := map[int64][]arc{}
 	byWay := map[int64][]arc{}
 	used := map[int64]bool{}
 	for _, id := range ids {
 		r := roads[id]
+		tags := osmTags(r.way.Tags)
 		included := false
 		for i := 1; i < len(r.way.Nodes); i++ {
 			a, b := int64(r.way.Nodes[i-1].ID), int64(r.way.Nodes[i].ID)
@@ -363,7 +396,7 @@ func readRoutingScope(ctx context.Context, path string, source Input, bounds [4]
 			if blocked[a] || blocked[b] || a == b || na.Point == nb.Point {
 				continue
 			}
-			seg := routing.Segment{ID: strconv.FormatInt(id, 10) + ":" + strconv.Itoa(i-1), Way: id, From: a, To: b, Forward: r.forward, Backward: r.backward, Snap: r.snap, DestinationForward: directionAccess(osmTags(r.way.Tags), "forward") == "destination", DestinationBackward: directionAccess(osmTags(r.way.Tags), "backward") == "destination", Service: r.way.Tags.Find("highway") == "service", Elevated: r.way.Tags.Find("bridge") == "yes" || r.way.Tags.Find("tunnel") == "yes" || (r.way.Tags.Find("layer") != "" && r.way.Tags.Find("layer") != "0")}
+			seg := routing.Segment{ID: strconv.FormatInt(id, 10) + ":" + strconv.Itoa(i-1), Way: id, From: a, To: b, Forward: r.forward, Backward: r.backward, Snap: r.snap, DestinationForward: directionAccess(tags, "forward") == "destination", DestinationBackward: directionAccess(tags, "backward") == "destination", Service: r.way.Tags.Find("highway") == "service", Elevated: r.way.Tags.Find("bridge") == "yes" || r.way.Tags.Find("tunnel") == "yes" || (r.way.Tags.Find("layer") != "" && r.way.Tags.Find("layer") != "0")}
 			d.Segments = append(d.Segments, seg)
 			used[a] = true
 			used[b] = true
@@ -376,8 +409,12 @@ func readRoutingScope(ctx context.Context, path string, source Input, bounds [4]
 				if dir == 1 {
 					v.from, v.to = v.to, v.from
 				}
-				outgoing[v.from] = append(outgoing[v.from], v)
-				byWay[id] = append(byWay[id], v)
+				if restrictionNodes[v.from] {
+					outgoing[v.from] = append(outgoing[v.from], v)
+				}
+				if restrictionFrom[id] {
+					byWay[id] = append(byWay[id], v)
+				}
 			}
 		}
 		if included {

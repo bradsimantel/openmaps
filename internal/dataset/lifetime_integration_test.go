@@ -39,12 +39,13 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := Change(state, func(s *State) error { *s = State{Schema: 1, Baseline: bf, Current: bf}; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	live, err := Open(ctx, state)
+	live, err := OpenWithRoutingCache(ctx, state, os.Getenv("OPENMAPS_ROUTING_CACHE"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer live.Close()
 	old := live.router
+	oldMapped := old.MappedBytes()
 	server := httptest.NewServer(live)
 	defer server.Close()
 	point := routing.Point{-122.67966965, 45.51925845}
@@ -173,9 +174,15 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 	t.Logf("SWITCH seconds=%.3f sampled_peak_heap_mib=%.2f retained_two_graph_heap_mib=%.2f", time.Since(start).Seconds(), float64(peak)/1048576, float64(mem.HeapAlloc)/1048576)
-	if _, err := old.Route(ctx, point, point); err != nil {
-		t.Fatal("retained old query data invalid", err)
+	if old != live.router {
+		if old.MappedBytes() != 0 {
+			t.Fatal("retired mapping retained")
+		}
+		if _, err := old.Route(ctx, point, point); err == nil {
+			t.Fatal("retired router still accepts queries")
+		}
 	}
+	t.Logf("MAPPING old_bytes=%d new_bytes=%d overlap_virtual_bytes=%d retired_bytes=%d", oldMapped, live.router.MappedBytes(), oldMapped+live.router.MappedBytes(), old.MappedBytes())
 	if err := request(); err != nil {
 		t.Fatal(err)
 	}

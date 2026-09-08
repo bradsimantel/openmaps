@@ -23,10 +23,11 @@ unverified snap gaps. The passenger-car profile interprets vehicle limits and
 supports strictly qualified destination-only access without through shortcuts. The graph uses the wider
 retained Rhode Island extract for detours. The active August baseline is unchanged
 and has no routing graph. See [the routing contract and candidate build](docs/routing.md).
-A separate Oregon coordinate-routing candidate and source-backed benchmark now
+Separate Oregon and full Oregon–Washington–Idaho coordinate-routing candidates
 cover regional scaling and boundary detours. [Storage and scaling](docs/routing-scale.md)
-describes the compact layout, concurrent snapshot leases and unfinished national
-hierarchy work. Oregon has no address coverage. Nearby place search and general
+describes the partial junction hierarchy, optional mapped numeric arrays, concurrent
+snapshot leases and measured limits. Nationwide routing remains unfinished; these
+regional candidates have no address coverage. Nearby place search and general
 text search remain future milestones.
 
 ## Run the Newport demo
@@ -129,8 +130,9 @@ and address/website when available. Masks support parent and leaf paths, or `*`.
 Unsupported parameters and fields return `INVALID_ARGUMENT`; unknown IDs return
 `NOT_FOUND`. No ratings, photos, opening hours, entrances or other unavailable
 attributes are fabricated. API keys are accepted for client compatibility but
-are **not authenticated**; there are no billing, quota or production access
-controls.
+are **not authenticated**; there are no billing or per-client quotas. The server
+limits concurrent routing work to four requests by default; excess routing
+requests receive HTTP 429. This is not a production authentication system.
 
 The [historical initial API target decision](docs/log/0001-places-api-target.md) records the
 first milestone’s request, field-mask and error contract, with links to Google’s
@@ -218,10 +220,12 @@ index. Activation replaces all available domains together. The owned Go import p
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
-Routing remains independent of text search and address resolution. Its accelerated search skips forced geometry chains and uses A* while preserving
-directed-edge turn history and destination access. Dijkstra remains an internal
-correctness reference; bounded SQLite chunks and spatial indexes use the existing
-import/snapshot workflow. See
+Routing remains independent of text search and address resolution. Its accelerated
+search skips forced geometry chains and selected ordinary junctions, and uses A*
+while preserving directed-edge turn history and destination access. Dijkstra
+remains an internal correctness reference; optional verified read-only numeric
+mappings, bounded SQLite chunks and spatial indexes use the existing import/snapshot
+workflow. See
 [the maintained routing design](docs/routing.md).
 
 ## Verification

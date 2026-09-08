@@ -200,7 +200,7 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 					message = "No acceptable address-to-road association within the documented bounds; access restrictions and competing roads are preserved"
 				}
 				if re.Outcome == "outside_coverage" {
-					message = fmt.Sprintf("The %s is outside the supported Newport endpoint rectangle", re.Endpoint)
+					message = fmt.Sprintf("The %s is outside the configured routing endpoint bounds", re.Endpoint)
 				}
 				write(w, 400, object{"error": object{"code": 400, "status": "INVALID_ARGUMENT", "message": message}, "openmaps": object{"outcome": re.Outcome, "endpoint": re.Endpoint, "origin": originMeta, "destination": destinationMeta}})
 			}

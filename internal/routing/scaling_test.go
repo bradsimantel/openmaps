@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -46,6 +47,13 @@ func TestAcceleratedReferenceAgreement(t *testing.T) {
 			d.Costs[i].Backward.KPH = float64(5 + random.IntN(90))
 		}
 		s := store(t, d)
+		if seed%2 == 0 && (runtime.GOOS == "darwin" || runtime.GOOS == "linux") && (runtime.GOARCH == "arm64" || runtime.GOARCH == "amd64") {
+			if err := s.UseMappedQueryData(ctx, t.TempDir()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Cleanup(func() { s.Close() })
+		shortcuts := 0
 		for n := 0; n < 45; n++ {
 			point := func() Point {
 				seg := d.Segments[random.IntN(len(d.Segments))]
@@ -54,7 +62,9 @@ func TestAcceleratedReferenceAgreement(t *testing.T) {
 				return Point{a[0] + f*(b[0]-a[0]), a[1] + f*(b[1]-a[1])}
 			}
 			a, b := Endpoint{Point: point()}, Endpoint{Point: point()}
-			fast, fe := s.RouteEndpoints(ctx, a, b)
+			var metrics SearchMetrics
+			fast, fe := s.RouteEndpoints(WithSearchMetrics(ctx, &metrics), a, b)
+			shortcuts += metrics.JunctionShortcuts
 			ref, re := s.RouteReferenceEndpoints(ctx, a, b)
 			if fmt.Sprint(fe) != fmt.Sprint(re) || math.Abs(fast.Duration-ref.Duration) > 1e-6 || !reflect.DeepEqual(fast.Origin, ref.Origin) || !reflect.DeepEqual(fast.Destination, ref.Destination) {
 				t.Fatalf("seed %d request %d: accelerated=%+v %v reference=%+v %v", seed, n, fast, fe, ref, re)
@@ -63,6 +73,9 @@ func TestAcceleratedReferenceAgreement(t *testing.T) {
 			if !reflect.DeepEqual(again, fast) || fmt.Sprint(ae) != fmt.Sprint(fe) {
 				t.Fatal("nondeterministic tie")
 			}
+		}
+		if shortcuts == 0 {
+			t.Fatalf("seed %d did not exercise junction shortcuts alongside via-way and destination restrictions", seed)
 		}
 	}
 }
@@ -150,7 +163,7 @@ func TestSpatialSelectionMatchesFullScan(t *testing.T) {
 	d := fixture()
 	d.Guards = []Guard{{Segment: "guard", Way: 99, From: Point{.002, .0003}, To: Point{.005, .0003}}}
 	s := store(t, d)
-	ref := *s
+	ref := store(t, d)
 	ref.segmentIndex = scanIndex(len(s.segments))
 	ref.guardIndex = scanIndex(len(s.guards))
 	ref.areaIndex = scanIndex(len(s.access.Areas))
@@ -251,7 +264,7 @@ func TestChunkStorageValidation(t *testing.T) {
 func TestSpatialAddressSelectionMatchesFullScan(t *testing.T) {
 	d, e := associationFixture()
 	s := store(t, d)
-	reference := *s
+	reference := store(t, d)
 	reference.segmentIndex = scanIndex(len(s.segments))
 	reference.guardIndex = scanIndex(len(s.guards))
 	reference.areaIndex = scanIndex(len(s.access.Areas))
