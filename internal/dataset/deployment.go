@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"openmaps/internal/api"
+	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
 )
@@ -196,6 +197,7 @@ type Live struct {
 	statePath string
 	current   File
 	store     *places.Store
+	geocoder  *geocoding.Store
 	lastError string
 }
 
@@ -223,8 +225,14 @@ func (l *Live) reload(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	geocoder, e := geocoding.Open(ctx, s.Current.Path)
+	if e != nil {
+		next.Close()
+		return e
+	}
 	old := l.store
 	l.store = next
+	l.geocoder = geocoder
 	l.current = s.Current
 	if old != nil {
 		old.Close()
@@ -265,5 +273,5 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("X-OpenMaps-Dataset", l.current.SHA256)
-	api.Handler{Places: l.store}.ServeHTTP(w, r)
+	api.Handler{Places: l.store, Geocoding: l.geocoder}.ServeHTTP(w, r)
 }

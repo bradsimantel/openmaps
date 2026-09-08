@@ -2,6 +2,7 @@
   "schema": 1,
   "manifest": {
     "region": "synthetic",
+    "bbox": [-71.33, 41.47, -71.29, 41.51],
     "release": "fixture-v1"
   },
   "identities": {},

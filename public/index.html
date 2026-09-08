@@ -13,8 +13,14 @@
   <section class="panel" aria-label="Place search">
    <header><a class="brand" href="/">◎ <span>Open Maps</span></a><span class="badge">FIRST LOOK</span></header>
    <div class="intro"><p class="eyebrow">RHODE ISLAND / 01</p><h1>A little more<br> of Newport.</h1><p>Find a local spot, a street, or an address.<br>Choose a result to put it on the map.</p></div>
+   <label for="lookup-mode">Lookup mode</label>
+   <select id="lookup-mode"><option value="places">Places autocomplete</option><option value="address">Forward geocoding</option></select>
+   <form id="lookup-form">
    <label for="search">Explore Newport</label>
    <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Place, street, or address" autocomplete="off" aria-controls="results" aria-describedby="search-status"></div>
+   <button id="geocode-submit" type="submit" hidden>Find address</button>
+   </form>
+   <p class="lookup-hint">Click the map for the nearest address within 100 metres. Source points have unknown rooftop, entrance and unit precision.</p>
    <p id="search-status" class="status" role="status">Search downtown Newport and its nearby streets.</p>
    <ul id="results" aria-label="Search suggestions"></ul>
    <div id="welcome"><p class="eyebrow">START SOMEWHERE</p><div class="examples"><button data-query="White Horse">White Horse Tavern <span>↗</span></button><button data-query="50 Bellevue">50 Bellevue Avenue <span>↗</span></button><button data-query="Thames">Thames Street <span>↗</span></button></div><p class="hint">A small region. Real open data.<br>Coverage is a work in progress.</p></div>

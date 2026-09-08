@@ -32,6 +32,12 @@ type Entity struct {
 	Location     Location
 	Attributions []Attribution
 }
+
+// AddressComponents contains only available structured source values. Empty
+// fields are unknown; a region or country may be a code rather than a full name.
+type AddressComponents struct {
+	Number, Street, Locality, Region, Postcode, Country string
+}
 type Store struct{ db *sql.DB }
 
 func Open(path string) (*Store, error) {

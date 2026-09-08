@@ -163,7 +163,8 @@ refresh writer is running before removing the stale lock. Never edit a selected
 SQLite file in place. Archive it along with its lock, bundle and identity evidence.
 
 On the next API or health request, the server detects a changed selection,
-validates and opens it before replacing its handler. It holds a lock through each
+validates and opens Places plus the geocoding address index before replacing its
+handler. It holds a lock through each
 lookup request; requests are serialized for this small demo. A failed reload
 retains the last working handler and makes health return HTTP 503 with an error.
 Successful API responses include `X-OpenMaps-Dataset`. Check health after every
@@ -194,6 +195,13 @@ does not approve a new merge. Do not discard the prior snapshot chain or treat a
 fresh `cmd/import` database as a substitute for a refresh built with history.
 
 ## Verification
+
+For geocoding, run the [retained-snapshot quality benchmark](geocoding.md#deterministic-quality-benchmark)
+on baseline and candidate before activation. It checks the actual source evidence,
+expected result IDs, precision, distances and coverage outcomes. After each switch,
+verify forward lookup and map-click reverse lookup in the in-app browser, including
+ambiguity and unsupported input. The benchmark is separate from the Places
+comparison/review artifact; passing Places checks alone does not verify geocoding.
 
 Routine checks need no network or regional files:
 

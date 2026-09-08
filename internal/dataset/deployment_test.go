@@ -35,6 +35,7 @@ func fixture(t *testing.T) (string, string, string, string) {
 		t.Fatal(e)
 	}
 	b.Records[0].Attributes["website"] = json.RawMessage(`"https://example.org/refreshed"`)
+	b.Records[1].Attributes["location"] = json.RawMessage(`{"lat":41.4902,"lng":-71.3102}`)
 	b, h, e := importer.Reconcile(b, s, nil)
 	if e != nil {
 		t.Fatal(e)
@@ -199,5 +200,40 @@ func TestFailedRollbackPreservesSelection(t *testing.T) {
 	after, _ := os.ReadFile(state)
 	if string(before) != string(after) {
 		t.Fatal("failed rollback changed selection")
+	}
+}
+
+func TestGeocodingUsesActivatedSnapshotAndRollback(t *testing.T) {
+	_, next, state, report := fixture(t)
+	ctx := context.Background()
+	live, err := Open(ctx, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.Close()
+	lookup := func() (string, string) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		live.ServeHTTP(w, httptest.NewRequest("GET", "/maps/api/geocode/json?address=26+Marlborough+Street", nil))
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"OK"`) {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		return w.Body.String(), w.Header().Get("X-OpenMaps-Dataset")
+	}
+	before, baseHash := lookup()
+	if err = Activate(ctx, state, next, report, filepath.Join(filepath.Dir(state), "review.json")); err != nil {
+		t.Fatal(err)
+	}
+	after, nextHash := lookup()
+	id := importer.PublicID("fixture:address:26")
+	if before == after || baseHash == nextHash || !strings.Contains(before, id) || !strings.Contains(after, id) || !strings.Contains(after, `"lat":41.4902`) {
+		t.Fatal("geocoding coordinate update, identity or dataset header changed incorrectly")
+	}
+	if err = Rollback(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	restored, restoredHash := lookup()
+	if restored != before || restoredHash != baseHash {
+		t.Fatal("rollback did not restore geocoding")
 	}
 }

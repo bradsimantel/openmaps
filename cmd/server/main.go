@@ -10,6 +10,7 @@ import (
 
 	"openmaps/internal/api"
 	"openmaps/internal/dataset"
+	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
 )
 
@@ -32,6 +33,7 @@ func main() {
 		}
 		defer live.Close()
 		mux.Handle("/v1/", live)
+		mux.Handle("/maps/api/", live)
 		mux.Handle("/healthz", live)
 	} else {
 		store, err := places.Open(abs)
@@ -39,7 +41,13 @@ func main() {
 			log.Fatal(err)
 		}
 		defer store.Close()
-		mux.Handle("/v1/", api.Handler{Places: store})
+		geocoder, err := geocoding.Open(context.Background(), abs)
+		if err != nil {
+			log.Fatal(err)
+		}
+		handler := api.Handler{Places: store, Geocoding: geocoder}
+		mux.Handle("/v1/", handler)
+		mux.Handle("/maps/api/", handler)
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"status":"ok"}`))

@@ -3,9 +3,12 @@
 Open Maps is a Go and SQLite replacement for selected Google Maps HTTP API
 operations, with MapLibre GL JS and Protomaps for display.
 
-**The first milestone works:** autocomplete businesses, standalone addresses,
+**Places and Newport geocoding work:** autocomplete businesses, standalone addresses,
 streets and areas in downtown Newport, Rhode Island; retrieve details using the
-returned ID; and display the selected result on a map. It uses real regional
+returned ID; and display the selected result on a map. Dedicated forward geocoding
+matches full address labels;
+map-click reverse geocoding finds a supported address point within 100 metres.
+Both show source precision and preserve ambiguous identities. It uses real regional
 imports, not demo data embedded in the client.
 
 Repeatable snapshot builds, identity review, comparison, live selection and rollback
@@ -13,8 +16,7 @@ are implemented in the [Newport refresh workflow](docs/refresh.md). The original
 August data remains the baseline; the second pinned release is a historical July
 rehearsal, not a newer Overture release.
 
-Routing, dedicated forward/reverse geocoding, nearby search and text search are
-future milestones. They are not implemented.
+Routing, nearby place search and general text search remain future milestones.
 
 ## Run the Newport demo
 
@@ -39,6 +41,12 @@ Open **http://127.0.0.1:8080**. Try `White Horse`, `50 Bellevue`, `Thames`, or
 `Newport`. Click a suggestion; keyboard users can press Down from the input and
 Enter to select. Names, coordinates, available address and website come from the
 selected entity's details response.
+
+For geocoding, choose **Forward geocoding**, enter `50 Bellevue Ave`, and press
+**Find address**. Click the map for reverse lookup. The result shows source
+coordinates, approximate precision and reverse distance. `364 Bellevue Avenue`
+requires choosing among eight distinct points; apartment requests are explicitly
+unsupported. See [the maintained geocoding contract](docs/geocoding.md).
 
 `data/` is ignored by Git.
 The OSM regional PBF is about 52 MB; canonical Overture subsets and SQLite add
@@ -72,7 +80,7 @@ before reusing its port. The service defaults to loopback and supports `-db`,
 
 ## Supported API
 
-Compatibility target: **Google Places API (New), REST v1**, checked against
+Places compatibility target: **Google Places API (New), REST v1**, checked against
 current official documentation on 2026-09-07. This is a documented subset, not
 full Google coverage, ranking or SDK compatibility. Open Maps IDs are independent
 of Google place IDs.
@@ -90,6 +98,7 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 | --- | --- |
 | `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, and response field mask; up to five place predictions |
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
+| `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional English `language` and unauthenticated `key` |
 | `GET /healthz` | Process health; in deployment mode, loaded database fingerprint and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
 
@@ -104,6 +113,16 @@ controls.
 The [historical initial API target decision](docs/log/0001-places-api-target.md) records the
 first milestone’s request, field-mask and error contract, with links to Google’s
 official references.
+
+Geocoding targets **Google Geocoding API v3 HTTP JSON**, checked 2026-09-07.
+It uses a separate `status`/`results` envelope, not Places errors or field masks.
+Only exact normalized number + complete street labels and nearest supported
+address points are returned; there are no street/locality fallbacks. Results use
+existing address IDs and `APPROXIMATE` geometry. Available structured source
+components are returned in `address_components`. Explicit units, ranges, fractions,
+filters and unsupported parameters fail visibly. Missing source locality is not
+inferred; Newport context is marked partial. See [supported requests, outcomes
+and source limitations](docs/geocoding.md) and the [historical contract decision](docs/log/0008-geocoding-contract.md).
 
 ## Region, sources and identity
 
@@ -154,6 +173,7 @@ cmd/import/         Checksum-verified SQLite builder
 cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
 cmd/refresh/        Snapshot build, comparison, review, activation and rollback
 internal/places/    Domain entities, autocomplete, details and search normalization
+internal/geocoding/ Address label matching, bounded nearest address lookup and fixtures
 internal/api/       Google request/response translation and errors
 internal/importer/  Source adapters, schema, identity history and refresh comparison
 internal/dataset/   Atomic deployment selection and live HTTP handler replacement
@@ -161,7 +181,9 @@ imports/           Source locks, bundle checksum and identity mappings
 public/            Browser ES modules and styles; libraries loaded from esm.sh
 ```
 
-One Go service reads SQLite with FTS5. The owned Go import pipeline uses
+One Go service reads SQLite with FTS5. Geocoding loads an immutable address index
+from the same read-only snapshot; reverse lookup scans the small regional set.
+Activation replaces both lookup domains together. The owned Go import pipeline uses
 `parquet-go` for cloud GeoParquet and `paulmach/osm` for PBF decoding; provider
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
@@ -186,7 +208,10 @@ HTTP range validation, cancellation, checksums,
 relationships, rejected imports, stable IDs across reordered/released imports,
 and source enrichment/replacement without changing existing IDs. Refresh tests cover
 reviewed replacements, split/merge ambiguity, absent-source history, search-index
-corruption, stale reviews, failed switches and live rollback. No regional
+corruption, stale reviews, failed switches and live rollback. Geocoding tests
+cover normalized address numbers/streets, context, duplicate
+identities, explicit unit errors, invalid coordinates, distance cutoffs and
+coverage, plus atomic snapshot selection and rollback. No regional
 source downloads are part of `go test ./...`.
 
 Browser verification now works through the Codex desktop in-app browser plugin.
@@ -197,6 +222,10 @@ remains unresolved. No standalone browser runner or npm tooling was added.
 Browser libraries, fonts and sprites require network access. See the
 [historical desktop browser verification](docs/log/0006-desktop-browser-verification.md)
 and [historical refresh verification](docs/log/0005-newport-refresh-verification.md).
+
+The geocoding milestone also passed a [26-case source-backed benchmark](docs/geocoding.md#deterministic-quality-benchmark)
+on the retained baseline and candidate, and in-app browser forward/reverse flows
+with ambiguity, errors and rollback. See [historical geocoding verification](docs/log/0009-geocoding-verification.md).
 
 Check a real business, address, street and area through autocomplete, details and
 map placement. Also check keyboard selection, empty results, fast input changes,
@@ -210,7 +239,9 @@ details available. See [historical first-milestone verification results](docs/lo
 - Search uses normalized token prefixes with exact-name/name-prefix priority,
   then area/street/business/address precedence, FTS ranking and stable ID ties.
 - Source labels can be incomplete or duplicated. NAD locality and units are
-  missing here; address ranges are retained verbatim. Coverage is not certified.
+  missing here; address ranges are retained verbatim in Places. Geocoding supports
+  8,407 of 8,545 source labels; 138 nonstandard forms remain excluded from both
+  geocoding directions. Coverage and source positional accuracy are not certified.
 - Streets are source ways, with a representative vertex. Area locations are
   labels. Neither means an entrance, rooftop guarantee, boundary or routing snap.
 - Freshness follows pinned snapshots. Refreshes support reviewed one-to-one
@@ -220,4 +251,4 @@ details available. See [historical first-milestone verification results](docs/lo
 - The local map cutout is finite; zooming or panning far outside Newport can show
   missing tiles. Browser libraries, fonts and sprites use external hosts.
 - Deployment hardening, continuous coverage evaluation and richer data are
-  later work. Dedicated geocoding and routing remain future milestones.
+  later work. Routing remains a future milestone.

@@ -6,6 +6,8 @@ const welcome = document.querySelector('#welcome');
 let timer, controller, generation = 0, marker, map, maplibregl;
 export {map};
 let sessionToken = crypto.randomUUID();
+const mode=document.querySelector('#lookup-mode');
+let queryMarker, selectedMapResult;
 
 async function initializeMap() {
 try {
@@ -26,7 +28,8 @@ try {
    layers:basemaps.layers('protomaps',basemaps.namedFlavor('light'),{lang:'en'})}
  });
  map.addControl(new maplibregl.NavigationControl(),'top-right');
- map.on('load',()=>{document.querySelector('#map-status').textContent='Map ready';});
+ map.on('load',()=>{document.querySelector('#map-status').textContent='Map ready';if(selectedMapResult)placeMarker(...selectedMapResult);});
+ map.on('click',event=>{if(event.originalEvent.target.closest('.maplibregl-marker, .maplibregl-popup'))return;mode.value='address';input.value='';updateMode();lookupGeocode({lat:event.lngLat.lat,lng:event.lngLat.lng});});
  map.on('error',()=>{document.querySelector('#map-status').textContent='Some map tiles could not load';});
 } catch (error) {
  document.querySelector('#map-status').textContent='Map unavailable. Search still works.';
@@ -38,12 +41,14 @@ function element(tag,text,className) { const el=document.createElement(tag);el.t
 function kind(types) {return types.includes('street_address')?'Address':types.includes('route')?'Street':types.includes('political')?'Area':'Place';}
 async function request(url,options={}) {
  const response=await fetch(url,options);const body=await response.json();
- if(!response.ok)throw new Error(body.error?.message || 'Request failed');
+ if(!response.ok)throw new Error(body.error?.message || body.error_message || 'Request failed');
  return body;
 }
 function changed() {
  clearTimeout(timer);controller?.abort();const current=++generation;
  results.replaceChildren();details.hidden=true;welcome.hidden=Boolean(input.value.trim());
+ clearMarkers();
+ if(mode.value==='address'){status.textContent='Enter a house number and complete street name, then Find address. For example: 50 Bellevue Ave.';return;}
  if(!input.value.trim()){status.textContent='Search downtown Newport and its nearby streets.';return;}
  status.textContent='Searching…';
  timer=setTimeout(()=>search(current),180);
@@ -76,14 +81,58 @@ async function select(prediction) {
   const precision=p.types.includes('route')?'Representative point on a street segment.':p.types.includes('political')?'Area label point; no boundary shown.':p.types.includes('street_address')?'Source address point; entrance and unit precision are unknown.':'Source place location; entrance precision is unknown.';
   details.append(element('p',precision));
   if(p.websiteUri){const a=element('a','Visit website ↗','website');const url=new URL(p.websiteUri);if(['https:','http:'].includes(url.protocol)){a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';details.append(a);}}
-  if(map){
-   marker?.remove();const popup=new maplibregl.Popup({offset:30}).setText(p.displayName.text);
-   marker=new maplibregl.Marker({color:'#3d6848'}).setLngLat([p.location.longitude,p.location.latitude]).setPopup(popup).addTo(map);
-   marker.getElement().setAttribute('aria-label',`Map marker: ${p.displayName.text}`);
-   marker.togglePopup();map.flyTo({center:[p.location.longitude,p.location.latitude],zoom:p.types.includes('political')?12:16});
-  }
+  placeMarker(p.displayName.text,p.location.longitude,p.location.latitude,p.types.includes('political')?12:16);
   status.textContent=`Selected ${p.displayName.text}.`;
  }catch(error){if(error.name!=='AbortError'&&current===generation)status.textContent=error.message;}
+}
+function clearMarkers(){marker?.remove();queryMarker?.remove();marker=queryMarker=null;selectedMapResult=null;}
+function placeMarker(label,lng,lat,zoom=16){
+ selectedMapResult=[label,lng,lat,zoom];if(!map||!maplibregl)return;
+ marker?.remove();const popup=new maplibregl.Popup({offset:30,focusAfterOpen:false}).setText(label);
+ marker=new maplibregl.Marker({color:'#3d6848'}).setLngLat([lng,lat]).setPopup(popup).addTo(map);
+ marker.getElement().setAttribute('aria-label',`Map marker: ${label}`);
+ marker.togglePopup();map.flyTo({center:[lng,lat],zoom});
+}
+function updateMode(){
+ document.querySelector('#geocode-submit').hidden=mode.value!=='address';
+ input.placeholder=mode.value==='address'?'50 Bellevue Ave':'Place, street, or address';
+}
+mode.addEventListener('change',()=>{updateMode();changed();});
+document.querySelector('#lookup-form').addEventListener('submit',event=>{event.preventDefault();if(mode.value==='address')lookupGeocode();});
+async function lookupGeocode(point){
+ clearTimeout(timer);controller?.abort();const current=++generation;controller=new AbortController();
+ clearMarkers();results.replaceChildren();details.hidden=true;welcome.hidden=true;
+ status.textContent=point?'Finding a nearby address…':'Looking up address…';
+ if(point&&map){const dot=element('div','','query-marker');queryMarker=new maplibregl.Marker({element:dot}).setLngLat([point.lng,point.lat]).addTo(map);queryMarker.getElement().setAttribute('aria-label','Reverse lookup query point');}
+ try{
+  const query=point?`latlng=${point.lat},${point.lng}`:`address=${encodeURIComponent(input.value)}`;
+  const body=await request(`/maps/api/geocode/json?${query}`,{signal:controller.signal});
+  if(current!==generation)return;
+  if(body.status==='INVALID_REQUEST')throw new Error(body.error_message);
+  if(body.status==='ZERO_RESULTS'){
+   status.textContent=body.openmaps.outcome==='outside_coverage'?'Outside the Newport preview rectangle. No address selected.':body.openmaps.outcome==='no_nearby_address'?'No supported address point within 100 metres. Coverage may be incomplete.':'No exact address match. Use the complete street name; check context and coverage. No street or locality fallback is used.';return;
+  }
+  if(body.status!=='OK')throw new Error(body.error_message||'Geocoding unavailable');
+  if(body.openmaps.outcome==='ambiguous'){
+   status.textContent=`Ambiguous: ${body.results.length} distinct source address points. Units are unknown. Choose a candidate; none is selected automatically.`;
+   for(const r of body.results){const li=element('li','');const button=element('button','');button.append(element('strong',r.formatted_address),element('small',`${r.geometry.location.lat.toFixed(6)}, ${r.geometry.location.lng.toFixed(6)} · ${r.place_id}`));button.addEventListener('click',()=>selectGeocode(r,point,true));li.append(button);results.append(li);}
+  }else{selectGeocode(body.results[0],point,false);}
+ }catch(error){if(error.name!=='AbortError'&&current===generation)status.textContent=error.message;}
+}
+function selectGeocode(r,point,ambiguous){
+ results.replaceChildren();details.replaceChildren();details.hidden=false;welcome.hidden=true;
+ details.append(element('div',point?'REVERSE GEOCODING':'FORWARD GEOCODING','eyebrow'),element('h2',r.formatted_address));
+ const p=r.geometry.location;
+ details.append(element('p',`${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`,'coords'));
+ details.append(element('p','Address match · source address point · APPROXIMATE. Rooftop, entrance, building containment and unit precision are unknown.'));
+ if(point)details.append(element('p',`${r.openmaps.distance_meters.toFixed(2)} metres from click (latitude ${point.lat.toFixed(6)}, longitude ${point.lng.toFixed(6)}). Limit: 100 metres; straight-line distance. Blue dot: click. Green marker: address.`));
+ if(r.partial_match)details.append(element('p',`Partial context match: ${r.openmaps.context_note}.`));
+ if(ambiguous)details.append(element('p','You chose one of multiple distinct candidates; this choice does not resolve the missing source precision.'));
+ details.append(element('p',`Public ID: ${r.place_id}`,'coords'));
+ for(const a of r.openmaps.attributions||[])details.append(element('p',a.provider));
+ placeMarker(r.formatted_address,p.lng,p.lat);
+ status.textContent='Selected source address point. No street or locality fallback.';
+ details.scrollIntoView({block:'nearest'});
 }
 input.addEventListener('input',changed);
 input.addEventListener('keydown',event=>{if(event.key==='ArrowDown'){results.querySelector('button')?.focus();event.preventDefault();}if(event.key==='Escape'){input.value='';changed();}});
@@ -93,4 +142,4 @@ results.addEventListener('keydown',event=>{
  if(event.key==='ArrowUp'){if(i<=0)input.focus();else buttons[i-1].focus();event.preventDefault();}
  if(event.key==='Escape')input.focus();
 });
-document.querySelectorAll('[data-query]').forEach(button=>button.addEventListener('click',()=>{input.value=button.dataset.query;input.focus();changed();}));
+document.querySelectorAll('[data-query]').forEach(button=>button.addEventListener('click',()=>{mode.value='places';updateMode();input.value=button.dataset.query;input.focus();changed();}));

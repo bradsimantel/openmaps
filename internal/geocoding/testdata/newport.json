@@ -1,0 +1,527 @@
+{
+  "scope": "Newport August baseline and historical July candidate; source evidence, not independent ground truth",
+  "cases": [
+    {
+      "name": "bellevue",
+      "address": "50 Bellevue Avenue",
+      "outcome": "matched",
+      "ids": [
+        "om_f88c096070879478ee02e036d3e67480"
+      ],
+      "partial": false
+    },
+    {
+      "name": "normalization",
+      "address": " 050 b\u00c9lleVue AVE. ",
+      "outcome": "matched",
+      "ids": [
+        "om_f88c096070879478ee02e036d3e67480"
+      ],
+      "partial": false
+    },
+    {
+      "name": "regional-context",
+      "address": "50 Bellevue Ave, Newport, RI, 02840, US",
+      "outcome": "matched",
+      "ids": [
+        "om_f88c096070879478ee02e036d3e67480"
+      ],
+      "partial": true
+    },
+    {
+      "name": "marlborough",
+      "address": "26 Marlborough St",
+      "outcome": "matched",
+      "ids": [
+        "om_61175af183461abee3b22801d1c907c7"
+      ],
+      "partial": false
+    },
+    {
+      "name": "duplicate-eight",
+      "address": "364 Bellevue Avenue",
+      "outcome": "ambiguous",
+      "ids": [
+        "om_1756aadfad66fbf9a7f89d3f0da05cdd",
+        "om_3761b4bdcc9208d0bfb82775d5e1d75e",
+        "om_4098a705c5300791b2737d4f59bb8764",
+        "om_5d377aa5a5f02778be84dcf3100a7277",
+        "om_6acbc54681cd81a3e64b529aff599c80",
+        "om_6f49f7a9f416862ad2fce0608cae3cd2",
+        "om_b0476e6109c3097b8d3c9b0e2a7ad136",
+        "om_c46eae846a955c231972ace833b2ec36"
+      ],
+      "partial": false
+    },
+    {
+      "name": "duplicate-twelve",
+      "address": "199 James T Connell Memorial Rd",
+      "outcome": "ambiguous",
+      "ids": [
+        "om_44e244261581f0a792fef9782ef21ca2",
+        "om_4b699cfcb968db18ddd53683b77c9e0d",
+        "om_4c5f193f255324230871592020c996e5",
+        "om_6243b7dfaae7392eb951fe7bb28931b0",
+        "om_648257f90b70c46bc88a8dd4e6d29332",
+        "om_6fa141e2c22e9cfbf1558fed3c8fba87",
+        "om_73eeddb797fc0bf0264d42e1ade345d0",
+        "om_94aa248e35227a33ca4c6a9090ea800d",
+        "om_9705f9c42ecc9e122f872e854d547f3e",
+        "om_9d318d1f9ae37de1c11a6c57fe149e4d",
+        "om_a8e196bf26577462de8b115100fbea4d",
+        "om_f06a05a149723154104f591a99a60017"
+      ],
+      "partial": false
+    },
+    {
+      "name": "south-edge-address",
+      "address": "5 Beacon Hill Rd",
+      "outcome": "matched",
+      "ids": [
+        "om_ec2819804685ca896561c6a6c2b485d4"
+      ],
+      "partial": false
+    },
+    {
+      "name": "east-edge-address",
+      "address": "357 Valley Rd",
+      "outcome": "matched",
+      "ids": [
+        "om_054e3e24bff0e5690b6d186aaaf33463"
+      ],
+      "partial": false
+    },
+    {
+      "name": "missing-number",
+      "address": "99999 Bellevue Avenue",
+      "outcome": "no_match",
+      "ids": [],
+      "partial": false
+    },
+    {
+      "name": "incomplete-street",
+      "address": "50 Bellevue",
+      "outcome": "no_match",
+      "ids": [],
+      "partial": false
+    },
+    {
+      "name": "wrong-city",
+      "address": "50 Bellevue Avenue, Boston, MA",
+      "outcome": "no_match",
+      "ids": [],
+      "partial": false
+    },
+    {
+      "name": "wrong-postcode",
+      "address": "50 Bellevue Avenue, 99999",
+      "outcome": "no_match",
+      "ids": [],
+      "partial": false
+    },
+    {
+      "name": "missing-unit",
+      "address": "50 Bellevue Avenue Apt 2",
+      "outcome": "unsupported_input",
+      "ids": [],
+      "partial": false
+    },
+    {
+      "name": "range",
+      "address": "1 -550 AMERICA Street",
+      "outcome": "unsupported_input",
+      "ids": [],
+      "partial": false
+    },
+    {
+      "name": "street-only",
+      "address": "Thames Street",
+      "outcome": "unsupported_input",
+      "ids": [],
+      "partial": false
+    },
+    {
+      "name": "locality-only",
+      "address": "Newport",
+      "outcome": "unsupported_input",
+      "ids": [],
+      "partial": false
+    },
+    {
+      "name": "exact-bellevue",
+      "latlng": [
+        41.486543927900414,
+        -71.30830417812572
+      ],
+      "outcome": "matched",
+      "ids": [
+        "om_f88c096070879478ee02e036d3e67480"
+      ],
+      "distances": [
+        0.0
+      ]
+    },
+    {
+      "name": "nearby-bellevue",
+      "latlng": [
+        41.48656,
+        -71.30835
+      ],
+      "outcome": "matched",
+      "ids": [
+        "om_f88c096070879478ee02e036d3e67480"
+      ],
+      "distances": [
+        4.214521
+      ]
+    },
+    {
+      "name": "nearby-marlborough",
+      "latlng": [
+        41.49136,
+        -71.31374
+      ],
+      "outcome": "matched",
+      "ids": [
+        "om_61175af183461abee3b22801d1c907c7"
+      ],
+      "distances": [
+        0.916508
+      ]
+    },
+    {
+      "name": "water-gap",
+      "latlng": [
+        41.485,
+        -71.329
+      ],
+      "outcome": "no_nearby_address",
+      "ids": [],
+      "distances": []
+    },
+    {
+      "name": "south-inside",
+      "latlng": [
+        41.470001,
+        -71.32848162208666
+      ],
+      "outcome": "matched",
+      "ids": [
+        "om_ec2819804685ca896561c6a6c2b485d4"
+      ],
+      "distances": [
+        0.196356
+      ]
+    },
+    {
+      "name": "south-outside",
+      "latlng": [
+        41.469999,
+        -71.32848162208666
+      ],
+      "outcome": "outside_coverage",
+      "ids": [],
+      "distances": []
+    },
+    {
+      "name": "north-inside",
+      "latlng": [
+        41.51,
+        -71.30549890898419
+      ],
+      "outcome": "matched",
+      "ids": [
+        "om_8554fe11d637af232dc87866f95b60d0"
+      ],
+      "distances": [
+        0.598977
+      ]
+    },
+    {
+      "name": "east-inside",
+      "latlng": [
+        41.50944932354806,
+        -71.29
+      ],
+      "outcome": "matched",
+      "ids": [
+        "om_054e3e24bff0e5690b6d186aaaf33463"
+      ],
+      "distances": [
+        1.188921
+      ]
+    },
+    {
+      "name": "east-outside",
+      "latlng": [
+        41.50944932354806,
+        -71.289999
+      ],
+      "outcome": "outside_coverage",
+      "ids": [],
+      "distances": []
+    },
+    {
+      "name": "distant",
+      "latlng": [
+        0,
+        0
+      ],
+      "outcome": "outside_coverage",
+      "ids": [],
+      "distances": []
+    }
+  ],
+  "evidence": [
+    {
+      "id": "om_054e3e24bff0e5690b6d186aaaf33463",
+      "source_key": "overture:address:245f7c3d-a7fc-42f5-90e8-68919d8f0038",
+      "number": "357",
+      "street": "VALLEY Road",
+      "location": {
+        "lat": 41.50944932354806,
+        "lng": -71.29001427824392
+      }
+    },
+    {
+      "id": "om_1756aadfad66fbf9a7f89d3f0da05cdd",
+      "source_key": "overture:address:79606b68-2e5d-4cf7-beeb-7e0255acd6be",
+      "number": "364",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.478570557118516,
+        "lng": -71.30638518694232
+      }
+    },
+    {
+      "id": "om_3761b4bdcc9208d0bfb82775d5e1d75e",
+      "source_key": "overture:address:a0f73492-032c-459c-9258-21d1129e99b8",
+      "number": "364",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.478658017414,
+        "lng": -71.3068284171512
+      }
+    },
+    {
+      "id": "om_4098a705c5300791b2737d4f59bb8764",
+      "source_key": "overture:address:db79e7e6-372a-4200-9231-4d91d366f983",
+      "number": "364",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.47836362761984,
+        "lng": -71.30697604882906
+      }
+    },
+    {
+      "id": "om_44e244261581f0a792fef9782ef21ca2",
+      "source_key": "overture:address:a6aeee4e-4935-4d16-b97d-091c3f8f639c",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.507605307863535,
+        "lng": -71.31657463084917
+      }
+    },
+    {
+      "id": "om_4b699cfcb968db18ddd53683b77c9e0d",
+      "source_key": "overture:address:b6f94a5a-2707-40de-a3f9-881952755561",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.50962514640479,
+        "lng": -71.3159965256151
+      }
+    },
+    {
+      "id": "om_4c5f193f255324230871592020c996e5",
+      "source_key": "overture:address:d18f0ad2-95a2-4278-b738-46613db2508a",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.50816117290297,
+        "lng": -71.31636861853646
+      }
+    },
+    {
+      "id": "om_5d377aa5a5f02778be84dcf3100a7277",
+      "source_key": "overture:address:b50e1f58-7155-40eb-9e34-adbc528e956e",
+      "number": "364",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.47847864521257,
+        "lng": -71.30726356966635
+      }
+    },
+    {
+      "id": "om_61175af183461abee3b22801d1c907c7",
+      "source_key": "overture:address:5f5b0759-c0cc-45c1-bc02-e566f7d233ba",
+      "number": "26",
+      "street": "MARLBOROUGH Street",
+      "location": {
+        "lat": 41.491355654497895,
+        "lng": -71.3137306498567
+      }
+    },
+    {
+      "id": "om_6243b7dfaae7392eb951fe7bb28931b0",
+      "source_key": "overture:address:638e2622-25c7-4677-b272-2597bb7333ef",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.508319368865195,
+        "lng": -71.316337794818
+      }
+    },
+    {
+      "id": "om_648257f90b70c46bc88a8dd4e6d29332",
+      "source_key": "overture:address:1c44defc-e84e-4d74-952b-d47e609b89bb",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.50948592894093,
+        "lng": -71.31606054675177
+      }
+    },
+    {
+      "id": "om_6acbc54681cd81a3e64b529aff599c80",
+      "source_key": "overture:address:aff5f066-55ec-49aa-b78f-a21f123f7c33",
+      "number": "364",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.47816580496093,
+        "lng": -71.30766363575867
+      }
+    },
+    {
+      "id": "om_6f49f7a9f416862ad2fce0608cae3cd2",
+      "source_key": "overture:address:45e5f78d-0337-4e00-859d-3a0019281d40",
+      "number": "364",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.478085031926256,
+        "lng": -71.30722925608686
+      }
+    },
+    {
+      "id": "om_6fa141e2c22e9cfbf1558fed3c8fba87",
+      "source_key": "overture:address:584cc7b3-5573-4533-9dd3-d4a19954bc7a",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.508090936120816,
+        "lng": -71.31639335185938
+      }
+    },
+    {
+      "id": "om_73eeddb797fc0bf0264d42e1ade345d0",
+      "source_key": "overture:address:a0eb4c3b-04c8-42b4-be73-ca03ca6ac507",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.50801762709604,
+        "lng": -71.31641688880582
+      }
+    },
+    {
+      "id": "om_8554fe11d637af232dc87866f95b60d0",
+      "source_key": "overture:address:f3eb5d6b-0482-4548-ad8c-4a46d60bec86",
+      "number": "79",
+      "street": "PARK HOLM Street",
+      "location": {
+        "lat": 41.50999461327348,
+        "lng": -71.30549890898419
+      }
+    },
+    {
+      "id": "om_94aa248e35227a33ca4c6a9090ea800d",
+      "source_key": "overture:address:d81a4ab3-2524-4873-976b-012661a289cb",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.50936257777179,
+        "lng": -71.31592060496362
+      }
+    },
+    {
+      "id": "om_9705f9c42ecc9e122f872e854d547f3e",
+      "source_key": "overture:address:722b5234-85f4-4365-b1fe-b9037d090c2a",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.50823057625644,
+        "lng": -71.31635029943682
+      }
+    },
+    {
+      "id": "om_9d318d1f9ae37de1c11a6c57fe149e4d",
+      "source_key": "overture:address:d2121c0e-a976-4abe-acc1-06ac053d04d1",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.5097855552757,
+        "lng": -71.31741695278298
+      }
+    },
+    {
+      "id": "om_a8e196bf26577462de8b115100fbea4d",
+      "source_key": "overture:address:d1c8ac11-963b-4f2b-b413-ffb4c9f84f43",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.509544094803395,
+        "lng": -71.3160244192858
+      }
+    },
+    {
+      "id": "om_b0476e6109c3097b8d3c9b0e2a7ad136",
+      "source_key": "overture:address:f1fd9222-7f32-4d72-9e8b-7023da345651",
+      "number": "364",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.4786790844053,
+        "lng": -71.30745811234638
+      }
+    },
+    {
+      "id": "om_c46eae846a955c231972ace833b2ec36",
+      "source_key": "overture:address:027cf5d4-951e-4e9f-b4be-3f9ea63e3ae0",
+      "number": "364",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.478212146675354,
+        "lng": -71.30697359969581
+      }
+    },
+    {
+      "id": "om_ec2819804685ca896561c6a6c2b485d4",
+      "source_key": "overture:address:731d28cc-69d8-43cc-8d82-06d4f3e355f5",
+      "number": "5",
+      "street": "BEACON HILL Road",
+      "location": {
+        "lat": 41.47000276587323,
+        "lng": -71.32848162208666
+      }
+    },
+    {
+      "id": "om_f06a05a149723154104f591a99a60017",
+      "source_key": "overture:address:05d4457c-cd56-4d01-9a95-14dad04fa1c9",
+      "number": "199",
+      "street": "JAMES T CONNELL MEMORIAL Road",
+      "location": {
+        "lat": 41.50990096009878,
+        "lng": -71.31600627254247
+      }
+    },
+    {
+      "id": "om_f88c096070879478ee02e036d3e67480",
+      "source_key": "overture:address:66e2e519-96c0-459a-a089-bbb0b0e03a91",
+      "number": "50",
+      "street": "BELLEVUE Avenue",
+      "location": {
+        "lat": 41.486543927900414,
+        "lng": -71.30830417812572
+      }
+    }
+  ]
+}

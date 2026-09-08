@@ -1,4 +1,4 @@
-// Package api translates the supported Google Places API (New) REST v1 subset.
+// Package api translates supported Google Places REST v1 and Geocoding v3 subsets.
 package api
 
 import (
@@ -15,10 +15,14 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
 )
 
-type Handler struct{ Places *places.Store }
+type Handler struct {
+	Places    *places.Store
+	Geocoding *geocoding.Store
+}
 type object = map[string]any
 
 func write(w http.ResponseWriter, code int, v any) {
@@ -47,6 +51,10 @@ func options(language, token string) error {
 	return nil
 }
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/maps/api/geocode/json" {
+		h.geocode(w, r)
+		return
+	}
 	if r.URL.Path == "/v1/places:autocomplete" {
 		if r.Method != "POST" {
 			method(w, "POST")
