@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"openmaps/internal/places"
+	"openmaps/internal/routing"
 )
 
 // Identity remembers even absent source keys. An absent entity is unavailable,
@@ -39,6 +40,7 @@ type SourceState struct {
 	Raw        json.RawMessage `json:"raw"`
 }
 type Snapshot struct {
+	Routing       *routing.Summary
 	Manifest      json.RawMessage
 	Identities    map[string]string
 	History       map[string]Identity
@@ -238,6 +240,10 @@ func ReadSnapshot(ctx context.Context, path string) (s Snapshot, err error) {
 	if e != nil {
 		return s, e
 	}
+	_, s.Routing, e = routing.Load(ctx, db)
+	if e != nil {
+		return s, e
+	}
 	return s, nil
 }
 
@@ -362,25 +368,27 @@ type ReviewMatch struct {
 	Metres   float64 `json:"metres"`
 }
 type Report struct {
-	Schema               int             `json:"schema"`
-	BaselineSHA256       string          `json:"baseline_sha256"`
-	CandidateSHA256      string          `json:"candidate_sha256"`
-	BaselineManifest     json.RawMessage `json:"baseline_manifest"`
-	CandidateManifest    json.RawMessage `json:"candidate_manifest"`
-	BeforeCounts         map[string]int  `json:"before_counts"`
-	AfterCounts          map[string]int  `json:"after_counts"`
-	ContinuingIDs        int             `json:"continuing_ids"`
-	Added                []EntityState   `json:"added"`
-	Removed              []EntityState   `json:"removed"`
-	Changed              []EntityChange  `json:"changed"`
-	SourcesAdded         []string        `json:"sources_added"`
-	SourcesRemoved       []string        `json:"sources_removed"`
-	SourcesChanged       []SourceChange  `json:"sources_changed"`
-	RelationshipsAdded   []Relationship  `json:"relationships_added"`
-	RelationshipsRemoved []Relationship  `json:"relationships_removed"`
-	ReviewMatches        []ReviewMatch   `json:"review_matches"`
-	Queries              []QueryResult   `json:"queries"`
-	Violations           []string        `json:"violations"`
+	BaselineRouting      *routing.Summary `json:"baseline_routing,omitempty"`
+	CandidateRouting     *routing.Summary `json:"candidate_routing,omitempty"`
+	Schema               int              `json:"schema"`
+	BaselineSHA256       string           `json:"baseline_sha256"`
+	CandidateSHA256      string           `json:"candidate_sha256"`
+	BaselineManifest     json.RawMessage  `json:"baseline_manifest"`
+	CandidateManifest    json.RawMessage  `json:"candidate_manifest"`
+	BeforeCounts         map[string]int   `json:"before_counts"`
+	AfterCounts          map[string]int   `json:"after_counts"`
+	ContinuingIDs        int              `json:"continuing_ids"`
+	Added                []EntityState    `json:"added"`
+	Removed              []EntityState    `json:"removed"`
+	Changed              []EntityChange   `json:"changed"`
+	SourcesAdded         []string         `json:"sources_added"`
+	SourcesRemoved       []string         `json:"sources_removed"`
+	SourcesChanged       []SourceChange   `json:"sources_changed"`
+	RelationshipsAdded   []Relationship   `json:"relationships_added"`
+	RelationshipsRemoved []Relationship   `json:"relationships_removed"`
+	ReviewMatches        []ReviewMatch    `json:"review_matches"`
+	Queries              []QueryResult    `json:"queries"`
+	Violations           []string         `json:"violations"`
 }
 
 func sameJSON(a, b json.RawMessage) bool {
@@ -417,6 +425,7 @@ func Compare(ctx context.Context, baseline, candidate string, checks []QueryChec
 	if r.CandidateSHA256, e = Checksum(candidate); e != nil {
 		return r, e
 	}
+	r.BaselineRouting, r.CandidateRouting = a.Routing, b.Routing
 	r.BaselineManifest = a.Manifest
 	r.CandidateManifest = b.Manifest
 	for _, v := range a.Entities {

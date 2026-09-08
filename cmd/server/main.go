@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"openmaps/internal/dataset"
 	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
+	"openmaps/internal/routing"
 )
 
 func main() {
@@ -32,6 +34,7 @@ func main() {
 			log.Fatal(err)
 		}
 		defer live.Close()
+		mux.Handle("/directions/", live)
 		mux.Handle("/v1/", live)
 		mux.Handle("/maps/api/", live)
 		mux.Handle("/healthz", live)
@@ -45,12 +48,17 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		handler := api.Handler{Places: store, Geocoding: geocoder}
+		router, err := routing.Open(context.Background(), abs)
+		if err != nil {
+			log.Fatal(err)
+		}
+		handler := api.Handler{Places: store, Geocoding: geocoder, Routing: router}
+		mux.Handle("/directions/", handler)
 		mux.Handle("/v1/", handler)
 		mux.Handle("/maps/api/", handler)
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"status":"ok"}`))
+			json.NewEncoder(w).Encode(map[string]any{"status": "ok", "routing_available": router != nil})
 		})
 	}
 	mux.HandleFunc("/tiles/newport.pmtiles", func(w http.ResponseWriter, r *http.Request) {

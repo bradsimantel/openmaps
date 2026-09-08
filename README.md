@@ -16,7 +16,12 @@ are implemented in the [Newport refresh workflow](docs/refresh.md). The original
 August data remains the baseline; the second pinned release is a historical July
 rehearsal, not a newer Overture release.
 
-Routing, nearby place search and general text search remain future milestones.
+**Driving routing is implemented in separate candidate snapshots:** select existing
+lookup results or arbitrary map points in the preview, calculate a shortest-distance
+route, and see its geometry, road distance and snap gaps. The graph uses the wider
+retained Rhode Island extract for detours. The active August baseline is unchanged
+and has no routing graph. See [the routing contract and candidate build](docs/routing.md).
+Nearby place search and general text search remain future milestones.
 
 ## Run the Newport demo
 
@@ -27,7 +32,7 @@ Docker, external database server or system SQLite installation are required.
 ```sh
 go run ./cmd/prepare -fetch
 
-go run ./cmd/import
+go run ./cmd/import -routing-pbf data/rhode-island-260801.osm.pbf
 
 go run ./cmd/basemap
 
@@ -48,9 +53,16 @@ coordinates, approximate precision and reverse distance. `364 Bellevue Avenue`
 requires choosing among eight distinct points; apartment requests are explicitly
 unsupported. See [the maintained geocoding contract](docs/geocoding.md).
 
+For driving, choose a lookup result and **Use selection as origin/destination**,
+or change **Map click** to select exact endpoints. Then **Calculate driving route**.
+**Clear route** resets the route and endpoints. Source address ambiguity still
+requires choosing a candidate. There is no travel-time or traffic estimate.
+Existing databases are never overwritten: to add routing to retained data, build
+and serve a [separate candidate](docs/routing.md#storage-builds-and-snapshots).
+
 `data/` is ignored by Git.
 The OSM regional PBF is about 52 MB; canonical Overture subsets and SQLite add
-further local storage. The Protomaps cutout is about 3.8 MB. Internet is required
+further local storage. The optional routing graph adds about 160 MiB to SQLite. The Protomaps cutout is about 3.8 MB. Internet is required
 for initial downloads, esm.sh browser libraries and Protomaps-hosted fonts/sprites.
 Lookup APIs
 and local basemap tile requests work without external services after import.
@@ -70,7 +82,7 @@ Already have source files? Rebuild offline into a **new** database:
 
 ```sh
 go run ./cmd/prepare
-go run ./cmd/import -db data/openmaps-next.sqlite
+go run ./cmd/import -db data/openmaps-next.sqlite -routing-pbf data/rhode-island-260801.osm.pbf
 go run ./cmd/server -db data/openmaps-next.sqlite -listen 127.0.0.1:8081
 ```
 
@@ -99,7 +111,8 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 | `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, and response field mask; up to five place predictions |
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
 | `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional English `language` and unauthenticated `key` |
-| `GET /healthz` | Process health; in deployment mode, loaded database fingerprint and reload failures |
+| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: coordinate origin/destination, driving, GeoJSON geometry and road distance; requires routing data and response mask |
+| `GET /healthz` | Process health and routing availability; in deployment mode, loaded database fingerprint and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
 
 Details exposes IDs, display name, coordinates, conservative types, attribution,
@@ -128,6 +141,8 @@ and source limitations](docs/geocoding.md) and the [historical contract decision
 
 Launch rectangle: longitude **−71.33 to −71.29**, latitude **41.47 to 41.51**.
 It covers downtown Newport and nearby streets, not the full municipality.
+This is also the supported routing endpoint rectangle; routing graph coverage
+uses the whole retained Rhode Island extract to allow detours outside it.
 
 | Imported data | Pinned source | Records |
 | --- | --- | ---: |
@@ -178,6 +193,7 @@ cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
 cmd/refresh/        Snapshot build, comparison, review, activation and rollback
 internal/places/    Domain entities, autocomplete, details and search normalization
 internal/geocoding/ Address label matching, bounded nearest address lookup and fixtures
+internal/routing/   Immutable driving graph, road snapping and shortest-distance routes
 internal/api/       Google request/response translation and errors
 internal/importer/  Source adapters, schema, identity history and refresh comparison
 internal/dataset/   Atomic deployment selection and live HTTP handler replacement
@@ -187,13 +203,16 @@ public/            Browser ES modules and styles; libraries loaded from esm.sh
 
 One Go service reads SQLite with FTS5. Geocoding loads an immutable address index
 from the same read-only snapshot; reverse lookup scans the small regional set.
-Activation replaces both lookup domains together. The owned Go import pipeline uses
+Routing-enabled snapshots also load an immutable directed graph and turn-restriction
+index. Activation replaces all available domains together. The owned Go import pipeline uses
 `parquet-go` for cloud GeoParquet and `paulmach/osm` for PBF decoding; provider
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
-Routing will remain independent of text search and address resolution. Its
-engine and graph representation are still undecided.
+Routing remains independent of text search and address resolution. Its Go Dijkstra
+engine searches directed edges with turn-restriction history; the provider adapter
+and optional SQLite graph payload use the existing import/snapshot workflow. See
+[the maintained routing design](docs/routing.md).
 
 ## Verification
 
@@ -215,7 +234,9 @@ reviewed replacements, split/merge ambiguity, absent-source history, search-inde
 corruption, stale reviews, failed switches and live rollback. Geocoding tests
 cover normalized address numbers/streets, context, duplicate
 identities, explicit unit errors, invalid coordinates, distance cutoffs and
-coverage, plus atomic snapshot selection and rollback. No regional
+coverage, plus atomic snapshot selection and rollback. Routing adds one-way and
+via-way restrictions, barriers/access, disconnected and crossing roads, snapping,
+API contract/errors, source-backed detour checks and isolated rollback. No regional
 source downloads are part of `go test ./...`.
 
 Browser verification now works through the Codex desktop in-app browser plugin.
@@ -256,5 +277,10 @@ details available. See [historical first-milestone verification results](docs/lo
   locks, replacement evidence and snapshot identity history across rebuilds.
 - The local map cutout is finite; zooming or panning far outside Newport can show
   missing tiles. Browser libraries, fonts and sprites use external hosts.
+- Driving routing is static shortest distance on a conservative public-car profile.
+  Restricted-access/dimension-tagged roads can be excluded; conditions are not
+  evaluated. No traffic, duration, navigation instructions or entrance inference.
+  Snap limits and disconnected coverage can produce no route. See
+  [the exact profile and remaining limits](docs/routing.md).
 - Deployment hardening, continuous coverage evaluation and richer data are
-  later work. Routing remains a future milestone.
+  later work.

@@ -17,9 +17,11 @@ import (
 
 	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
+	"openmaps/internal/routing"
 )
 
 type Handler struct {
+	Routing   *routing.Store
 	Places    *places.Store
 	Geocoding *geocoding.Store
 }
@@ -51,6 +53,10 @@ func options(language, token string) error {
 	return nil
 }
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/directions/v2:computeRoutes" {
+		h.computeRoute(w, r)
+		return
+	}
 	if r.URL.Path == "/maps/api/geocode/json" {
 		h.geocode(w, r)
 		return

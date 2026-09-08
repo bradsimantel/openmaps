@@ -152,8 +152,10 @@ SQLite connection into an immutable map for forward lookups and a slice for
 reverse scans. At this scale (~8,500 points), a scan needs no spatial index.
 It requires a valid non-dateline manifest `bbox`. There are no schema changes,
 new source imports, migrations, sidecar databases or writes to retained snapshots.
-Deployment reload opens both Places and geocoding successfully before replacing
-the handler. Requests carry the existing `X-OpenMaps-Dataset` fingerprint in
+Deployment reload opens Places, geocoding and any optional routing graph successfully
+before replacing the handler. Routing receives coordinates only after the user
+chooses a geocoding candidate; it does not resolve or collapse address ambiguity.
+See [driving routing](routing.md). Requests carry the existing `X-OpenMaps-Dataset` fingerprint in
 deployment mode. Activation and rollback use the [refresh workflow](refresh.md).
 
 Both retained snapshots have 8,545 standalone addresses, of which 8,407 satisfy

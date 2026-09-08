@@ -1,0 +1,128 @@
+[
+  {
+    "name": "White Horse to Bellevue",
+    "origin": [
+      -71.31373108,
+      41.49138952
+    ],
+    "destination": [
+      -71.30830418,
+      41.48654393
+    ],
+    "outcome": "routed",
+    "distance_meters": 1239,
+    "outside_preview": false
+  },
+  {
+    "name": "Bellevue to White Horse",
+    "origin": [
+      -71.30830418,
+      41.48654393
+    ],
+    "destination": [
+      -71.31373108,
+      41.49138952
+    ],
+    "outcome": "routed",
+    "distance_meters": 966,
+    "outside_preview": false
+  },
+  {
+    "name": "south Beacon Hill to Bellevue",
+    "origin": [
+      -71.32848162208666,
+      41.470001
+    ],
+    "destination": [
+      -71.30830418,
+      41.48654393
+    ],
+    "outcome": "routed",
+    "distance_meters": 3541,
+    "outside_preview": true
+  },
+  {
+    "name": "north Park Holm to east Valley",
+    "origin": [
+      -71.30549890898419,
+      41.51
+    ],
+    "destination": [
+      -71.29,
+      41.50944932354806
+    ],
+    "outcome": "routed",
+    "distance_meters": 2303,
+    "outside_preview": true
+  },
+  {
+    "name": "Valley to Park Holm",
+    "origin": [
+      -71.29,
+      41.50944932354806
+    ],
+    "destination": [
+      -71.30549890898419,
+      41.51
+    ],
+    "outcome": "routed",
+    "distance_meters": 2303,
+    "outside_preview": true
+  },
+  {
+    "name": "west waterfront to southeast",
+    "origin": [
+      -71.329,
+      41.485
+    ],
+    "destination": [
+      -71.297,
+      41.471
+    ],
+    "outcome": "unsnappable",
+    "distance_meters": 0,
+    "outside_preview": false
+  },
+  {
+    "name": "south to east",
+    "origin": [
+      -71.32848,
+      41.470001
+    ],
+    "destination": [
+      -71.29,
+      41.509449
+    ],
+    "outcome": "routed",
+    "distance_meters": 7025,
+    "outside_preview": true
+  },
+  {
+    "name": "water",
+    "origin": [
+      -71.33,
+      41.5
+    ],
+    "destination": [
+      -71.3083,
+      41.4865
+    ],
+    "outcome": "unsnappable",
+    "distance_meters": 0,
+    "outside_preview": false
+  },
+  {
+    "name": "outside east",
+    "origin": [
+      -71.289999,
+      41.509449
+    ],
+    "destination": [
+      -71.30830418,
+      41.48654393
+    ],
+    "outcome": "outside_coverage",
+    "distance_meters": 0,
+    "outside_preview": false
+  }
+]

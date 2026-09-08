@@ -1,3 +1,4 @@
+import {initializeRouting} from './routing.js';
 const input = document.querySelector('#search');
 const results = document.querySelector('#results');
 const status = document.querySelector('#search-status');
@@ -8,6 +9,7 @@ export {map};
 let sessionToken = crypto.randomUUID();
 const mode=document.querySelector('#lookup-mode');
 let queryMarker, selectedMapResult;
+const routing = initializeRouting({getMap:()=>map, getMapLibre:()=>maplibregl, request});
 
 async function initializeMap() {
 try {
@@ -28,8 +30,8 @@ try {
    layers:basemaps.layers('protomaps',basemaps.namedFlavor('light'),{lang:'en'})}
  });
  map.addControl(new maplibregl.NavigationControl(),'top-right');
- map.on('load',()=>{document.querySelector('#map-status').textContent='Map ready';if(selectedMapResult)placeMarker(...selectedMapResult);});
- map.on('click',event=>{if(event.originalEvent.target.closest('.maplibregl-marker, .maplibregl-popup'))return;mode.value='address';input.value='';updateMode();lookupGeocode({lat:event.lngLat.lat,lng:event.lngLat.lng});});
+ map.on('load',()=>{document.querySelector('#map-status').textContent='Map ready';routing.mapReady();if(selectedMapResult)placeMarker(...selectedMapResult);});
+ map.on('click',event=>{if(event.originalEvent.target.closest('.maplibregl-marker, .maplibregl-popup'))return;if(routing.mapClick(event.lngLat))return;mode.value='address';input.value='';updateMode();lookupGeocode({lat:event.lngLat.lat,lng:event.lngLat.lng});});
  map.on('error',()=>{document.querySelector('#map-status').textContent='Some map tiles could not load';});
 } catch (error) {
  document.querySelector('#map-status').textContent='Map unavailable. Search still works.';
@@ -85,8 +87,9 @@ async function select(prediction) {
   status.textContent=`Selected ${p.displayName.text}.`;
  }catch(error){if(error.name!=='AbortError'&&current===generation)status.textContent=error.message;}
 }
-function clearMarkers(){marker?.remove();queryMarker?.remove();marker=queryMarker=null;selectedMapResult=null;}
+function clearMarkers(){routing.selection(null);marker?.remove();queryMarker?.remove();marker=queryMarker=null;selectedMapResult=null;}
 function placeMarker(label,lng,lat,zoom=16){
+ routing.selection({label,lng,lat});
  selectedMapResult=[label,lng,lat,zoom];if(!map||!maplibregl)return;
  marker?.remove();const popup=new maplibregl.Popup({offset:30,focusAfterOpen:false}).setText(label);
  marker=new maplibregl.Marker({color:'#3d6848'}).setLngLat([lng,lat]).setPopup(popup).addTo(map);

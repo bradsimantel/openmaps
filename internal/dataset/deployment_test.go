@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"openmaps/internal/importer"
+	"openmaps/internal/routing"
 )
 
 func fixture(t *testing.T) (string, string, string, string) {
@@ -235,5 +237,112 @@ func TestGeocodingUsesActivatedSnapshotAndRollback(t *testing.T) {
 	restored, restoredHash := lookup()
 	if restored != before || restoredHash != baseHash {
 		t.Fatal("rollback did not restore geocoding")
+	}
+}
+
+func TestRoutingAvailabilityAndAtomicRollback(t *testing.T) {
+	base, next, state, reportPath := fixture(t)
+	ctx := context.Background()
+	live, e := Open(ctx, state)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer live.Close()
+	body := `{"origin":{"location":{"latLng":{"latitude":41.49,"longitude":-71.31}}},"destination":{"location":{"latLng":{"latitude":41.49,"longitude":-71.30}}},"polylineEncoding":"GEO_JSON_LINESTRING"}`
+	route := func() int {
+		r := httptest.NewRequest("POST", "/directions/v2:computeRoutes", strings.NewReader(body))
+		r.Header.Set("X-Goog-FieldMask", "routes.distanceMeters")
+		w := httptest.NewRecorder()
+		live.ServeHTTP(w, r)
+		return w.Code
+	}
+	if got := route(); got != 503 {
+		t.Fatal("legacy routing should be unavailable", got)
+	}
+	d := routing.Data{Metadata: routing.Metadata{Version: 1, Profile: routing.Profile, EndpointBounds: [4]float64{-71.33, 41.47, -71.29, 41.51}, SourceSHA256: strings.Repeat("a", 64), Release: "fixture", URL: "https://example.org/fixture.pbf", Attribution: "synthetic"}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{-71.31, 41.49}}, {ID: 2, Point: routing.Point{-71.30, 41.49}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Backward: true, Snap: true}}}
+	d.Sources = []routing.Source{{Kind: "way", ID: 1, Raw: json.RawMessage(`{"id":1}`), Decision: "fixture"}}
+	raw, e := json.Marshal(d)
+	if e != nil {
+		t.Fatal(e)
+	}
+	db, e := sql.Open("sqlite", next)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec("CREATE TABLE routing_graph(id INTEGER PRIMARY KEY,data BLOB,sha256 TEXT)"); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec("INSERT INTO routing_graph VALUES(1,?,?)", raw, routing.Digest(raw)); e != nil {
+		t.Fatal(e)
+	}
+	db.Close()
+	report, e := importer.Compare(ctx, base, next, []importer.QueryCheck{{Input: "White Horse Tavern", FirstID: importer.PublicID("fixture:place:tavern")}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if report.BaselineRouting != nil || report.CandidateRouting == nil {
+		t.Fatal("missing availability comparison")
+	}
+	if e = importer.WriteJSON(reportPath, report); e != nil {
+		t.Fatal(e)
+	}
+	sum, e := importer.Checksum(reportPath)
+	if e != nil {
+		t.Fatal(e)
+	}
+	review := filepath.Join(filepath.Dir(state), "routing-review.json")
+	if e = importer.WriteJSON(review, Review{sum, "fixture", "routing review"}); e != nil {
+		t.Fatal(e)
+	}
+	if e = Activate(ctx, state, next, reportPath, review); e != nil {
+		t.Fatal(e)
+	}
+	if got := route(); got != 200 {
+		t.Fatal("routing didn't load", got)
+	}
+	_, health := serve(live, "/healthz")
+	if !strings.Contains(health, `"routing_available":true`) {
+		t.Fatal(health)
+	}
+	if e = Rollback(ctx, state); e != nil {
+		t.Fatal(e)
+	}
+	if got := route(); got != 503 {
+		t.Fatal("routing survived legacy rollback", got)
+	}
+	_, health = serve(live, "/healthz")
+	if !strings.Contains(health, `"routing_available":false`) {
+		t.Fatal(health)
+	}
+	// A corrupt graph with an intact SQL table must fail selection validation.
+	db, e = sql.Open("sqlite", next)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec("UPDATE routing_graph SET sha256='bad'"); e != nil {
+		t.Fatal(e)
+	}
+	db.Close()
+	if e = Rollback(ctx, state); e == nil {
+		t.Fatal("accepted corrupt rollback graph")
+	}
+	if got := route(); got != 503 {
+		t.Fatal("corrupt selection changed loaded snapshot", got)
+	}
+	d.Sources = nil
+	raw, e = json.Marshal(d)
+	if e != nil {
+		t.Fatal(e)
+	}
+	db, e = sql.Open("sqlite", next)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec("UPDATE routing_graph SET data=?,sha256=?", raw, routing.Digest(raw)); e != nil {
+		t.Fatal(e)
+	}
+	db.Close()
+	if _, e = importer.ReadSnapshot(ctx, next); e == nil {
+		t.Fatal("accepted a segment without source provenance")
 	}
 }

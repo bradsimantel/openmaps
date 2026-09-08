@@ -50,6 +50,8 @@ large source files, databases, reports and review receipts in ignored `data/`.
 The comparison contains:
 
 - Baseline and candidate manifests and whole-database SHA-256 fingerprints.
+- Optional routing metadata and graph payload SHA-256 on each side, making graph
+  additions, changes and removal visible.
 - Counts by entity kind; every added, absent and changed entity, including full
   before/after public attributes and changed-field names.
 - Added/removed source keys and changes in release, raw JSON, normalized
@@ -163,8 +165,8 @@ refresh writer is running before removing the stale lock. Never edit a selected
 SQLite file in place. Archive it along with its lock, bundle and identity evidence.
 
 On the next API or health request, the server detects a changed selection,
-validates and opens Places plus the geocoding address index before replacing its
-handler. It holds a lock through each
+validates and opens Places, the geocoding address index and any optional routing
+graph before replacing its handler. It holds a lock through each
 lookup request; requests are serialized for this small demo. A failed reload
 retains the last working handler and makes health return HTTP 503 with an error.
 Successful API responses include `X-OpenMaps-Dataset`. Check health after every
@@ -243,3 +245,26 @@ only to establish the new export and bundle hashes; independently fetch again
 without that flag. Build, inspect churn, establish replacements, rebuild to a
 new candidate path, compare and review before selecting it. Never use
 `-write-lock` to bypass an unexpected mismatch in an established pin.
+
+## Optional driving graph
+
+A new `build` can take `-routing-pbf data/rhode-island-260801.osm.pbf`. The PBF must
+match the bundle manifest's existing pin. Graph construction occurs inside the
+unpublished candidate; it never edits the baseline. Omitting the flag creates a
+lookup-only snapshot, and comparison makes any loss of routing explicit. See
+[the maintained driving profile, contract and build commands](routing.md).
+
+Routing payloads have their own version and content checksum in `routing_graph`.
+Snapshot validation checks graph integrity and connectivity references as well as
+the existing lookup checks. A missing table is supported for retained snapshots;
+a present but corrupt/unsupported graph fails validation and loading. Health reports
+`routing_available` on both fixed-database and deployment servers. Routing requests
+on retained lookup-only snapshots return 503 `UNAVAILABLE`.
+
+Live selection loads Places, geocoding and the candidate's optional graph before
+replacing any domain. Rollback restores routing availability alongside lookup data.
+Existing reports for two lookup-only snapshots remain readable and reproducible;
+new routing comparisons are included in the same reviewed report fingerprint.
+The routing integration suite rehearses a real snapshot cycle using a temporary
+state file, leaving `data/deployment.json` untouched. Building/testing a routing
+candidate does not authorize activating the user's deployment.

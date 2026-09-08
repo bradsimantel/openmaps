@@ -21,10 +21,23 @@
    <button id="geocode-submit" type="submit" hidden>Find address</button>
    </form>
    <p class="lookup-hint">Click the map for the nearest address within 100 metres. Source points have unknown rooftop, entrance and unit precision.</p>
+   <a class="lookup-hint" href="#routing">Plan a driving route ↓</a>
    <p id="search-status" class="status" role="status">Search downtown Newport and its nearby streets.</p>
    <ul id="results" aria-label="Search suggestions"></ul>
    <div id="welcome"><p class="eyebrow">START SOMEWHERE</p><div class="examples"><button data-query="White Horse">White Horse Tavern <span>↗</span></button><button data-query="50 Bellevue">50 Bellevue Avenue <span>↗</span></button><button data-query="Thames">Thames Street <span>↗</span></button></div><p class="hint">A small region. Real open data.<br>Coverage is a work in progress.</p></div>
    <article id="details" hidden aria-label="Selected place"></article>
+   <section id="routing" aria-label="Driving route">
+    <h2>Driving route</h2>
+    <p class="lookup-hint">Choose a lookup result, then use it below. Or set a map click to choose an exact endpoint.</p>
+    <p id="route-origin">A · Origin not selected</p>
+    <p id="route-destination">B · Destination not selected</p>
+    <div class="route-actions"><button id="route-use-origin" type="button" disabled>Use selection as origin</button><button id="route-use-destination" type="button" disabled>Use selection as destination</button></div>
+    <label for="map-action">Map click</label>
+    <select id="map-action"><option value="address">Reverse address lookup</option><option value="origin">Set route origin</option><option value="destination">Set route destination</option></select>
+    <div class="route-actions"><button id="route-submit" type="button" disabled>Calculate driving route</button><button id="route-clear" type="button">Clear route</button></div>
+    <p id="route-status" role="status">Choose an origin and destination.</p>
+    <p class="lookup-hint">Shortest distance on supported public roads. No traffic or travel time. Endpoints must be in the Newport preview and within 100 m of a suitable road. <a href="/attribution.html">© OpenStreetMap contributors</a></p>
+   </section>
    <footer>Lookup data: <a href="/attribution.html">Overture Maps &amp; OpenStreetMap</a><br>Newport preview · Pinned source snapshots</footer>
   </section>
   <section class="map-wrap" aria-label="Newport map"><div id="map"></div><div class="map-label"><span class="dot"></span> NEWPORT, RI <span id="map-status" role="status">Loading map…</span></div><div class="map-note">An open view of the world.<br><span>MapLibre + Protomaps</span></div></section>

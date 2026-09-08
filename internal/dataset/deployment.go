@@ -15,6 +15,7 @@ import (
 	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
+	"openmaps/internal/routing"
 )
 
 type File struct {
@@ -198,6 +199,7 @@ type Live struct {
 	current   File
 	store     *places.Store
 	geocoder  *geocoding.Store
+	router    *routing.Store
 	lastError string
 }
 
@@ -230,9 +232,15 @@ func (l *Live) reload(ctx context.Context) error {
 		next.Close()
 		return e
 	}
+	router, e := routing.Open(ctx, s.Current.Path)
+	if e != nil {
+		next.Close()
+		return e
+	}
 	old := l.store
 	l.store = next
 	l.geocoder = geocoder
+	l.router = router
 	l.current = s.Current
 	if old != nil {
 		old.Close()
@@ -266,12 +274,13 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		json.NewEncoder(w).Encode(struct {
-			Status  string `json:"status"`
-			Dataset File   `json:"dataset"`
-			Error   string `json:"error,omitempty"`
-		}{status, l.current, l.lastError})
+			RoutingAvailable bool   `json:"routing_available"`
+			Status           string `json:"status"`
+			Dataset          File   `json:"dataset"`
+			Error            string `json:"error,omitempty"`
+		}{l.router != nil, status, l.current, l.lastError})
 		return
 	}
 	w.Header().Set("X-OpenMaps-Dataset", l.current.SHA256)
-	api.Handler{Places: l.store, Geocoding: l.geocoder}.ServeHTTP(w, r)
+	api.Handler{Places: l.store, Geocoding: l.geocoder, Routing: l.router}.ServeHTTP(w, r)
 }
