@@ -172,6 +172,9 @@ selection while others use the previous snapshot, and publication waits for old
 leases before closing SQLite. Snapshot validation supplies its already loaded
 graph to avoid a second allocation. A failed reload
 retains the last working handler and makes health return HTTP 503 with an error.
+With `-routing-prepared`, complete source semantics were validated offline; runtime
+verifies the source and prepared artifact against trusted publication receipts
+and checks query structure without graph reconstruction.
 Successful API responses include `X-OpenMaps-Dataset`. Check health after every
 switch. Autocomplete and details are separate requests; an ID removed between
 those requests can correctly return `NOT_FOUND`.
@@ -331,7 +334,7 @@ request can take a full graph load; server writes allow two minutes for this
 regional operation. Building Oregon candidates never changes the active selection.
 
 
-The optional server `-routing-cache` stores verified immutable numeric routing
+The legacy server `-routing-legacy-load -routing-cache` stores verified immutable numeric routing
 arrays separately from authoritative SQLite snapshots. A replacement loads and
 validates its mapping before publication; old mappings stay valid until their
 HTTP response leases finish, then close. Failed cache validation keeps the old
@@ -342,6 +345,12 @@ server's shared `-routing-concurrency` budget also spans replacements. See
 Current routing builds use `junction-cells-v1` preprocessing with unchanged graph
 and cost semantics. Its recursive cell transfers use the separately versioned
 `routing-hot-le64-v2` cache; old SQLite preprocessing versions remain readable and
-regenerate current arrays into new cache filenames. Replacement still reconstructs
-the full graph before publication. Faster route queries do not remove its loading
-and old/new overlap costs; see the [historical cell-overlay evaluation](log/0021-recursive-junction-cell-overlay.md).
+regenerate current arrays into new cache filenames. The explicit legacy loader still reconstructs
+the full graph before publication; see the [historical cell-overlay evaluation](log/0021-recursive-junction-cell-overlay.md).
+
+For current production routing startup, run `cmd/routing-prepare` on each approved
+SQLite snapshot and pass `-routing-prepared` to the server. Prepared replacement
+verifies source/artifact digests against trusted offline receipts and loads persisted
+query structures without reconstructing the graph. Use `refresh rollback -routing-prepared DIR` to validate prepared rollback snapshots through the same
+boundary. Missing or invalid artifacts fail without a legacy fallback. Lookup-only
+snapshots remain supported. See [prepared snapshots](routing-prepared.md).

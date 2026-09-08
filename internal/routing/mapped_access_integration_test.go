@@ -22,11 +22,17 @@ import (
 // observed fault counts, not the hint alone, describe first-access behavior.
 func TestMappedRoutingAccess(t *testing.T) {
 	path, cache, casesPath := os.Getenv("OPENMAPS_PERF_DB"), os.Getenv("OPENMAPS_ROUTING_CACHE"), os.Getenv("OPENMAPS_PERF_CASES")
-	if path == "" || cache == "" || casesPath == "" {
+	if path == "" || cache == "" && os.Getenv("OPENMAPS_PREPARED") == "" || casesPath == "" {
 		t.Skip("set mapped performance paths")
 	}
 	started := time.Now()
-	s, err := OpenMapped(context.Background(), path, cache)
+	var s *Store
+	var err error
+	if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+		s, err = OpenPrepared(context.Background(), path, dir)
+	} else {
+		s, err = OpenMapped(context.Background(), path, cache)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

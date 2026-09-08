@@ -524,16 +524,18 @@ references, full geometry, directional costs, prohibited-path history and
 endpoint evidence retain their meanings. Spatial indexes replace regional
 endpoint/guard scans. The graph adds about 34 MiB to the Newport SQLite candidate;
 query data still consumes substantially more memory than its compressed storage.
-The optional `-routing-cache` backend moves numeric arrays to verified read-only
-files; it does not yet bound full startup memory. The server defaults to four
+The prepared loader persists query structures for direct startup without full
+graph reconstruction; see [preparation and runtime validation](routing-prepared.md).
+The explicit legacy `-routing-cache` backend maps only numeric arrays and retains
+its full construction-memory cost. The server defaults to four
 concurrent routing requests; see [routing scale](routing-scale.md).
 
 Retained JSON formats 1–4 remain readable and validated without changing their
 source data, profile, cost model or public IDs. New storage and preprocessing
 versions are separate from graph/profile versions. Corruption or an unknown
 version rejects the candidate. See [layout, algorithms, memory tradeoffs, Oregon
-builds and verification](routing-scale.md). Full national hierarchy and bounded
-national query-data loading remain unfinished.
+builds and verification](routing-scale.md). Full national hierarchy, construction, cold-cache behavior and physical-residency
+budgets remain unfinished.
 
 Build a separate candidate offline from the unchanged lookup bundle:
 
@@ -552,7 +554,8 @@ go run ./cmd/refresh compare \
   -candidate data/time-routing/candidate-v4-final.sqlite \
   -report data/time-routing/comparison.json
 
-go run ./cmd/server -db data/time-routing/candidate-v4-final.sqlite -listen 127.0.0.1:8087
+go run ./cmd/routing-prepare -db data/time-routing/candidate-v4-final.sqlite -out data/prepared-time
+go run ./cmd/server -db data/time-routing/candidate-v4-final.sqlite -routing-prepared data/prepared-time -listen 127.0.0.1:8087
 ```
 
 Outputs must be new filenames. Use another candidate name if these already exist.

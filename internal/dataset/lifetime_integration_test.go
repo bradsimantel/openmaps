@@ -40,7 +40,12 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := Change(state, func(s *State) error { *s = State{Schema: 1, Baseline: bf, Current: bf}; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	live, err := OpenWithRoutingCache(ctx, state, os.Getenv("OPENMAPS_ROUTING_CACHE"))
+	var live *Live
+	if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+		live, err = OpenPrepared(ctx, state, dir)
+	} else {
+		live, err = OpenWithRoutingCache(ctx, state, os.Getenv("OPENMAPS_ROUTING_CACHE"))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +219,12 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := request(); err != nil {
 		t.Fatal("failure invalidated previous snapshot", err)
 	}
-	if err := Rollback(ctx, state); err != nil {
+	if err := func() error {
+		if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+			return RollbackPrepared(ctx, state, dir)
+		}
+		return Rollback(ctx, state)
+	}(); err != nil {
 		t.Fatal(err)
 	}
 	if err := request(); err != nil {
@@ -224,7 +234,12 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := Change(state, func(s *State) error { s.Previous = &bf; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err := Rollback(ctx, state); err != nil {
+	if err := func() error {
+		if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+			return RollbackPrepared(ctx, state, dir)
+		}
+		return Rollback(ctx, state)
+	}(); err != nil {
 		t.Fatal(err)
 	}
 	if err := request(); err != nil {

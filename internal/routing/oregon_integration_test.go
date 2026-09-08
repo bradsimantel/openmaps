@@ -64,7 +64,7 @@ func testRegionalRouting(t *testing.T, path, fixture string) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	s, err := Open(ctx, path)
+	s, err := openIntegration(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,11 +75,11 @@ func testRegionalRouting(t *testing.T, path, fixture string) {
 	results := make([]Result, len(cases))
 	wanted := map[int64]bool{}
 	segment := func(id string) Segment {
-		i := sort.Search(len(s.segments), func(i int) bool { return s.segments[i].ID >= id })
-		if i == len(s.segments) || s.segments[i].ID != id {
+		i := sort.Search(s.segmentCount(), func(i int) bool { return s.segment(i).ID >= id })
+		if i == s.segmentCount() || s.segment(i).ID != id {
 			t.Fatal("unknown segment", id)
 		}
-		return s.segments[i]
+		return s.segment(i)
 	}
 	for i, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
@@ -89,7 +89,7 @@ func testRegionalRouting(t *testing.T, path, fixture string) {
 			for _, e := range tc.Evidence {
 				wanted[e.Way] = true
 			}
-			query, cancel := context.WithTimeout(ctx, 30*time.Second)
+			query, cancel := context.WithTimeout(ctx, referenceTimeout(t))
 			defer cancel()
 			start := time.Now()
 			fast, fe := s.Route(query, tc.Origin, tc.Destination)
@@ -393,7 +393,7 @@ func testSensitivity(t *testing.T, path, fixture string, names []string) {
 		t.Skip("set regional routing database")
 	}
 	ctx := context.Background()
-	s, err := Open(ctx, path)
+	s, err := openIntegration(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,8 +422,8 @@ func testSensitivity(t *testing.T, path, fixture string, names []string) {
 			t.Logf("SENSITIVITY %s time_meters=%.3f time_seconds=%.3f shortest_meters=%.3f shortest_seconds=%.3f", tc.Name, fast.Distance, fast.Duration, short.Distance, short.Duration)
 			wanted := map[int64]bool{}
 			for _, id := range short.Segments {
-				i := sort.Search(len(s.segments), func(i int) bool { return s.segments[i].ID >= id })
-				wanted[s.segments[i].Way] = true
+				i := sort.Search(s.segmentCount(), func(i int) bool { return s.segment(i).ID >= id })
+				wanted[s.segment(i).Way] = true
 			}
 			db, e := sql.Open("sqlite", "file:"+path+"?mode=ro")
 			if e != nil {
@@ -494,7 +494,7 @@ func TestOregonBoundaryCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, c := range cases {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), referenceTimeout(t))
 			r, e := s.Route(ctx, c.Origin, c.Destination)
 			cancel()
 			observations[i] = append(observations[i], r)
@@ -520,4 +520,19 @@ func TestOregonBoundaryCoverage(t *testing.T) {
 			t.Fatal("buffer did not demonstrate improved boundary path")
 		}
 	}
+}
+
+// Offline exhaustive reference searches can exceed the HTTP workload deadline
+// under residency pressure. Keep an explicit bounded override and log its use.
+func referenceTimeout(t *testing.T) time.Duration {
+	t.Helper()
+	if raw := os.Getenv("OPENMAPS_REFERENCE_TIMEOUT"); raw != "" {
+		d, e := time.ParseDuration(raw)
+		if e != nil || d < 30*time.Second || d > 5*time.Minute {
+			t.Fatal("invalid reference timeout", raw)
+		}
+		t.Logf("offline reference timeout=%s", d)
+		return d
+	}
+	return 30 * time.Second
 }

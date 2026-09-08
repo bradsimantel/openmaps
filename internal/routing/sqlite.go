@@ -33,7 +33,9 @@ func Load(ctx context.Context, db graphReader) (*Store, *Summary, error) {
 		}
 		return nil, nil, nil
 	}
+	done := loadPhase(ctx, "decoding")
 	d, m, sum, err := readGraphData(ctx, db, false)
+	done()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -61,7 +63,10 @@ func Load(ctx context.Context, db graphReader) (*Store, *Summary, error) {
 		}
 		return nil
 	}
-	if err := validateProvenance(d, visit); err != nil {
+	done = loadPhase(ctx, "provenance validation")
+	err = validateProvenance(d, visit)
+	done()
+	if err != nil {
 		return nil, nil, err
 	}
 	store, err := newStoreContext(ctx, d, true)
@@ -72,6 +77,7 @@ func Load(ctx context.Context, db graphReader) (*Store, *Summary, error) {
 		return nil, nil, err
 	}
 	store.graphSHA = sum
+	store.sourceLayout, store.sourcePreprocessing = m.Layout, m.Preprocessing
 	return store, &Summary{Metadata: d.Metadata, SHA256: sum, Layout: m.Layout, Preprocessing: m.Preprocessing}, nil
 }
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -175,4 +181,39 @@ func validateProvenance(d Data, visit func(func(Source) error) error) error {
 		}
 	}
 	return nil
+}
+
+// OpenRuntime supports lookup-only snapshots, but requires explicit offline
+// preparation for routing. Legacy reconstruction is a caller-selected mode.
+func OpenRuntime(ctx context.Context, path, preparedDir string, legacy bool, cacheDir string) (*Store, error) {
+	if legacy {
+		if cacheDir != "" {
+			return OpenMapped(ctx, path, cacheDir)
+		}
+		return Open(ctx, path)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	u := url.URL{Scheme: "file", Path: abs}
+	q := u.Query()
+	q.Set("mode", "ro")
+	u.RawQuery = q.Encode()
+	db, err := sql.Open("sqlite", u.String())
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	var count int
+	if err = db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('routing_graph','routing_chunks')").Scan(&count); err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, nil
+	}
+	if preparedDir == "" {
+		return nil, fmt.Errorf("routing snapshot requires -routing-prepared; run cmd/routing-prepare offline or explicitly select -routing-legacy-load")
+	}
+	return OpenPrepared(ctx, path, preparedDir)
 }

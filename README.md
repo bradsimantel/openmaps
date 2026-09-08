@@ -25,7 +25,7 @@ retained Rhode Island extract for detours. The active August baseline is unchang
 and has no routing graph. See [the routing contract and candidate build](docs/routing.md).
 Separate Oregon and full Oregon–Washington–Idaho coordinate-routing candidates
 cover regional scaling and boundary detours. [Storage and scaling](docs/routing-scale.md)
-describes the recursive junction-cell overlay, optional mapped numeric arrays, concurrent
+describes the recursive junction-cell overlay, directly loadable prepared snapshots, concurrent
 snapshot leases and measured limits. Nationwide routing remains unfinished; these
 regional candidates have no address coverage. Nearby place search and general
 text search remain future milestones.
@@ -43,7 +43,9 @@ go run ./cmd/import -routing-pbf data/rhode-island-260801.osm.pbf
 
 go run ./cmd/basemap
 
-go run ./cmd/server
+go run ./cmd/routing-prepare -db data/openmaps.sqlite -out data/prepared-routing
+
+go run ./cmd/server -routing-prepared data/prepared-routing
 ```
 
 The pipeline is Go code in this repository. If a C compiler or zlib headers are
@@ -93,7 +95,8 @@ Already have source files? Rebuild offline into a **new** database:
 ```sh
 go run ./cmd/prepare
 go run ./cmd/import -db data/openmaps-next.sqlite -routing-pbf data/rhode-island-260801.osm.pbf
-go run ./cmd/server -db data/openmaps-next.sqlite -listen 127.0.0.1:8081
+go run ./cmd/routing-prepare -db data/openmaps-next.sqlite -out data/prepared-next
+go run ./cmd/server -db data/openmaps-next.sqlite -routing-prepared data/prepared-next -listen 127.0.0.1:8081
 ```
 
 The import refuses to overwrite an existing database. Stop the earlier service
@@ -200,6 +203,7 @@ are never used as lookup data. Upstream notices are linked on the demo's
 cmd/server/         Go HTTP service
 cmd/prepare/        Pinned acquisition, regional normalization and audit
 cmd/import/         Checksum-verified SQLite builder
+cmd/routing-prepare/ Offline validation and prepared routing publication
 cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
 cmd/refresh/        Snapshot build, comparison, review, activation and rollback
 internal/places/    Domain entities, autocomplete, details and search normalization
@@ -223,9 +227,10 @@ dependencies.
 Routing remains independent of text search and address resolution. Its accelerated
 search skips forced geometry chains and bounded cells of ordinary junctions, and uses A*
 while preserving directed-edge turn history and destination access. Dijkstra
-remains an internal correctness reference; optional verified read-only numeric
+remains an internal correctness reference; verified read-only prepared
 mappings, bounded SQLite chunks and spatial indexes use the existing import/snapshot
-workflow. See
+workflow. Server routing startup requires [offline preparation](docs/routing-prepared.md);
+`-routing-legacy-load` explicitly enables the older reconstruction path. See
 [the maintained routing design](docs/routing.md).
 
 ## Verification

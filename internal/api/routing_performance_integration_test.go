@@ -51,7 +51,13 @@ func TestRoutingHTTPPerformance(t *testing.T) {
 		t.Skip("set performance database and cases")
 	}
 	ctx := context.Background()
-	s, err := routing.Open(ctx, path)
+	var s *routing.Store
+	var err error
+	if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+		s, err = routing.OpenPrepared(ctx, path, dir)
+	} else {
+		s, err = routing.Open(ctx, path)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

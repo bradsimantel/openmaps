@@ -23,8 +23,13 @@ func main() {
 	public := flag.String("public", "public", "public files directory")
 	tiles := flag.String("tiles", "data/newport.pmtiles", "local Protomaps regional archive")
 	routingCache := flag.String("routing-cache", "", "optional directory for verified read-only mapped routing arrays (Linux/macOS)")
+	preparedDir := flag.String("routing-prepared", "", "trusted offline prepared routing publication directory")
+	legacyLoad := flag.Bool("routing-legacy-load", false, "explicitly allow graph-sized legacy routing reconstruction at startup")
 	routingConcurrency := flag.Int("routing-concurrency", 4, "maximum concurrent Compute Routes HTTP requests (1-64)")
 	flag.Parse()
+	if *legacyLoad && *preparedDir != "" || !*legacyLoad && *routingCache != "" {
+		log.Fatal("-routing-cache requires -routing-legacy-load; choose either legacy or prepared routing")
+	}
 	if *routingConcurrency < 1 || *routingConcurrency > 64 {
 		log.Fatal("routing-concurrency must be 1-64")
 	}
@@ -34,7 +39,12 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	if *state != "" {
-		live, err := dataset.OpenWithRoutingCache(context.Background(), *state, *routingCache)
+		var live *dataset.Live
+		if *legacyLoad {
+			live, err = dataset.OpenWithRoutingCache(context.Background(), *state, *routingCache)
+		} else {
+			live, err = dataset.OpenPrepared(context.Background(), *state, *preparedDir)
+		}
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -53,12 +63,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		var router *routing.Store
-		if *routingCache != "" {
-			router, err = routing.OpenMapped(context.Background(), abs, *routingCache)
-		} else {
-			router, err = routing.Open(context.Background(), abs)
-		}
+		router, err := routing.OpenRuntime(context.Background(), abs, *preparedDir, *legacyLoad, *routingCache)
 		if err != nil {
 			log.Fatal(err)
 		}

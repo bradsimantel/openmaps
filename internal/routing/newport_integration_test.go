@@ -44,7 +44,12 @@ func TestNewportRouting(t *testing.T) {
 		t.Fatal(e)
 	}
 	var raw []byte
-	s, e := routing.New(data)
+	var s *routing.Store
+	if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+		s, e = routing.OpenPrepared(ctx, next, dir)
+	} else {
+		s, e = routing.New(data)
+	}
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -309,7 +314,12 @@ func TestNewportRoutingSnapshotCycle(t *testing.T) {
 	if e = dataset.Init(ctx, state, base); e != nil {
 		t.Fatal(e)
 	}
-	live, e := dataset.Open(ctx, state)
+	var live *dataset.Live
+	if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+		live, e = dataset.OpenPrepared(ctx, state, dir)
+	} else {
+		live, e = dataset.Open(ctx, state)
+	}
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -52,7 +52,7 @@ func TestRoutingPerformance(t *testing.T) {
 	}
 	ctx := context.Background()
 	started := time.Now()
-	s, err := Open(ctx, path)
+	s, err := openIntegration(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}

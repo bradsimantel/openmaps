@@ -52,6 +52,15 @@ func TestAcceleratedReferenceAgreement(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+		if seed%3 == 0 && (runtime.GOOS == "darwin" || runtime.GOOS == "linux") {
+			_, path, receipt := preparedFixture(t, d)
+			s.Close()
+			var err error
+			s, err = openPreparedArtifact(ctx, path, receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 		t.Cleanup(func() { s.Close() })
 		shortcuts := 0
 		for n := 0; n < 45; n++ {

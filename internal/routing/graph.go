@@ -133,6 +133,8 @@ type Store struct {
 	closed                                           bool
 	mapping                                          *queryMapping
 	mappingCleanup                                   runtime.Cleanup
+	prepared                                         *preparedViews
+	sourceLayout, sourcePreprocessing                string
 	graphSHA                                         string
 	preprocessingSeconds                             float64
 	cellBounds                                       []cellBounds
@@ -166,6 +168,7 @@ func newStore(d Data, owned bool) (*Store, error) {
 	return newStoreContext(context.Background(), d, owned)
 }
 func newStoreContext(ctx context.Context, d Data, owned bool) (*Store, error) {
+	done := loadPhase(ctx, "semantic validation and graph construction")
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -365,7 +368,7 @@ func newStoreContext(ctx context.Context, d Data, owned bool) (*Store, error) {
 		queue := []int{i}
 		s.zones[i] = i + 1
 		for j := 0; j < len(queue); j++ {
-			v := s.segments[queue[j]]
+			v := s.segment(queue[j])
 			for _, n := range []int64{v.From, v.To} {
 				for _, k := range byNode[n] {
 					if s.zones[k] == 0 {
@@ -381,7 +384,11 @@ func newStoreContext(ctx context.Context, d Data, owned bool) (*Store, error) {
 		return nil, err
 	}
 	s.packAdjacency()
+	done()
+	done = loadPhase(ctx, "spatial indexing")
 	s.buildSpatial()
+	done()
+	done = loadPhase(ctx, "hierarchy preprocessing")
 	preprocessingStarted := time.Now()
 	s.buildChains()
 	s.buildJunctions()
@@ -389,6 +396,7 @@ func newStoreContext(ctx context.Context, d Data, owned bool) (*Store, error) {
 		return nil, err
 	}
 	s.preprocessingSeconds = time.Since(preprocessingStarted).Seconds()
+	done()
 	return s, nil
 }
 func (s *Store) advance(t, e int) (int, bool) {
@@ -446,7 +454,7 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 	candidates := []Snap{}
 	restrictedDistance := math.Inf(1)
 	for k, i := range s.segmentIndex.query(coordinateBox(p)) {
-		v := s.segments[i]
+		v := s.segment(i)
 		if k%4096 == 0 {
 			if e := ctx.Err(); e != nil {
 				return Snap{}, e
@@ -473,7 +481,7 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 			if t == 1 {
 				c.node = v.To
 			}
-			if c.node != 0 && s.publicNodes[c.node] {
+			if c.node != 0 && s.isPublic(c.node) {
 				c.DestinationAccess = false
 			}
 			candidates = append(candidates, c)
@@ -505,7 +513,7 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 	})
 	best = candidates[0]
 	for _, i := range s.guardIndex.query(coordinateBox(p)) {
-		g := s.guards[i]
+		g := s.guard(i)
 		if !coordinateBox(p).intersects(segmentBox(g.From, g.To)) {
 			continue
 		}
@@ -534,7 +542,7 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 }
 
 func (s *Store) safeStreetCandidate(a, b Snap) bool {
-	x, y := s.segments[a.index], s.segments[b.index]
+	x, y := s.segment(a.index), s.segment(b.index)
 	if !x.Service || y.Service || !x.Forward || !x.Backward || !y.Forward || !y.Backward || x.Elevated || y.Elevated || s.zones[a.index] != 0 || s.zones[b.index] != 0 {
 		return false
 	}
@@ -548,7 +556,7 @@ func (s *Store) safeStreetCandidate(a, b Snap) bool {
 	seen := map[int64]float64{}
 	for i := 0; i < len(queue) && i < 32; i++ {
 		v := queue[i]
-		if v.distance > 20 || s.restrictedNodes[v.node] {
+		if v.distance > 20 || s.isRestricted(v.node) {
 			continue
 		}
 		if old, ok := seen[v.node]; ok && old <= v.distance {
@@ -560,7 +568,7 @@ func (s *Store) safeStreetCandidate(a, b Snap) bool {
 		}
 		for _, id := range s.out(v.node) {
 			e := s.edges[id]
-			seg := s.segments[e.segment]
+			seg := s.segment(e.segment)
 			if seg.Way == x.Way && seg.Forward && seg.Backward && !seg.Elevated && s.zones[e.segment] == 0 {
 				queue = append(queue, visit{e.to, v.distance + e.length})
 			}
@@ -579,8 +587,8 @@ func (s *Store) connectorCrossesRoad(a, b Snap) bool {
 		return cross(p, q, c)*cross(p, q, d) < 0 && cross(c, d, p)*cross(c, d, q) < 0
 	}
 	for _, i := range s.segmentIndex.query(segmentBox(a.Requested, b.Point)) {
-		v := s.segments[i]
-		if v.Way == s.segments[a.index].Way || v.Way == s.segments[b.index].Way {
+		v := s.segment(i)
+		if v.Way == s.segment(a.index).Way || v.Way == s.segment(b.index).Way {
 			continue
 		}
 		if crosses(s.point(v.From), s.point(v.To)) {
@@ -588,7 +596,7 @@ func (s *Store) connectorCrossesRoad(a, b Snap) bool {
 		}
 	}
 	for _, i := range s.guardIndex.query(segmentBox(a.Requested, b.Point)) {
-		g := s.guards[i]
+		g := s.guard(i)
 		if crosses(g.From, g.To) {
 			return true
 		}
@@ -739,8 +747,8 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		snapped = true
 	}
 	result := Result{Origin: a, Destination: b}
-	targetFrom, targetTo := s.point(s.segments[b.index].From), s.point(s.segments[b.index].To)
-	if accelerated && s.components[s.nodeIndex[s.segments[a.index].From]] != s.components[s.nodeIndex[s.segments[b.index].From]] {
+	targetFrom, targetTo := s.point(s.segmentFields(b.index).From), s.point(s.segmentFields(b.index).To)
+	if accelerated && s.components[s.nodeOrdinal(s.segmentFields(a.index).From)] != s.components[s.nodeOrdinal(s.segmentFields(b.index).From)] {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
@@ -760,7 +768,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	// Once a destination zone is entered from public travel, no public exit is legal.
 	transition := func(phase, id int) (int, bool) {
 		edge := s.edges[id]
-		v := s.segments[edge.segment]
+		v := s.segmentFields(edge.segment)
 		restricted := v.DestinationForward
 		if edge.reverse {
 			restricted = v.DestinationBackward
@@ -780,7 +788,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	best := math.Inf(1)
 	direct := false
 	if a.index == b.index {
-		v := s.segments[a.index]
+		v := s.segmentFields(a.index)
 		forward := v.Forward && (!v.DestinationForward || aZone != 0 || bZone != 0)
 		backward := v.Backward && (!v.DestinationBackward || aZone != 0 || bZone != 0)
 		if a.fraction <= b.fraction && forward || a.fraction >= b.fraction && backward {
@@ -824,7 +832,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		if accelerated {
 			for steps := 0; s.continuation[st.edge] >= 0; steps++ {
 				in := s.edges[st.edge]
-				if in.to == s.segments[b.index].From || in.to == s.segments[b.index].To {
+				if in.to == s.segmentFields(b.index).From || in.to == s.segmentFields(b.index).To {
 					break
 				}
 				if steps%1024 == 0 && ctx.Err() != nil {
@@ -847,7 +855,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		return st, d
 	}
 	enqueue := func(st state, d float64, prev state, first, via int) {
-		if accelerated && s.edges[st.edge].cellEntry == terminalCellEntry && s.edges[st.edge].to != s.segments[b.index].From && s.edges[st.edge].to != s.segments[b.index].To {
+		if accelerated && s.edges[st.edge].cellEntry == terminalCellEntry && s.edges[st.edge].to != s.segmentFields(b.index).From && s.edges[st.edge].to != s.segmentFields(b.index).To {
 			return
 		}
 		if old, ok := labels[st]; !ok || d < old.distance {
@@ -884,7 +892,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 				return
 			}
 		}
-		if accelerated && s.junctions[s.nodeIndex[in.to]] == 2 && in.to != s.segments[b.index].From && in.to != s.segments[b.index].To {
+		if accelerated && s.junctions[s.nodeOrdinal(in.to)] == 2 && in.to != s.segmentFields(b.index).From && in.to != s.segmentFields(b.index).To {
 			for _, id := range s.out(in.to) {
 				if s.edges[id].segment == in.segment {
 					continue
@@ -1059,16 +1067,16 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 			travel = append(travel, path[i])
 			v := s.edges[path[i]]
 			result.Geometry = append(result.Geometry, s.point(v.to))
-			result.Segments = append(result.Segments, s.segments[v.segment].ID)
+			result.Segments = append(result.Segments, s.segment(v.segment).ID)
 		}
 		if endEdge >= 0 {
 			travel = append(travel, endEdge)
-			result.Segments = append(result.Segments, s.segments[s.edges[endEdge].segment].ID)
+			result.Segments = append(result.Segments, s.segment(s.edges[endEdge].segment).ID)
 		}
 	} else {
 		result.Segments = []string{a.Segment}
 		dir := 0
-		if a.fraction > b.fraction || !s.segments[a.index].Forward {
+		if a.fraction > b.fraction || !s.segmentFields(a.index).Forward {
 			dir = 1
 		}
 		travel = append(travel, s.directions[a.index][dir])

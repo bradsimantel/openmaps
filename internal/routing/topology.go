@@ -3,16 +3,16 @@ package routing
 // Source node identities are kept at the boundary. Coordinates and adjacency
 // occupy contiguous arrays; a single source-ID to dense-index map replaces
 // separate coordinate and per-node adjacency maps and tiny slice allocations.
-func (s *Store) point(id int64) Point { return s.points[s.nodeIndex[id]] }
+func (s *Store) point(id int64) Point { return s.points[s.nodeOrdinal(id)] }
 func (s *Store) lookupPoint(id int64) (Point, bool) {
-	i, ok := s.nodeIndex[id]
+	i, ok := s.findNode(id)
 	if !ok {
 		return Point{}, false
 	}
 	return s.points[i], true
 }
 func (s *Store) out(id int64) []int {
-	i, ok := s.nodeIndex[id]
+	i, ok := s.findNode(id)
 	if !ok {
 		return nil
 	}

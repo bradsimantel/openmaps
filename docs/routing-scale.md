@@ -6,6 +6,7 @@ evaluations, in addition to the Newport coordinate/address candidate. **It is no
 ready.** Spatial lookup, geometry chains and a recursive junction-cell overlay address
 measured regional search bottlenecks. A complete restriction-aware hierarchy
 and a backend with bounded national construction memory remain unfinished.
+Direct prepared loading is implemented; see [representation and trust boundaries](routing-prepared.md).
 
 The [historical Oregon evaluation](log/0019-routing-scale-and-oregon.md),
 [historical junction/mapping experiment](log/0020-junction-hierarchy-and-mapped-query-data.md), and
@@ -15,6 +16,11 @@ car profile remain in [routing](routing.md). The browser is an example client an
 was not changed for this work.
 
 ## Snapshot representation
+
+For production startup, [prepare the complete query representation offline](routing-prepared.md).
+That loader bypasses source decoding and all graph/index/hierarchy construction.
+The construction path described below remains the explicit offline/legacy path.
+
 
 New builds retain graph semantics **4**, profile `driving-time-v4` and cost model
 `estimated-driving-v1`. Storage layout **`routing-chunks-v1`** and preprocessing
@@ -183,6 +189,13 @@ Use another filename for a rebuild. Nothing here selects the active deployment.
 
 ## Verification and deployment
 
+Set `OPENMAPS_PREPARED` to a trusted publication directory to exercise direct
+loading in the performance, HTTP, source-backed and lifetime suites below. Leave
+`OPENMAPS_ROUTING_CACHE` unset in that mode. Legacy loads remain the default for
+these explicit offline tests. `TestLoadingPhases` records phase times, cumulative
+allocations, sampled peak Go heap, retained heap and mapped bytes.
+
+
 Small offline tests cover chunk corruption and unsupported versions, spatial
 scan equivalence, randomized accelerated/reference comparisons, directional
 costs, via-way history, destination access, partial endpoints, closed rings,
@@ -285,8 +298,8 @@ and cell transfers. The opt-in HTTP harness also measures the original encoder
 (including writes) separately and reports phase latency distributions.
 
 New SQLite manifests name `junction-cells-v1`; retained `forced-chain-v1` and
-`independent-junction-v1` manifests remain readable and regenerate current runtime preprocessing from their
-validated source topology. Unknown versions fail. No preprocessed source path is
+`independent-junction-v1` manifests remain readable; offline preparation or explicit legacy loading
+regenerates current preprocessing from their validated source topology. Unknown versions fail. No preprocessed source path is
 trusted from a legacy file. The optional flat artifact below fixes and checks the
 actual generated arrays, including components, selected junctions and recursive
 cell transfers. Cell construction observes cancellation and checks index capacity.
@@ -299,9 +312,9 @@ lookup requests retain their existing behavior. This bounds concurrent query
 work, not the memory of one arbitrarily large search. It is not authentication,
 billing, or a throughput guarantee.
 
-## Optional mapped numeric query data
+## Legacy mapped numeric query data
 
-On 64-bit little-endian Linux/macOS, `-routing-cache data/routing-cache` enables
+With explicit `-routing-legacy-load`, `-routing-cache data/routing-cache` enables
 **`routing-hot-le64-v2`**. A fixed 4 KiB header identifies graph checksum,
 preprocessing, section offsets/counts/widths and payload SHA-256. Fields use
 explicit little-endian integers and IEEE-754 float64 values; padding is zero.
@@ -324,8 +337,9 @@ are synced and atomically linked without replacing another file. Concurrent
 publishers must validate the winning artifact. Keep cache files immutable while
 mapped; remove obsolete files only after their readers are retired.
 
-This is an integrated runtime backend for these arrays, **not a complete national
-loader**. It releases their Go heap allocation and lets the OS manage residency;
+This legacy backend maps numeric arrays. The [prepared loader](routing-prepared.md)
+also persists the remaining graph and spatial structures. Neither is a complete
+national readiness claim. It releases their Go heap allocation and lets the OS manage residency;
 it does not impose an RSS bound. Segment records/strings, source-ID lookup maps,
 spatial indexes, the restriction automaton and address evidence remain resident.
 Source provenance stays in SQLite. There is no SQL per visited edge. Canonical
@@ -366,9 +380,10 @@ The historical single-junction runtime missed the one-worker p95 and four-worker
 throughput targets. The [historical recursive-cell evaluation](log/0021-recursive-junction-cell-overlay.md)
 records the cell overlay meeting those query targets on the retained workload,
 with its comparisons and startup/storage tradeoffs. This
-is an intermediate dataset, not a nationwide-ready deployment. Improved search
-does not solve full startup reconstruction, resident geometry/index memory or
-unverified cold-file-cache behavior.
+is an intermediate dataset, not a nationwide-ready deployment. Direct prepared
+loading now removes full startup reconstruction and maps geometry/index data;
+[physical residency, cold-file-cache behavior and national preparation](routing-prepared.md)
+remain unverified.
 
 Reproduce the merged input with Osmium 1.19.1 into a new output:
 

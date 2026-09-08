@@ -178,12 +178,34 @@ func Activate(ctx context.Context, path, candidate, reportPath, reviewPath strin
 		return nil
 	})
 }
-func Rollback(ctx context.Context, path string) error {
+func Rollback(ctx context.Context, path string) error { return rollback(ctx, path, Validate) }
+
+// RollbackPrepared validates a previously published snapshot without rebuilding.
+func RollbackPrepared(ctx context.Context, path, dir string) error {
+	return rollback(ctx, path, func(ctx context.Context, f File) error {
+		if !filepath.IsAbs(f.Path) || len(f.SHA256) != 64 {
+			return fmt.Errorf("invalid snapshot reference")
+		}
+		if e := importer.Verify(f.Path, f.SHA256); e != nil {
+			return e
+		}
+		s, e := routing.OpenRuntime(ctx, f.Path, dir, false, "")
+		if e != nil {
+			return e
+		}
+		defer s.Close()
+		if s == nil {
+			_, e = importer.ReadSnapshot(ctx, f.Path)
+		}
+		return e
+	})
+}
+func rollback(ctx context.Context, path string, validate func(context.Context, File) error) error {
 	return Change(path, func(s *State) error {
 		if s.Previous == nil {
 			return fmt.Errorf("no previous snapshot")
 		}
-		if e := Validate(ctx, *s.Previous); e != nil {
+		if e := validate(ctx, *s.Previous); e != nil {
 			return e
 		}
 		previous := s.Current
@@ -194,16 +216,18 @@ func Rollback(ctx context.Context, path string) error {
 }
 
 type Live struct {
-	mu           sync.RWMutex
-	reloadMu     sync.Mutex
-	closed       bool
-	statePath    string
-	routingCache string
-	current      File
-	store        *places.Store
-	geocoder     *geocoding.Store
-	router       *routing.Store
-	lastError    string
+	mu               sync.RWMutex
+	reloadMu         sync.Mutex
+	closed           bool
+	statePath        string
+	routingCache     string
+	preparedDir      string
+	preparedRequired bool
+	current          File
+	store            *places.Store
+	geocoder         *geocoding.Store
+	router           *routing.Store
+	lastError        string
 }
 
 func Open(ctx context.Context, statePath string) (*Live, error) {
@@ -213,6 +237,17 @@ func Open(ctx context.Context, statePath string) (*Live, error) {
 // OpenWithRoutingCache optionally maps validated numeric routing arrays in cacheDir.
 func OpenWithRoutingCache(ctx context.Context, statePath, cacheDir string) (*Live, error) {
 	l := &Live{statePath: statePath, routingCache: cacheDir}
+	if e := l.reload(ctx); e != nil {
+		return nil, e
+	}
+	return l, nil
+}
+
+// OpenPrepared requires offline publication receipts for routing snapshots.
+// Lookup and graph semantics were validated before receipt publication; runtime
+// binds the entire immutable SQLite file and routing artifact to that receipt.
+func OpenPrepared(ctx context.Context, statePath, dir string) (*Live, error) {
+	l := &Live{statePath: statePath, preparedDir: dir, preparedRequired: true}
 	if e := l.reload(ctx); e != nil {
 		return nil, e
 	}
@@ -238,11 +273,21 @@ func (l *Live) reload(ctx context.Context) error {
 	if e = importer.Verify(s.Current.Path, s.Current.SHA256); e != nil {
 		return e
 	}
-	_, router, e := importer.ReadSnapshotWithRouting(ctx, s.Current.Path)
-	if e != nil {
-		return e
+	var router *routing.Store
+	if l.preparedRequired {
+		router, e = routing.OpenRuntime(ctx, s.Current.Path, l.preparedDir, false, "")
+		// Lookup-only legacy snapshots have no preparation receipt. Keep their full
+		// existing validation; this path cannot reconstruct routing data.
+		if e == nil && router == nil {
+			_, e = importer.ReadSnapshot(ctx, s.Current.Path)
+		}
+	} else {
+		_, router, e = importer.ReadSnapshotWithRouting(ctx, s.Current.Path)
+		if e == nil {
+			e = router.UseMappedQueryData(ctx, l.routingCache)
+		}
 	}
-	if e = router.UseMappedQueryData(ctx, l.routingCache); e != nil {
+	if e != nil {
 		router.Close()
 		return e
 	}

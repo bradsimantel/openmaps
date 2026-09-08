@@ -61,7 +61,12 @@ func TestNewportAddressRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw = nil
-	graph, err := routing.New(data)
+	var graph *routing.Store
+	if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+		graph, err = routing.OpenPrepared(ctx, next, dir)
+	} else {
+		graph, err = routing.New(data)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

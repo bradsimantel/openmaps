@@ -161,7 +161,7 @@ func (s *Store) endpointSnap(ctx context.Context, e Endpoint, role string) (Snap
 	nearest := math.Inf(1)
 	guard := math.Inf(1)
 	for k, i := range s.segmentIndex.query(nearBox(p, AddressSnapLimit)) {
-		v := s.segments[i]
+		v := s.segment(i)
 		if k%4096 == 0 {
 			if err := ctx.Err(); err != nil {
 				return Snap{}, err
@@ -197,7 +197,7 @@ func (s *Store) endpointSnap(ctx context.Context, e Endpoint, role string) (Snap
 		candidates = append(candidates, c)
 	}
 	for _, i := range s.guardIndex.query(nearBox(p, AddressSnapLimit)) {
-		g := s.guards[i]
+		g := s.guard(i)
 		if nearBounds(p, g.From, g.To, AddressSnapLimit) {
 			q, _ := project(p, g.From, g.To)
 			guard = math.Min(guard, Distance(p, q))
@@ -225,7 +225,7 @@ func (s *Store) endpointSnap(ctx context.Context, e Endpoint, role string) (Snap
 		if c.Distance > best.Distance+10 || c.Distance > 30 {
 			break
 		}
-		if e.StreetWays[s.segments[c.index].Way] && s.safeStreetCandidate(best, c) {
+		if e.StreetWays[s.segment(c.index).Way] && s.safeStreetCandidate(best, c) {
 			best = c
 			break
 		}
@@ -235,7 +235,7 @@ func (s *Store) endpointSnap(ctx context.Context, e Endpoint, role string) (Snap
 		if c.index == best.index || c.Distance > best.Distance+1 {
 			continue
 		}
-		x, y := s.segments[c.index], s.segments[best.index]
+		x, y := s.segment(c.index), s.segment(best.index)
 		if x.Way != y.Way && !(c.node != 0 && c.node == best.node) && !s.localSharedJunction(c, best) && !s.safeStreetCandidate(c, best) {
 			return fail()
 		}
@@ -244,7 +244,7 @@ func (s *Store) endpointSnap(ctx context.Context, e Endpoint, role string) (Snap
 		return fail()
 	}
 	best.NearestDistance = nearest
-	best.Evidence = []string{fmt.Sprintf("osm:way:%d", s.segments[best.index].Way)}
+	best.Evidence = []string{fmt.Sprintf("osm:way:%d", s.segment(best.index).Way)}
 	best.Uncertainty = "Property entrance and off-road access are unverified; displacement is a straight-line gap, not a walking connection or permission to enter property."
 	return best, nil
 }
@@ -260,7 +260,7 @@ func sortSnaps(c []Snap) {
 	})
 }
 func (s *Store) makeSnap(p Point, i int, q Point, t float64) Snap {
-	v := s.segments[i]
+	v := s.segment(i)
 	c := Snap{Point: q, Requested: p, Distance: Distance(p, q), NearestDistance: Distance(p, q), Segment: v.ID, index: i, fraction: t, DestinationAccess: s.zones[i] != 0}
 	if t == 0 {
 		c.node = v.From
@@ -268,7 +268,7 @@ func (s *Store) makeSnap(p Point, i int, q Point, t float64) Snap {
 	if t == 1 {
 		c.node = v.To
 	}
-	if c.node != 0 && s.publicNodes[c.node] {
+	if c.node != 0 && s.isPublic(c.node) {
 		c.DestinationAccess = false
 	}
 	return c
@@ -277,7 +277,7 @@ func (s *Store) nodeSnap(p Point, n int64, public bool, streetWays map[int64]boo
 	best := Snap{}
 	found := false
 	for _, i := range s.segmentIndex.query(segmentBox(s.point(n), s.point(n))) {
-		v := s.segments[i]
+		v := s.segment(i)
 		if !v.Snap || v.Elevated || v.From != n && v.To != n || public && (s.zones[i] != 0 || v.Service || !streetWays[v.Way]) {
 			continue
 		}
@@ -305,7 +305,7 @@ func (s *Store) associatedPoints(e Endpoint) []Snap {
 			return
 		}
 		// Only an explicitly matching addressed street can anchor a driveway boundary.
-		if public && !e.StreetWays[s.segments[c.index].Way] {
+		if public && !e.StreetWays[s.segment(c.index).Way] {
 			return
 		}
 		c.Method = method
@@ -353,7 +353,7 @@ func (s *Store) associatedPoints(e Endpoint) []Snap {
 }
 
 func (s *Store) localSharedJunction(a, b Snap) bool {
-	x, y := s.segments[a.index], s.segments[b.index]
+	x, y := s.segment(a.index), s.segment(b.index)
 	for _, n := range []int64{x.From, x.To} {
 		if (n == y.From || n == y.To) && Distance(a.Point, s.point(n))+Distance(b.Point, s.point(n)) <= 20 {
 			return true
@@ -379,7 +379,7 @@ func (s *Store) drivewayBoundaries(start int64) []int64 {
 			break
 		}
 		seen[n] = true
-		if s.publicNodes[n] {
+		if s.isPublic(n) {
 			out = append(out, n)
 			continue
 		}
