@@ -162,9 +162,9 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 			case "unavailable":
 				failure(w, 503, "UNAVAILABLE", "Routing unavailable in this snapshot")
 			case "unreachable":
-				write(w, 200, object{"routes": []any{}, "openmaps": object{"outcome": "unreachable", "message": "No driving route connects the snapped endpoints"}})
+				write(w, 200, object{"routes": []any{}, "openmaps": object{"outcome": "unreachable", "message": "No driving route connects these bounded snaps; no safe alternative snap is available. Disconnected roads and restrictions are preserved.", "origin": result.Origin, "destination": result.Destination, "profile": h.Routing.Metadata().Profile}})
 			default:
-				message := fmt.Sprintf("No suitable driving road within 100 metres of the %s", re.Endpoint)
+				message := fmt.Sprintf("No suitable driving road within 100 metres of the %s without bypassing restricted road access", re.Endpoint)
 				if re.Outcome == "outside_coverage" {
 					message = fmt.Sprintf("The %s is outside the supported Newport endpoint rectangle", re.Endpoint)
 				}
@@ -177,6 +177,6 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	routes := object{"routes": []any{object{"distanceMeters": int(math.Round(result.Distance)), "polyline": object{"geoJsonLinestring": object{"type": "LineString", "coordinates": result.Geometry}}}}}
 	response := project(routes, paths).(object)
-	response["openmaps"] = object{"outcome": "routed", "profile": routing.Profile, "snap_limit_meters": routing.SnapLimit, "origin": result.Origin, "destination": result.Destination, "attribution": "© OpenStreetMap contributors", "attribution_uri": h.Routing.Metadata().Attribution, "source_release": h.Routing.Metadata().Release}
+	response["openmaps"] = object{"outcome": "routed", "profile": h.Routing.Metadata().Profile, "snap_limit_meters": routing.SnapLimit, "origin": result.Origin, "destination": result.Destination, "attribution": "© OpenStreetMap contributors", "attribution_uri": h.Routing.Metadata().Attribution, "source_release": h.Routing.Metadata().Release}
 	write(w, 200, response)
 }

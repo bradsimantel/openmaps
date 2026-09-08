@@ -10,9 +10,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 )
 
-const Profile = "driving-distance-v1"
+const Profile = "driving-distance-v2"
+const GraphVersion = 2
+
+// Loaded ordinary passenger car, including mirrors; no trailer or roof load.
+const CarHeight, CarWidth, CarLength = 1.9, 2.0, 5.0 // metres
+const CarWeight, CarAxleLoad = 1.8, 1.1              // metric tonnes
+const DestinationTolerance = 0.1                     // numerical on-road tolerance, not property proximity
+const SnapCandidates = 8
 const SnapLimit = 100.0
 
 type Point [2]float64
@@ -35,13 +43,17 @@ type Node struct {
 // Segment IDs derive from source way ID and original adjacent-node ordinal.
 // Forward/backward follow source node order. Snap=false excludes motorway access.
 type Segment struct {
-	ID       string `json:"id"`
-	Way      int64  `json:"way"`
-	From     int64  `json:"from"`
-	To       int64  `json:"to"`
-	Forward  bool   `json:"forward"`
-	Backward bool   `json:"backward"`
-	Snap     bool   `json:"snap"`
+	ID                  string `json:"id"`
+	Way                 int64  `json:"way"`
+	From                int64  `json:"from"`
+	To                  int64  `json:"to"`
+	Forward             bool   `json:"forward"`
+	Backward            bool   `json:"backward"`
+	Snap                bool   `json:"snap"`
+	DestinationForward  bool   `json:"destination_forward,omitempty"`
+	DestinationBackward bool   `json:"destination_backward,omitempty"`
+	Service             bool   `json:"service,omitempty"`
+	Elevated            bool   `json:"elevated,omitempty"`
 }
 
 // EdgeRef names a directed segment; '-' means reverse source order.
@@ -71,8 +83,17 @@ type Metadata struct {
 	Attribution    string         `json:"attribution"`
 	Counts         map[string]int `json:"counts"`
 }
+
+// Guard preserves excluded motor-road geometry so snapping cannot jump over it.
+type Guard struct {
+	Segment string `json:"segment"`
+	Way     int64  `json:"way"`
+	From    Point  `json:"from"`
+	To      Point  `json:"to"`
+}
 type Data struct {
 	Metadata Metadata  `json:"metadata"`
+	Guards   []Guard   `json:"guards,omitempty"`
 	Nodes    []Node    `json:"nodes"`
 	Segments []Segment `json:"segments"`
 	Bans     []Ban     `json:"bans"`
@@ -97,19 +118,23 @@ type trieNode struct {
 	banned bool
 }
 type Store struct {
-	meta       Metadata
-	nodes      map[int64]Point
-	segments   []Segment
-	edges      []edge
-	outgoing   map[int64][]int
-	directions [][2]int
-	trie       []trieNode
+	meta            Metadata
+	nodes           map[int64]Point
+	segments        []Segment
+	edges           []edge
+	outgoing        map[int64][]int
+	directions      [][2]int
+	trie            []trieNode
+	guards          []Guard
+	zones           []int
+	restrictedNodes map[int64]bool
+	publicNodes     map[int64]bool
 }
 
 func New(d Data) (*Store, error) {
 	s := &Store{meta: d.Metadata, nodes: map[int64]Point{}, segments: d.Segments, outgoing: map[int64][]int{}, directions: make([][2]int, len(d.Segments)), trie: []trieNode{{next: map[int]int{}}}}
 	b := d.Metadata.EndpointBounds
-	if d.Metadata.Version != 1 || d.Metadata.Profile != Profile || !(Point{b[0], b[1]}).Valid() {
+	if !((d.Metadata.Version == 1 && d.Metadata.Profile == "driving-distance-v1") || (d.Metadata.Version == GraphVersion && d.Metadata.Profile == Profile)) || !(Point{b[0], b[1]}).Valid() {
 		return nil, fmt.Errorf("unsupported routing metadata")
 	}
 	if b[0] >= b[2] || b[1] >= b[3] || !(Point{b[2], b[3]}).Valid() || len(d.Nodes) == 0 || len(d.Segments) == 0 {
@@ -193,6 +218,55 @@ func New(d Data) (*Store, error) {
 			queue = append(queue, u)
 		}
 	}
+
+	s.guards = d.Guards
+	for _, g := range d.Guards {
+		if g.Segment == "" || g.Way <= 0 || ids[g.Segment] || !g.From.Valid() || !g.To.Valid() {
+			return nil, fmt.Errorf("invalid snap guard")
+		}
+		ids[g.Segment] = true
+	}
+	s.restrictedNodes = map[int64]bool{}
+	for _, ban := range d.Bans {
+		for _, ref := range ban.Path {
+			e := s.edges[refs[ref]]
+			s.restrictedNodes[e.from] = true
+			s.restrictedNodes[e.to] = true
+		}
+	}
+	s.zones = make([]int, len(s.segments))
+	byNode := map[int64][]int{}
+	s.publicNodes = map[int64]bool{}
+	for _, v := range s.segments {
+		if v.Forward && !v.DestinationForward || v.Backward && !v.DestinationBackward {
+			s.publicNodes[v.From] = true
+			s.publicNodes[v.To] = true
+		}
+	}
+	for i, v := range s.segments {
+		if v.DestinationForward || v.DestinationBackward {
+			byNode[v.From] = append(byNode[v.From], i)
+			byNode[v.To] = append(byNode[v.To], i)
+		}
+	}
+	for i, v := range s.segments {
+		if s.zones[i] != 0 || !(v.DestinationForward || v.DestinationBackward) {
+			continue
+		}
+		queue := []int{i}
+		s.zones[i] = i + 1
+		for j := 0; j < len(queue); j++ {
+			v := s.segments[queue[j]]
+			for _, n := range []int64{v.From, v.To} {
+				for _, k := range byNode[n] {
+					if s.zones[k] == 0 {
+						s.zones[k] = i + 1
+						queue = append(queue, k)
+					}
+				}
+			}
+		}
+	}
 	return s, nil
 }
 func (s *Store) advance(t, e int) (int, bool) {
@@ -212,12 +286,16 @@ type Error struct{ Outcome, Endpoint string }
 func (e *Error) Error() string { return e.Endpoint + ": " + e.Outcome }
 
 type Snap struct {
-	Point    Point   `json:"point"`
-	Distance float64 `json:"distance_meters"`
-	Segment  string  `json:"segment"`
-	index    int
-	fraction float64
-	node     int64
+	Point             Point   `json:"point"`
+	Distance          float64 `json:"distance_meters"`
+	Segment           string  `json:"segment"`
+	Requested         Point   `json:"requested"`
+	SelectionReason   string  `json:"selection_reason,omitempty"`
+	NearestDistance   float64 `json:"nearest_distance_meters"`
+	DestinationAccess bool    `json:"destination_access,omitempty"`
+	index             int
+	fraction          float64
+	node              int64
 }
 
 func project(p, a, b Point) (Point, float64) {
@@ -236,6 +314,8 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 		return Snap{}, &Error{"outside_coverage", endpoint}
 	}
 	best := Snap{Distance: math.Inf(1)}
+	candidates := []Snap{}
+	restrictedDistance := math.Inf(1)
 	for i, v := range s.segments {
 		if i%4096 == 0 {
 			if e := ctx.Err(); e != nil {
@@ -251,6 +331,23 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 		}
 		q, t := project(p, a, z)
 		dist := Distance(p, q)
+		if s.meta.Version >= 2 && s.zones[i] != 0 && dist > DestinationTolerance {
+			restrictedDistance = math.Min(restrictedDistance, dist)
+			continue
+		}
+		if dist <= SnapLimit {
+			c := Snap{Point: q, Distance: dist, Segment: v.ID, index: i, fraction: t, Requested: p, NearestDistance: dist, DestinationAccess: s.zones[i] != 0}
+			if t == 0 {
+				c.node = v.From
+			}
+			if t == 1 {
+				c.node = v.To
+			}
+			if c.node != 0 && s.publicNodes[c.node] {
+				c.DestinationAccess = false
+			}
+			candidates = append(candidates, c)
+		}
 		if dist < best.Distance-1e-8 || math.Abs(dist-best.Distance) <= 1e-8 && v.ID < best.Segment {
 			best = Snap{Point: q, Distance: dist, Segment: v.ID, index: i, fraction: t}
 			if t == 0 {
@@ -264,7 +361,106 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 	if best.Distance > SnapLimit {
 		return Snap{}, &Error{"unsnappable", endpoint}
 	}
+
+	if s.meta.Version == 1 {
+		best.Requested = p
+		best.NearestDistance = best.Distance
+		return best, nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if math.Abs(candidates[i].Distance-candidates[j].Distance) > 1e-8 {
+			return candidates[i].Distance < candidates[j].Distance
+		}
+		return candidates[i].Segment < candidates[j].Segment
+	})
+	best = candidates[0]
+	for _, g := range s.guards {
+		if p[1] < math.Min(g.From[1], g.To[1])-.001 || p[1] > math.Max(g.From[1], g.To[1])+.001 || p[0] < math.Min(g.From[0], g.To[0])-.002 || p[0] > math.Max(g.From[0], g.To[0])+.002 {
+			continue
+		}
+		q, _ := project(p, g.From, g.To)
+		restrictedDistance = math.Min(restrictedDistance, Distance(p, q))
+	}
+	if restrictedDistance+.1 < best.Distance {
+		return Snap{}, &Error{"unsnappable", endpoint}
+	}
+	if len(candidates) > SnapCandidates {
+		candidates = candidates[:SnapCandidates]
+	}
+	// Prefer a nearby ordinary street to a service spur only at a shared,
+	// unrestricted surface junction. Selection never consults the other endpoint.
+	for _, c := range candidates[1:] {
+		if c.Distance > 30 || c.Distance > best.Distance+10 {
+			break
+		}
+		if s.safeStreetCandidate(best, c) {
+			c.NearestDistance = best.Distance
+			c.SelectionReason = "Nearby street selected over service road at the same unrestricted junction (within 20 m along source roads); property entrance is unverified."
+			return c, nil
+		}
+	}
 	return best, nil
+}
+
+func (s *Store) safeStreetCandidate(a, b Snap) bool {
+	x, y := s.segments[a.index], s.segments[b.index]
+	if !x.Service || y.Service || !x.Forward || !x.Backward || !y.Forward || !y.Backward || x.Elevated || y.Elevated || s.zones[a.index] != 0 || s.zones[b.index] != 0 {
+		return false
+	}
+	// Source ways often have several short geometry pieces before the junction.
+	// Walk only this same unrestricted service way, within 20 m and 32 nodes.
+	type visit struct {
+		node     int64
+		distance float64
+	}
+	queue := []visit{{x.From, Distance(a.Point, s.nodes[x.From])}, {x.To, Distance(a.Point, s.nodes[x.To])}}
+	seen := map[int64]float64{}
+	for i := 0; i < len(queue) && i < 32; i++ {
+		v := queue[i]
+		if v.distance > 20 || s.restrictedNodes[v.node] {
+			continue
+		}
+		if old, ok := seen[v.node]; ok && old <= v.distance {
+			continue
+		}
+		seen[v.node] = v.distance
+		if (v.node == y.From || v.node == y.To) && v.distance+Distance(s.nodes[v.node], b.Point) <= 20 {
+			return !s.connectorCrossesRoad(a, b)
+		}
+		for _, id := range s.outgoing[v.node] {
+			e := s.edges[id]
+			seg := s.segments[e.segment]
+			if seg.Way == x.Way && seg.Forward && seg.Backward && !seg.Elevated && s.zones[e.segment] == 0 {
+				queue = append(queue, visit{e.to, v.distance + e.length})
+			}
+		}
+	}
+	return false
+}
+
+// Reject a farther connector crossing a third mapped road (including a divided
+// carriageway), excluded approach or barrier guard. Unmapped off-road obstacles
+// still cannot be inferred, and the browser labels every connector unverified.
+func (s *Store) connectorCrossesRoad(a, b Snap) bool {
+	crosses := func(c, d Point) bool {
+		p, q := a.Requested, b.Point
+		cross := func(x, y, z Point) float64 { return (y[0]-x[0])*(z[1]-x[1]) - (y[1]-x[1])*(z[0]-x[0]) }
+		return cross(p, q, c)*cross(p, q, d) < 0 && cross(c, d, p)*cross(c, d, q) < 0
+	}
+	for _, v := range s.segments {
+		if v.Way == s.segments[a.index].Way || v.Way == s.segments[b.index].Way {
+			continue
+		}
+		if crosses(s.nodes[v.From], s.nodes[v.To]) {
+			return true
+		}
+	}
+	for _, g := range s.guards {
+		if crosses(g.From, g.To) {
+			return true
+		}
+	}
+	return false
 }
 
 type Result struct {
@@ -273,7 +469,7 @@ type Result struct {
 	Origin, Destination Snap
 	Segments            []string
 }
-type state struct{ edge, trie int }
+type state struct{ edge, trie, phase int }
 type item struct {
 	state    state
 	distance float64
@@ -288,7 +484,10 @@ func (q queue) Less(i, j int) bool {
 	if q[i].state.edge != q[j].state.edge {
 		return q[i].state.edge < q[j].state.edge
 	}
-	return q[i].state.trie < q[j].state.trie
+	if q[i].state.trie != q[j].state.trie {
+		return q[i].state.trie < q[j].state.trie
+	}
+	return q[i].state.phase < q[j].state.phase
 }
 func (q queue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
 func (q *queue) Push(x any)   { *q = append(*q, x.(item)) }
@@ -306,11 +505,41 @@ func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, e
 		return Result{}, e
 	}
 	result := Result{Origin: a, Destination: b}
+	aZone, bZone := 0, 0
+	if a.DestinationAccess {
+		aZone = s.zones[a.index]
+	}
+	if b.DestinationAccess {
+		bZone = s.zones[b.index]
+	}
+	// A restricted zone may only be an origin prefix or destination suffix.
+	// Once a destination zone is entered from public travel, no public exit is legal.
+	transition := func(phase, id int) (int, bool) {
+		edge := s.edges[id]
+		v := s.segments[edge.segment]
+		restricted := v.DestinationForward
+		if edge.reverse {
+			restricted = v.DestinationBackward
+		}
+		if !restricted {
+			return 1, phase != 2
+		}
+		zone := s.zones[edge.segment]
+		if phase == 0 && aZone == zone {
+			return 0, true
+		}
+		if bZone == zone {
+			return 2, true
+		}
+		return phase, false
+	}
 	best := math.Inf(1)
 	direct := false
 	if a.index == b.index {
 		v := s.segments[a.index]
-		if a.fraction <= b.fraction && v.Forward || a.fraction >= b.fraction && v.Backward {
+		forward := v.Forward && (!v.DestinationForward || aZone != 0 || bZone != 0)
+		backward := v.Backward && (!v.DestinationBackward || aZone != 0 || bZone != 0)
+		if a.fraction <= b.fraction && forward || a.fraction >= b.fraction && backward {
 			best = Distance(a.Point, b.Point)
 			direct = true
 		}
@@ -323,7 +552,10 @@ func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, e
 	previous := map[state]state{}
 	q := &queue{}
 	heap.Init(q)
-	root := state{-1, 0}
+	root := state{-1, 0, 0}
+	if aZone == 0 {
+		root.phase = 1
+	}
 	add := func(st state, d float64, prev state) {
 		if old, ok := distances[st]; !ok || d < old {
 			distances[st] = d
@@ -334,8 +566,8 @@ func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, e
 	if a.node != 0 {
 		for _, id := range s.outgoing[a.node] {
 			tr, ok := s.advance(0, id)
-			if ok {
-				add(state{id, tr}, s.edges[id].length, root)
+			if phase, allowed := transition(root.phase, id); ok && allowed {
+				add(state{id, tr, phase}, s.edges[id].length, root)
 			}
 		}
 	} else {
@@ -348,8 +580,8 @@ func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, e
 				fraction = a.fraction
 			}
 			tr, ok := s.advance(0, id)
-			if ok {
-				add(state{id, tr}, fraction*s.edges[id].length, root)
+			if phase, allowed := transition(root.phase, id); ok && allowed {
+				add(state{id, tr, phase}, fraction*s.edges[id].length, root)
 			}
 		}
 	}
@@ -375,7 +607,8 @@ func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, e
 				continue
 			}
 			_, ok := s.advance(st.trie, id)
-			if !ok {
+			_, allowed := transition(st.phase, id)
+			if !ok || !allowed {
 				continue
 			}
 			fraction := b.fraction
@@ -416,13 +649,13 @@ func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, e
 				continue
 			}
 			tr, ok := s.advance(cur.state.trie, id)
-			if ok {
-				add(state{id, tr}, cur.distance+out.length, cur.state)
+			if phase, allowed := transition(cur.state.phase, id); ok && allowed {
+				add(state{id, tr, phase}, cur.distance+out.length, cur.state)
 			}
 		}
 	}
 	if math.IsInf(best, 1) {
-		return Result{}, &Error{"unreachable", "destination"}
+		return result, &Error{"unreachable", "destination"}
 	}
 	result.Distance = best
 	result.Geometry = []Point{a.Point}

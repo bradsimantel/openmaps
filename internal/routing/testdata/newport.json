@@ -10,8 +10,11 @@
       41.48654393
     ],
     "outcome": "routed",
-    "distance_meters": 1239,
-    "outside_preview": false
+    "outside_preview": false,
+    "observed_v1_meters": 1239,
+    "min_meters": 0,
+    "max_meters": 10000,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
   },
   {
     "name": "Bellevue to White Horse",
@@ -24,8 +27,11 @@
       41.49138952
     ],
     "outcome": "routed",
-    "distance_meters": 966,
-    "outside_preview": false
+    "outside_preview": false,
+    "observed_v1_meters": 966,
+    "min_meters": 0,
+    "max_meters": 10000,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
   },
   {
     "name": "south Beacon Hill to Bellevue",
@@ -38,8 +44,11 @@
       41.48654393
     ],
     "outcome": "routed",
-    "distance_meters": 3541,
-    "outside_preview": true
+    "outside_preview": true,
+    "observed_v1_meters": 3541,
+    "min_meters": 0,
+    "max_meters": 10000,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
   },
   {
     "name": "north Park Holm to east Valley",
@@ -52,8 +61,11 @@
       41.50944932354806
     ],
     "outcome": "routed",
-    "distance_meters": 2303,
-    "outside_preview": true
+    "outside_preview": true,
+    "observed_v1_meters": 2303,
+    "min_meters": 0,
+    "max_meters": 10000,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
   },
   {
     "name": "Valley to Park Holm",
@@ -66,8 +78,11 @@
       41.51
     ],
     "outcome": "routed",
-    "distance_meters": 2303,
-    "outside_preview": true
+    "outside_preview": true,
+    "observed_v1_meters": 2303,
+    "min_meters": 0,
+    "max_meters": 10000,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
   },
   {
     "name": "west waterfront to southeast",
@@ -81,7 +96,8 @@
     ],
     "outcome": "unsnappable",
     "distance_meters": 0,
-    "outside_preview": false
+    "outside_preview": false,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
   },
   {
     "name": "south to east",
@@ -94,8 +110,11 @@
       41.509449
     ],
     "outcome": "routed",
-    "distance_meters": 7025,
-    "outside_preview": true
+    "outside_preview": true,
+    "observed_v1_meters": 7025,
+    "min_meters": 0,
+    "max_meters": 10000,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
   },
   {
     "name": "water",
@@ -109,7 +128,8 @@
     ],
     "outcome": "unsnappable",
     "distance_meters": 0,
-    "outside_preview": false
+    "outside_preview": false,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
   },
   {
     "name": "outside east",
@@ -123,6 +143,479 @@
     ],
     "outcome": "outside_coverage",
     "distance_meters": 0,
-    "outside_preview": false
+    "outside_preview": false,
+    "evidence_note": "Historical source-backed lookup/boundary point; legal directed adjacency, prohibited paths, road-distance sum and rectangle detour invariant. Exact v1 distance is an observation, not a route-quality oracle."
+  },
+  {
+    "name": "Farewell one-way forward",
+    "origin": [
+      -71.31363866,
+      41.49142166
+    ],
+    "destination": [
+      -71.31378974,
+      41.49175184
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "min_meters": 35,
+    "max_meters": 50,
+    "evidence": [
+      {
+        "way": 19354792,
+        "tags": {
+          "oneway": "yes"
+        }
+      }
+    ],
+    "required_ways": [
+      19354792
+    ],
+    "evidence_note": "Interior of source nodes 6247337295 to 201124936; source-order travel is legal, reverse must leave this segment and return legally. Direct source span about 39 m."
+  },
+  {
+    "name": "Farewell one-way reverse detour",
+    "origin": [
+      -71.31378974,
+      41.49175184
+    ],
+    "destination": [
+      -71.31363866,
+      41.49142166
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "min_meters": 100,
+    "max_meters": 2500,
+    "evidence": [
+      {
+        "way": 19354792,
+        "tags": {
+          "oneway": "yes"
+        }
+      }
+    ],
+    "required_ways": [],
+    "evidence_note": "Interior of source nodes 6247337295 to 201124936; source-order travel is legal, reverse must leave this segment and return legally. Direct source span about 39 m."
+  },
+  {
+    "name": "Goat Island bridge westbound",
+    "origin": [
+      -71.32365682,
+      41.4913135
+    ],
+    "destination": [
+      -71.32582708,
+      41.4912814
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "min_meters": 175,
+    "max_meters": 190,
+    "required_ways": [
+      19348740
+    ],
+    "max_snap_meters": 0.1,
+    "evidence": [
+      {
+        "way": 19348740,
+        "tags": {
+          "bridge": "yes",
+          "layer": "1"
+        }
+      }
+    ],
+    "evidence_note": "Both endpoints interior to the same bidirectional 302 m source bridge segment. Sixty percent of source chord gives about 181 m, independently of route search."
+  },
+  {
+    "name": "Goat Island bridge eastbound",
+    "origin": [
+      -71.32582708,
+      41.4912814
+    ],
+    "destination": [
+      -71.32365682,
+      41.4913135
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "min_meters": 175,
+    "max_meters": 190,
+    "required_ways": [
+      19348740
+    ],
+    "max_snap_meters": 0.1,
+    "evidence": [
+      {
+        "way": 19348740,
+        "tags": {
+          "bridge": "yes",
+          "layer": "1"
+        }
+      }
+    ],
+    "evidence_note": "Both endpoints interior to the same bidirectional 302 m source bridge segment. Sixty percent of source chord gives about 181 m, independently of route search."
+  },
+  {
+    "name": "Cotton Court dead end arrival",
+    "origin": [
+      -71.31373108,
+      41.49138952
+    ],
+    "destination": [
+      -71.3146235,
+      41.4879113
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 2500,
+    "required_ways": [
+      19354757
+    ],
+    "evidence": [
+      {
+        "way": 19354757,
+        "tags": {
+          "highway": "residential"
+        }
+      }
+    ],
+    "evidence_note": "OSM node 4385085569 has noexit=yes; Cotton Court only joins Thames at 201166841. Initial heading is free; no invented exit beyond terminal."
+  },
+  {
+    "name": "Cotton Court dead end departure",
+    "origin": [
+      -71.3146235,
+      41.4879113
+    ],
+    "destination": [
+      -71.31373108,
+      41.49138952
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 2500,
+    "required_ways": [
+      19354757
+    ],
+    "evidence": [
+      {
+        "way": 19354757,
+        "tags": {
+          "highway": "residential"
+        }
+      }
+    ],
+    "evidence_note": "OSM node 4385085569 has noexit=yes; Cotton Court only joins Thames at 201166841. Initial heading is free; no invented exit beyond terminal."
+  },
+  {
+    "name": "Training Station gated component",
+    "origin": [
+      -71.3253249,
+      41.5065931
+    ],
+    "destination": [
+      -71.31373108,
+      41.49138952
+    ],
+    "outcome": "unreachable",
+    "outside_preview": false,
+    "evidence": [
+      {
+        "way": 1499201952,
+        "tags": {
+          "name": "Training Station Road"
+        }
+      }
+    ],
+    "evidence_note": "Retained gate node 201248257 has barrier=gate without car permission; bridge component cannot cross it or jump to nearby roads."
+  },
+  {
+    "name": "Training Station bridge within component",
+    "origin": [
+      -71.32521797,
+      41.50656318
+    ],
+    "destination": [
+      -71.32489533,
+      41.50648702
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "min_meters": 25,
+    "max_meters": 35,
+    "max_snap_meters": 0.1,
+    "required_ways": [
+      986758708
+    ],
+    "evidence": [
+      {
+        "way": 986758708,
+        "tags": {
+          "bridge": "yes",
+          "layer": "1"
+        }
+      }
+    ],
+    "evidence_note": "Two interior points on a single 35 m source bridge segment remain mutually reachable despite the component being isolated."
+  },
+  {
+    "name": "Newport Bridge parking aisle",
+    "origin": [
+      -71.3179597,
+      41.50062445
+    ],
+    "destination": [
+      -71.3180853,
+      41.50170665
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 450,
+    "max_snap_meters": 0.1,
+    "required_ways": [
+      1312346391
+    ],
+    "evidence": [
+      {
+        "way": 1312346391,
+        "tags": {
+          "maxheight": "14'9\"",
+          "service": "parking_aisle"
+        }
+      }
+    ],
+    "evidence_note": "4.4958 m clearance exceeds 1.9 m car. Both points on same aisle, with a continuous source-order witness under 450 m. Nearby elevated motorway nodes never become junctions."
+  },
+  {
+    "name": "Destination parking arrival",
+    "origin": [
+      -71.31373108,
+      41.49138952
+    ],
+    "destination": [
+      -71.3159262,
+      41.4906558
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 2500,
+    "required_ways": [
+      741262978
+    ],
+    "evidence": [
+      {
+        "way": 741262978,
+        "tags": {
+          "access": "destination"
+        }
+      }
+    ],
+    "evidence_note": "Endpoint deliberately lies on mapped destination-only parking aisle, not at a business/address centroid. Only a restricted prefix/suffix is legal."
+  },
+  {
+    "name": "Destination parking departure",
+    "origin": [
+      -71.3159262,
+      41.4906558
+    ],
+    "destination": [
+      -71.31373108,
+      41.49138952
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 2500,
+    "required_ways": [
+      741262978
+    ],
+    "evidence": [
+      {
+        "way": 741262978,
+        "tags": {
+          "access": "destination"
+        }
+      }
+    ],
+    "evidence_note": "Endpoint deliberately lies on mapped destination-only parking aisle, not at a business/address centroid. Only a restricted prefix/suffix is legal."
+  },
+  {
+    "name": "Resolute destination arrival",
+    "origin": [
+      -71.31373108,
+      41.49138952
+    ],
+    "destination": [
+      -71.321323,
+      41.5089545
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 4500,
+    "required_ways": [
+      19359216
+    ],
+    "evidence": [
+      {
+        "way": 19359216,
+        "tags": {
+          "motor_vehicle": "destination"
+        }
+      }
+    ],
+    "evidence_note": "Endpoint on Resolute Road; connects via 3rd Street Extension. Destination tag permits non-through access without private/customer authorization."
+  },
+  {
+    "name": "Resolute destination departure",
+    "origin": [
+      -71.321323,
+      41.5089545
+    ],
+    "destination": [
+      -71.31373108,
+      41.49138952
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 4500,
+    "required_ways": [
+      19359216
+    ],
+    "evidence": [
+      {
+        "way": 19359216,
+        "tags": {
+          "motor_vehicle": "destination"
+        }
+      }
+    ],
+    "evidence_note": "Endpoint on Resolute Road; connects via 3rd Street Extension. Destination tag permits non-through access without private/customer authorization."
+  },
+  {
+    "name": "Destination proximity is insufficient",
+    "origin": [
+      -71.31373108,
+      41.49138952
+    ],
+    "destination": [
+      -71.3159262,
+      41.4906758
+    ],
+    "outcome": "unsnappable",
+    "outside_preview": false,
+    "evidence": [
+      {
+        "way": 741262978,
+        "tags": {
+          "access": "destination"
+        }
+      }
+    ],
+    "evidence_note": "About 2 m off the restricted aisle is outside the 0.1 m on-road rounding tolerance; lookup/proximity does not qualify."
+  },
+  {
+    "name": "Customer road not authorized",
+    "origin": [
+      -71.31373108,
+      41.49138952
+    ],
+    "destination": [
+      -71.31470925,
+      41.4904926
+    ],
+    "outcome": "unsnappable",
+    "outside_preview": false,
+    "evidence": [
+      {
+        "way": 1476568267,
+        "tags": {
+          "access": "customers"
+        }
+      }
+    ],
+    "evidence_note": "Requested point on covered customer-only segment. A lookup result or endpoint request is not evidence of customer authorization."
+  },
+  {
+    "name": "Private driveway not authorized",
+    "origin": [
+      -71.31373108,
+      41.49138952
+    ],
+    "destination": [
+      -71.328552,
+      41.4871345
+    ],
+    "outcome": "unsnappable",
+    "outside_preview": false,
+    "evidence": [
+      {
+        "way": 19347923,
+        "tags": {
+          "access": "private"
+        }
+      }
+    ],
+    "evidence_note": "Requested point on private driveway; its exclusion must not move the endpoint to a public road beyond it."
+  },
+  {
+    "name": "No downtown destination through shortcut",
+    "origin": [
+      -71.31709375,
+      41.49072525
+    ],
+    "destination": [
+      -71.31662395,
+      41.4886464
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 3000,
+    "forbid_destination": true,
+    "evidence": [
+      {
+        "way": 741262975,
+        "tags": {
+          "access": "destination"
+        }
+      },
+      {
+        "way": 1192260087,
+        "tags": {
+          "access": "destination"
+        }
+      }
+    ],
+    "evidence_note": "Both endpoints on unrestricted road interiors. All destination-only edges are forbidden even if the car park is shorter."
+  },
+  {
+    "name": "Edgar Court competing service snap",
+    "origin": [
+      -71.305119706,
+      41.484098654
+    ],
+    "destination": [
+      -71.30830418,
+      41.48654393
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 2000,
+    "farther_origin": true,
+    "evidence": [
+      {
+        "way": 19347880,
+        "tags": {
+          "highway": "service"
+        }
+      },
+      {
+        "way": 19353499,
+        "tags": {
+          "name": "Edgar Court",
+          "highway": "residential"
+        }
+      }
+    ],
+    "evidence_note": "Constructed 5 m along service approach plus 1 m toward Edgar Court from shared source node 201065273. Unrestricted bidirectional junction permits bounded street preference independent of destination."
   }
 ]

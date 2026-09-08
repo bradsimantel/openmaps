@@ -71,6 +71,16 @@ func AddRouting(ctx context.Context, dbPath, pbf string, manifest json.RawMessag
 
 func drivingConditional(t map[string]string) bool {
 	for k := range t {
+		unrelated := false
+		for _, part := range strings.Split(k, ":") {
+			switch part {
+			case "hgv", "hgv_articulated", "bus", "psv", "emergency", "bicycle", "foot":
+				unrelated = true
+			}
+		}
+		if unrelated {
+			continue
+		}
 		if !strings.Contains(k, ":conditional") {
 			continue
 		}
@@ -103,24 +113,27 @@ func directionAccess(t map[string]string, direction string) string {
 }
 func allowed(v string) bool { return v == "" || v == "yes" || v == "permissive" || v == "designated" }
 func barrierBlocked(t map[string]string) bool {
-	if drivingConditional(t) || !allowed(access(t, "")) {
+	if drivingConditional(t) || !allowed(access(t, "")) || !dimensionsAllowed(t, "forward") || !dimensionsAllowed(t, "backward") {
 		return true
 	}
 	b := t["barrier"]
 	if b == "" || b == "no" || b == "toll_booth" || b == "cattle_grid" {
 		return false
 	}
+	if b == "height_restrictor" && (t["maxheight"] != "" || t["maxheight:physical"] != "") {
+		return false
+	}
 	if b == "kerb" && (t["kerb"] == "flush" || t["kerb"] == "lowered") {
 		return false
 	}
-	if (b == "gate" || b == "lift_gate" || b == "swing_gate") && access(t, "") != "" && allowed(access(t, "")) && t["locked"] != "yes" {
+	if (b == "gate" || b == "lift_gate" || b == "swing_gate") && access(t, "") != "" && allowed(access(t, "")) && (t["locked"] == "" || t["locked"] == "no") {
 		return false
 	}
 	return true
 }
 
-// Unknown access values and vehicle-dimension limits are excluded, as are roads
-// requiring destination/customer/private permission; this is a public passenger-car profile.
+// Destination access is retained per direction for endpoint-aware routing.
+// Other restricted access and incompatible/unknown dimensions remain closed.
 func drivingWay(t map[string]string) (forward, backward, snap bool, reason string) {
 	switch t["highway"] {
 	case "motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link", "secondary", "secondary_link", "tertiary", "tertiary_link", "residential", "unclassified", "living_street", "service":
@@ -133,11 +146,7 @@ func drivingWay(t map[string]string) (forward, backward, snap bool, reason strin
 	if drivingConditional(t) {
 		return false, false, false, "conditional access/direction/dimension closure"
 	}
-	for _, k := range []string{"maxheight", "maxwidth", "maxweight", "maxlength", "maxaxleload"} {
-		if t[k] != "" && t[k] != "none" && t[k] != "default" {
-			return false, false, false, "dimension restriction outside profile"
-		}
-	}
+
 	if t["barrier"] != "" && barrierBlocked(t) {
 		return false, false, false, "access/barrier closure"
 	}
@@ -160,10 +169,10 @@ func drivingWay(t map[string]string) (forward, backward, snap bool, reason strin
 	default:
 		return false, false, false, "unsupported one-way closure"
 	}
-	forward = forward && allowed(directionAccess(t, "forward"))
-	backward = backward && allowed(directionAccess(t, "backward"))
+	forward = forward && (allowed(directionAccess(t, "forward")) || directionAccess(t, "forward") == "destination") && dimensionsAllowed(t, "forward")
+	backward = backward && (allowed(directionAccess(t, "backward")) || directionAccess(t, "backward") == "destination") && dimensionsAllowed(t, "backward")
 	if !forward && !backward {
-		return false, false, false, "access closure"
+		return false, false, false, "access/dimension closure"
 	}
 	snap = t["highway"] != "motorway" && t["highway"] != "motorway_link" && t["highway"] != "trunk" && t["highway"] != "trunk_link"
 	return forward, backward, snap, "included"
@@ -237,8 +246,9 @@ func scanPBF(ctx context.Context, path string, skipNodes, skipWays, skipRelation
 }
 
 func readRouting(ctx context.Context, path string, source Input, bounds [4]float64) (routing.Data, error) {
-	d := routing.Data{Metadata: routing.Metadata{Version: 1, Profile: routing.Profile, EndpointBounds: bounds, Release: source.Release, URL: source.URL, SourceSHA256: source.SHA256, Attribution: source.Attribution, Counts: map[string]int{}}, Nodes: []routing.Node{}, Segments: []routing.Segment{}, Bans: []routing.Ban{}, Sources: []routing.Source{}}
+	d := routing.Data{Metadata: routing.Metadata{Version: routing.GraphVersion, Profile: routing.Profile, EndpointBounds: bounds, Release: source.Release, URL: source.URL, SourceSHA256: source.SHA256, Attribution: source.Attribution, Counts: map[string]int{}}, Nodes: []routing.Node{}, Segments: []routing.Segment{}, Bans: []routing.Ban{}, Sources: []routing.Source{}}
 	roads := map[int64]road{}
+	motorWays := map[int64]*osm.Way{}
 	relations := []*osm.Relation{}
 	need := map[int64]bool{}
 	blocked := map[int64]bool{}
@@ -253,6 +263,12 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 			t := osmTags(v.Tags)
 			f, b, s, reason := drivingWay(t)
 			d.Sources = append(d.Sources, routing.Source{Kind: "way", ID: int64(v.ID), Version: v.Version, Raw: rawValue(v), Decision: reason})
+			if reason != "highway outside profile" {
+				motorWays[int64(v.ID)] = v
+				for _, n := range v.Nodes {
+					need[int64(n.ID)] = true
+				}
+			}
 			if f || b {
 				roads[int64(v.ID)] = road{v, f, b, s}
 				for _, n := range v.Nodes {
@@ -343,7 +359,7 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 			if blocked[a] || blocked[b] || a == b || na.Point == nb.Point {
 				continue
 			}
-			seg := routing.Segment{ID: strconv.FormatInt(id, 10) + ":" + strconv.Itoa(i-1), Way: id, From: a, To: b, Forward: r.forward, Backward: r.backward, Snap: r.snap}
+			seg := routing.Segment{ID: strconv.FormatInt(id, 10) + ":" + strconv.Itoa(i-1), Way: id, From: a, To: b, Forward: r.forward, Backward: r.backward, Snap: r.snap, DestinationForward: directionAccess(osmTags(r.way.Tags), "forward") == "destination", DestinationBackward: directionAccess(osmTags(r.way.Tags), "backward") == "destination", Service: r.way.Tags.Find("highway") == "service", Elevated: r.way.Tags.Find("bridge") == "yes" || r.way.Tags.Find("tunnel") == "yes" || (r.way.Tags.Find("layer") != "" && r.way.Tags.Find("layer") != "0")}
 			d.Segments = append(d.Segments, seg)
 			used[a] = true
 			used[b] = true
@@ -364,6 +380,33 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 			d.Metadata.Counts["included_ways"]++
 			if r.way.Tags.Find("name") == "" {
 				d.Metadata.Counts["included_unnamed_ways"]++
+			}
+		}
+	}
+	// Retain excluded motor-road pieces as snap guards, including barrier approaches.
+	retained := map[string]bool{}
+	for _, seg := range d.Segments {
+		retained[seg.ID] = true
+	}
+	motorIDs := make([]int64, 0, len(motorWays))
+	for id := range motorWays {
+		motorIDs = append(motorIDs, id)
+	}
+	sort.Slice(motorIDs, func(i, j int) bool { return motorIDs[i] < motorIDs[j] })
+	for _, id := range motorIDs {
+		w := motorWays[id]
+		for i := 1; i < len(w.Nodes); i++ {
+			key := strconv.FormatInt(id, 10) + ":" + strconv.Itoa(i-1)
+			if retained[key] {
+				continue
+			}
+			a, aok := nodes[int64(w.Nodes[i-1].ID)]
+			b, bok := nodes[int64(w.Nodes[i].ID)]
+			if !aok || !bok {
+				return d, fmt.Errorf("snap guard way %d missing node", id)
+			}
+			if a.Point != b.Point {
+				d.Guards = append(d.Guards, routing.Guard{Segment: key, Way: id, From: a.Point, To: b.Point})
 			}
 		}
 	}
@@ -491,6 +534,12 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 	d.Metadata.Counts["segments"] = len(d.Segments)
 	d.Metadata.Counts["bans"] = len(d.Bans)
 	d.Metadata.Counts["blocked_nodes"] = len(blocked)
+	d.Metadata.Counts["snap_guards"] = len(d.Guards)
+	for _, seg := range d.Segments {
+		if seg.DestinationForward || seg.DestinationBackward {
+			d.Metadata.Counts["destination_segments"]++
+		}
+	}
 	return d, ctx.Err()
 }
 

@@ -268,3 +268,13 @@ new routing comparisons are included in the same reviewed report fingerprint.
 The routing integration suite rehearses a real snapshot cycle using a temporary
 state file, leaving `data/deployment.json` untouched. Building/testing a routing
 candidate does not authorize activating the user's deployment.
+
+Graph format 2 (`driving-distance-v2`) adds the ordinary-car limits, destination
+zones and guarded snapping documented in [routing](routing.md). Format 1 remains
+loadable with its retained profile; comparison shows each version and graph hash.
+For route-quality changes, run the 27-trip candidate suite, an old-graph observation
+run, and the snapshot cycle both from a lookup-only baseline and from the retained
+routing baseline. The latter verifies actual v1 → v2 → v1 profile responses.
+All such cycles use `t.TempDir()` deployment state. See the
+[historical quality milestone](log/0016-newport-driving-quality.md) for the candidate,
+rebuild/comparison checksums, source findings and evaluated differences.

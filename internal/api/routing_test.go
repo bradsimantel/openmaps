@@ -12,7 +12,7 @@ const routeBody = `{"origin":{"location":{"latLng":{"latitude":0,"longitude":0}}
 
 func routeHandler(t *testing.T) Handler {
 	t.Helper()
-	s, e := routing.New(routing.Data{Metadata: routing.Metadata{Version: 1, Profile: routing.Profile, EndpointBounds: [4]float64{-1, -1, 1, 1}, Attribution: "https://www.openstreetmap.org/copyright", Release: "fixture"}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{0, 0}}, {ID: 2, Point: routing.Point{.004, 0}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Snap: true}}})
+	s, e := routing.New(routing.Data{Metadata: routing.Metadata{Version: routing.GraphVersion, Profile: routing.Profile, EndpointBounds: [4]float64{-1, -1, 1, 1}, Attribution: "https://www.openstreetmap.org/copyright", Release: "fixture"}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{0, 0}}, {ID: 2, Point: routing.Point{.004, 0}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Snap: true}}})
 	if e != nil {
 		t.Fatal(e)
 	}

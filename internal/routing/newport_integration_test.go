@@ -79,8 +79,18 @@ func TestNewportRouting(t *testing.T) {
 		Name                string
 		Origin, Destination routing.Point
 		Outcome             string
-		Distance            int  `json:"distance_meters"`
-		Outside             bool `json:"outside_preview"`
+		Min                 float64 `json:"min_meters"`
+		Max                 float64 `json:"max_meters"`
+		MaxSnap             float64 `json:"max_snap_meters"`
+		RequiredWays        []int64 `json:"required_ways"`
+		ForbidDestination   bool    `json:"forbid_destination"`
+		FartherOrigin       bool    `json:"farther_origin"`
+		EvidenceNote        string  `json:"evidence_note"`
+		Evidence            []struct {
+			Way  int64
+			Tags map[string]string
+		}
+		Outside bool `json:"outside_preview"`
 	}
 	raw, e = os.ReadFile("testdata/newport.json")
 	if e != nil {
@@ -89,22 +99,59 @@ func TestNewportRouting(t *testing.T) {
 	if e = json.Unmarshal(raw, &cases); e != nil {
 		t.Fatal(e)
 	}
+	observe := os.Getenv("OPENMAPS_ROUTING_OBSERVE") == "1"
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
 			start := time.Now()
 			r, e := s.Route(ctx, tc.Origin, tc.Destination)
-			if tc.Outcome != "routed" {
-				var re *routing.Error
-				if !errors.As(e, &re) || re.Outcome != tc.Outcome {
-					t.Fatalf("%s: %v", tc.Outcome, e)
+			if tc.EvidenceNote == "" {
+				t.Fatal("missing independent evidence")
+			}
+			for _, ev := range tc.Evidence {
+				for k, want := range ev.Tags {
+					if sources[ev.Way].Tags[k] != want {
+						t.Fatalf("source evidence changed: way %d %s", ev.Way, k)
+					}
 				}
-				return
+			}
+			actual := "routed"
+			if e != nil {
+				var re *routing.Error
+				if !errors.As(e, &re) {
+					t.Fatal(e)
+				}
+				actual = re.Outcome
+			}
+			t.Logf("RESULT %s: %s; %.3f m; snaps %.3f/%.3f m; %s", tc.Name, actual, r.Distance, r.Origin.Distance, r.Destination.Distance, r.Origin.SelectionReason)
+			if !observe && actual != tc.Outcome {
+				t.Fatalf("expected %s from source evidence: %s; got %v", tc.Outcome, tc.EvidenceNote, e)
 			}
 			if e != nil {
-				t.Fatal(e)
+				return
 			}
-			if int(math.Round(r.Distance)) != tc.Distance {
-				t.Fatalf("distance changed: %.3f vs %d", r.Distance, tc.Distance)
+			if !observe {
+				if r.Distance < tc.Min || tc.Max > 0 && r.Distance > tc.Max {
+					t.Fatalf("distance %.3f outside source-derived bounds %.1f..%.1f: %s", r.Distance, tc.Min, tc.Max, tc.EvidenceNote)
+				}
+				if tc.MaxSnap > 0 && (r.Origin.Distance > tc.MaxSnap || r.Destination.Distance > tc.MaxSnap) {
+					t.Fatal("on-road source point moved", r.Origin, r.Destination)
+				}
+				if tc.FartherOrigin && (r.Origin.SelectionReason == "" || r.Origin.Distance <= r.Origin.NearestDistance) {
+					t.Fatal("missing bounded farther-candidate explanation", r.Origin)
+				}
+				used := map[int64]bool{}
+				for _, id := range r.Segments {
+					seg := segments[id]
+					used[seg.Way] = true
+					if tc.ForbidDestination && (seg.DestinationForward || seg.DestinationBackward) {
+						t.Fatal("destination through shortcut", id)
+					}
+				}
+				for _, way := range tc.RequiredWays {
+					if !used[way] {
+						t.Fatalf("source-required way %d missing", way)
+					}
+				}
 			}
 			outside := false
 			var sum float64
@@ -158,7 +205,7 @@ func TestNewportRouting(t *testing.T) {
 			for _, p := range r.Geometry {
 				outside = outside || p[0] < -71.33 || p[0] > -71.29 || p[1] < 41.47 || p[1] > 41.51
 			}
-			if outside != tc.Outside {
+			if !observe && outside != tc.Outside {
 				t.Fatal("boundary detour changed")
 			}
 			for _, ban := range data.Bans {
@@ -179,7 +226,7 @@ func TestNewportRouting(t *testing.T) {
 			if response.Code != 200 {
 				t.Fatal(response.Body.String())
 			}
-			t.Logf("%d m; snaps %.2f/%.2f m; outside preview=%v; %v including HTTP; streets %s", tc.Distance, r.Origin.Distance, r.Destination.Distance, outside, time.Since(start), strings.Join(names, " → "))
+			t.Logf("%d m; snaps %.2f/%.2f m; outside preview=%v; %v including HTTP; streets %s", int(math.Round(r.Distance)), r.Origin.Distance, r.Destination.Distance, outside, time.Since(start), strings.Join(names, " → "))
 		})
 	}
 	// Source findings that must not disappear silently on a new graph build.
@@ -211,7 +258,7 @@ func TestNewportRoutingSnapshotCycle(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(report.Violations) != 0 || len(report.Added)+len(report.Removed)+len(report.Changed) != 0 || report.ContinuingIDs != 11602 || report.BaselineRouting != nil || report.CandidateRouting == nil {
+	if len(report.Violations) != 0 || len(report.Added)+len(report.Removed)+len(report.Changed) != 0 || report.ContinuingIDs != 11602 || report.CandidateRouting == nil {
 		t.Fatal("unexpected comparison")
 	}
 	if e = importer.WriteJSON(reportPath, report); e != nil {
@@ -232,7 +279,7 @@ func TestNewportRoutingSnapshotCycle(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer live.Close()
-	check := func(available bool) {
+	check := func(available bool, profile string) {
 		w := httptest.NewRecorder()
 		live.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil))
 		var h struct {
@@ -241,6 +288,15 @@ func TestNewportRoutingSnapshotCycle(t *testing.T) {
 		json.Unmarshal(w.Body.Bytes(), &h)
 		if w.Code != 200 || h.Routing != available {
 			t.Fatal(w.Body.String())
+		}
+		if available {
+			req := httptest.NewRequest("POST", "/directions/v2:computeRoutes", strings.NewReader(`{"origin":{"location":{"latLng":{"latitude":41.49138952,"longitude":-71.31373108}}},"destination":{"location":{"latLng":{"latitude":41.48654393,"longitude":-71.30830418}}},"polylineEncoding":"GEO_JSON_LINESTRING"}`))
+			req.Header.Set("X-Goog-FieldMask", "routes.distanceMeters")
+			rw := httptest.NewRecorder()
+			live.ServeHTTP(rw, req)
+			if rw.Code != 200 || !strings.Contains(rw.Body.String(), profile) {
+				t.Fatal("wrong loaded routing profile", rw.Body.String())
+			}
 		}
 		p := httptest.NewRequest("POST", "/v1/places:autocomplete", strings.NewReader(`{"input":"White Horse"}`))
 		w = httptest.NewRecorder()
@@ -254,14 +310,18 @@ func TestNewportRoutingSnapshotCycle(t *testing.T) {
 			t.Fatal("ambiguity regression", w.Body.String())
 		}
 	}
-	check(false)
+	baseProfile := ""
+	if report.BaselineRouting != nil {
+		baseProfile = report.BaselineRouting.Metadata.Profile
+	}
+	check(report.BaselineRouting != nil, baseProfile)
 	if e = dataset.Activate(ctx, state, next, reportPath, reviewPath); e != nil {
 		t.Fatal(e)
 	}
-	check(true)
+	check(true, report.CandidateRouting.Metadata.Profile)
 	if e = dataset.Rollback(ctx, state); e != nil {
 		t.Fatal(e)
 	}
-	check(false)
-	t.Log("isolated baseline → routing candidate → baseline: unchanged Places IDs and eight ambiguous Bellevue addresses; real deployment untouched")
+	check(report.BaselineRouting != nil, baseProfile)
+	t.Log("isolated baseline → routing candidate → baseline (including loaded profile): unchanged Places IDs and eight ambiguous Bellevue addresses; real deployment untouched")
 }

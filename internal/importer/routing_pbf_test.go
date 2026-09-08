@@ -245,3 +245,39 @@ func TestImportedDrivingRestrictions(t *testing.T) {
 		}
 	})
 }
+
+func TestImportedCarLimitsAndRestrictedEndpoints(t *testing.T) {
+	for _, value := range []string{"destination", "private", "customers", "delivery", "permit"} {
+		t.Run(value, func(t *testing.T) {
+			n, w := sourceGraphFixture()
+			w[1].Tags = append(w[1].Tags, osm.Tag{Key: "access", Value: value})
+			d, s := importSourceGraph(t, n, w)
+			r, e := s.Route(context.Background(), routing.Point{.001, 0}, routing.Point{.006, 0})
+			if value == "destination" {
+				if e != nil || r.Distance > 700 || !r.Destination.DestinationAccess {
+					t.Fatal(r, e)
+				}
+			} else {
+				if e == nil || len(d.Guards) == 0 {
+					t.Fatal("unauthorized endpoint borrowed public road", r, e)
+				}
+			}
+			r, e = s.Route(context.Background(), routing.Point{.001, 0}, routing.Point{.008, .001})
+			if e != nil || r.Distance < 1300 {
+				t.Fatal("restricted through shortcut", r, e)
+			}
+		})
+	}
+	for _, limit := range []string{"2 st", "1 st", "garbled"} {
+		n, w := sourceGraphFixture()
+		w[1].Tags = append(w[1].Tags, osm.Tag{Key: "maxweight", Value: limit})
+		_, s := importSourceGraph(t, n, w)
+		r, e := s.Route(context.Background(), routing.Point{0, 0}, routing.Point{.008, 0})
+		if e != nil {
+			t.Fatal(e)
+		}
+		if (limit == "2 st") != (r.Distance < 900) {
+			t.Fatal("imported car threshold", limit, r)
+		}
+	}
+}

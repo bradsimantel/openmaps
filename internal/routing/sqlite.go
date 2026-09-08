@@ -55,6 +55,11 @@ func Load(ctx context.Context, db *sql.DB) (*Store, *Summary, error) {
 			return nil, nil, fmt.Errorf("routing segment without source way")
 		}
 	}
+	for _, g := range d.Guards {
+		if !sources["way"][g.Way] {
+			return nil, nil, fmt.Errorf("snap guard without source way")
+		}
+	}
 	for _, ban := range d.Bans {
 		if !sources["relation"][ban.Relation] {
 			return nil, nil, fmt.Errorf("routing ban without source relation")

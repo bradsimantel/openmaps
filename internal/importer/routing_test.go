@@ -21,7 +21,7 @@ func TestDrivingProfile(t *testing.T) {
 		{"unnamed residential", map[string]string{"highway": "residential"}, true, true, true},
 		{"unnamed service", map[string]string{"highway": "service"}, true, true, true},
 		{"private", map[string]string{"highway": "residential", "access": "private"}, false, false, false},
-		{"destination", map[string]string{"highway": "service", "access": "destination"}, false, false, false},
+		{"destination", map[string]string{"highway": "service", "access": "destination"}, true, true, true},
 		{"mode override", map[string]string{"highway": "residential", "access": "no", "motor_vehicle": "yes"}, true, true, true},
 		{"car override", map[string]string{"highway": "residential", "motor_vehicle": "yes", "motorcar": "no"}, false, false, false},
 		{"oneway", map[string]string{"highway": "residential", "oneway": "yes"}, true, false, true},

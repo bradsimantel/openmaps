@@ -18,7 +18,9 @@ rehearsal, not a newer Overture release.
 
 **Driving routing is implemented in separate candidate snapshots:** select existing
 lookup results or arbitrary map points in the preview, calculate a shortest-distance
-route, and see its geometry, road distance and snap gaps. The graph uses the wider
+route, and see its geometry, road distance, requested/road endpoints and separate
+unverified snap gaps. The passenger-car profile interprets vehicle limits and
+supports strictly qualified destination-only access without through shortcuts. The graph uses the wider
 retained Rhode Island extract for detours. The active August baseline is unchanged
 and has no routing graph. See [the routing contract and candidate build](docs/routing.md).
 Nearby place search and general text search remain future milestones.
@@ -62,7 +64,7 @@ and serve a [separate candidate](docs/routing.md#storage-builds-and-snapshots).
 
 `data/` is ignored by Git.
 The OSM regional PBF is about 52 MB; canonical Overture subsets and SQLite add
-further local storage. The optional routing graph adds about 160 MiB to SQLite. The Protomaps cutout is about 3.8 MB. Internet is required
+further local storage. The optional routing graph adds about 180 MiB to SQLite. The Protomaps cutout is about 3.8 MB. Internet is required
 for initial downloads, esm.sh browser libraries and Protomaps-hosted fonts/sprites.
 Lookup APIs
 and local basemap tile requests work without external services after import.
@@ -277,8 +279,8 @@ details available. See [historical first-milestone verification results](docs/lo
   locks, replacement evidence and snapshot identity history across rebuilds.
 - The local map cutout is finite; zooming or panning far outside Newport can show
   missing tiles. Browser libraries, fonts and sprites use external hosts.
-- Driving routing is static shortest distance on a conservative public-car profile.
-  Restricted-access/dimension-tagged roads can be excluded; conditions are not
+- Driving routing is static shortest distance for the documented ordinary-car profile.
+  Restricted-access roads and incompatible/unknown limits can be excluded; conditions are not
   evaluated. No traffic, duration, navigation instructions or entrance inference.
   Snap limits and disconnected coverage can produce no route. See
   [the exact profile and remaining limits](docs/routing.md).

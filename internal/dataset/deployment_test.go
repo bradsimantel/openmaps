@@ -259,7 +259,7 @@ func TestRoutingAvailabilityAndAtomicRollback(t *testing.T) {
 	if got := route(); got != 503 {
 		t.Fatal("legacy routing should be unavailable", got)
 	}
-	d := routing.Data{Metadata: routing.Metadata{Version: 1, Profile: routing.Profile, EndpointBounds: [4]float64{-71.33, 41.47, -71.29, 41.51}, SourceSHA256: strings.Repeat("a", 64), Release: "fixture", URL: "https://example.org/fixture.pbf", Attribution: "synthetic"}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{-71.31, 41.49}}, {ID: 2, Point: routing.Point{-71.30, 41.49}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Backward: true, Snap: true}}}
+	d := routing.Data{Metadata: routing.Metadata{Version: routing.GraphVersion, Profile: routing.Profile, EndpointBounds: [4]float64{-71.33, 41.47, -71.29, 41.51}, SourceSHA256: strings.Repeat("a", 64), Release: "fixture", URL: "https://example.org/fixture.pbf", Attribution: "synthetic"}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{-71.31, 41.49}}, {ID: 2, Point: routing.Point{-71.30, 41.49}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Backward: true, Snap: true}}}
 	d.Sources = []routing.Source{{Kind: "way", ID: 1, Raw: json.RawMessage(`{"id":1}`), Decision: "fixture"}}
 	raw, e := json.Marshal(d)
 	if e != nil {

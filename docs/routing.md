@@ -63,15 +63,16 @@ by the mask. `distanceMeters` is the rounded integer road distance in metres;
 GeoJSON is a `LineString` whose coordinates are **[longitude, latitude]**. It
 starts and ends on the snapped road, not necessarily at the requested points.
 The always-present local `openmaps` extension reports `outcome: "routed"`,
-`profile`, `snap_limit_meters`, both snaps (`point`, `distance_meters`, reproducible
-source segment reference), source release and OSM attribution/URI. Requested
+`profile`, `snap_limit_meters`, both snaps (`requested`, `point`, `distance_meters`,
+`nearest_distance_meters`, reproducible source segment reference; optional
+`selection_reason` and `destination_access`), source release and OSM attribution/URI. Requested
 coordinates and source entity identities are not changed. Equal snapped endpoints
 return zero distance and a two-position LineString with equal positions.
 
 | Outcome | HTTP / envelope |
 | --- | --- |
 | Supported route | 200, one route, `openmaps.outcome=routed` |
-| Snapped endpoints cannot connect | 200, `routes: []`, `openmaps.outcome=unreachable` and an explanatory message |
+| Snapped endpoints cannot connect | 200, `routes: []`, `openmaps.outcome=unreachable` and an explanatory message plus both snaps |
 | Outside endpoint coverage | 400, `error.status=INVALID_ARGUMENT`, `openmaps.outcome=outside_coverage` and `endpoint` |
 | No suitable road within snap limit | 400, `INVALID_ARGUMENT`, `openmaps.outcome=unsnappable` and `endpoint` |
 | Invalid/unsupported request | 400, Google-style `error` with code, status `INVALID_ARGUMENT`, and message |
@@ -101,18 +102,45 @@ Geofabrik boundary, islands and disconnected components. Endpoints outside the
 preview remain unsupported even when graph data is present there. Basemap tiles
 are separate and can run out before the routing graph does.
 
-Routing snaps independently to the **nearest eligible segment within 100 metres,
-inclusive**, using a local equirectangular segment projection and spherical
-straight-line distance (Earth radius 6,371,008.8 m). Exact distance ties choose the
-lexicographically smallest stable segment ID. Motorway/trunk mainlines and their
-links are usable for through travel but excluded from snapping: a nearby coordinate
-must not create an artificial motorway entrance. The router does not search for a
-farther road simply to make an otherwise disconnected trip succeed.
+Each endpoint is evaluated independently, before route search. The closest eligible
+segment is found within **100 metres inclusive**, using local equirectangular
+projection and spherical distance (Earth radius 6,371,008.8 m). Distance ties within
+1e-8 m use the lexicographically smallest stable segment reference. Motorway/trunk
+mainlines and links allow through travel but never snapping; proximity must not
+create an entrance. Source node identity, not a crossing on the map, joins roads.
+
+Graph v2 examines at most the **eight nearest eligible segments**. A farther street
+may replace the nearest service-road snap only under all these conditions:
+
+- At most **30 m** from the request and **10 m farther** than the nearest snap.
+- Both roads are bidirectional, unrestricted, and not mapped as elevated/tunnel
+  roads. Destination-only roads are never eligible for this preference.
+- A shared source junction is reached along the **same service way**, then the
+  street segment, within **20 m of road geometry** between projections. The local
+  walk examines at most **32 nodes**; geometry vertices do not require a new way.
+- No visited junction participates in a prohibited maneuver; no closed segment
+  or barrier approach can bridge the walk. The farther off-road connector cannot
+  strictly cross a third mapped road or excluded motor-road segment.
+
+Eligible alternatives are considered by distance and reference, never by whether
+they produce a trip or shorten it. If none passes, retain the nearest snap. A
+nearest disconnected road remains disconnected; a different component, divided
+carriageway, grade-separated crossing, forbidden turn or gated approach does not
+justify a jump. Failure is explicit `unreachable`, without repeated route-driven
+resnapping. Selecting a farther street reports its reason and nearest distance.
+
+The importer retains excluded motor-road geometry as **snap guards**, including
+private/customer roads and removed barrier approaches. If one is closer to the
+request than the best eligible snap by more than **0.1 m**, snapping fails. An
+ineligible destination-only segment acts as a guard too. The 0.1 m guard tolerance
+allows common source junctions; it does not grant restricted access. These checks
+cannot establish entrances, property boundaries, fences, water crossings or a
+legal off-road path. All displayed connectors remain explicitly unverified.
 
 Interior snaps create partial directed edges for the request. A junction snap
 permits any legal initial heading; a one-way interior origin cannot drive backward.
 Snapping neither splits persistent graph identity nor changes the source entity.
-There is no heading, entrance, level or building-containment inference, and no
+There is no heading, entrance, level or building-containment inference, and no complete
 assessment of obstacles between an off-road point and its snap. A nearest road
 can therefore be unsuitable as an actual property entrance. The displayed distance
 excludes these off-road gaps; they are reported separately. Immediate reversals
@@ -121,7 +149,7 @@ origin supplies a fresh initial heading. Longer legal loops remain possible.
 
 ## Driving profile and connectivity
 
-`driving-distance-v1` is a public passenger-car profile. It uses OSM node identity
+`driving-distance-v2` is an ordinary passenger-car profile. It uses OSM node identity
 for junctions, never a geometry crossing or equality of coordinates. Bridges and
 tunnels stay separate unless they share an OSM node. Adjacent source vertices
 form segments, preserving full geometry and unnamed roads. Roundabouts, split
@@ -137,9 +165,27 @@ road-class default, not independent verification of public ownership.
 Access precedence is `motorcar` → `motor_vehicle` → `vehicle` → `access`.
 For each direction, a directional value wins over the nondirectional value at
 the same specificity. Allowed values are absent, yes, permissive and designated.
-Other values (including no, private, permit, customers, delivery, destination,
-discouraged and unknown) are excluded, even when the user is headed to that site;
-this milestone does not model access rights or destination-only subgraphs.
+Other values (including no, private, permit, customers, delivery, discouraged and
+unknown) remain excluded. A coordinate request or selected lookup result supplies
+no private, customer, delivery or permit authorization.
+
+**Destination-only access** is retained per directed edge. A qualifying endpoint
+must lie on the mapped restricted road, within **0.1 m** of its projection solely
+for coordinate rounding. At a source node shared with any unrestricted motor-road
+direction, the endpoint does **not** qualify: a public boundary is no reason to
+travel through the restricted area. Otherwise an interior segment point or internal
+restricted-road node qualifies. Off-road property/address/POI coordinates do not
+qualify by proximity, guessed containment, a lookup relationship or presumed intent.
+Choosing an on-road point still does not establish a property entrance.
+
+Restricted segments connected by source nodes form destination zones; public roads
+do not merge zones. The route may use its origin zone as a prefix, leave for public
+roads, then enter its destination zone as a suffix. Once entered from public roads,
+it cannot leave the destination zone for another public shortcut. Other restricted
+zones are forbidden. A trip with both endpoints inside one zone may remain there
+or leave and return. One-ways, barriers and full turn history still apply in every
+phase. Destination-tagged node barriers remain conservatively closed; no gate
+permission is inferred from the endpoint rule.
 
 `oneway=yes/1/true`, `-1`, and `no/0/false` are supported. Motorcar/motor-vehicle/
 vehicle direction overrides take precedence over general `oneway`. Roundabouts,
@@ -149,7 +195,8 @@ exceptions do not authorize cars.
 
 A restrictive node access tag blocks incident travel. Gates, lift/swing gates,
 bollards, chains, raised/unknown kerbs and unknown barriers block incident segments.
-An unlocked gate with explicit allowed access is passable; toll booths, cattle
+A gate with explicit allowed access and absent/`no` lock tagging is passable;
+unknown lock values remain closed. Toll booths, cattle
 grids and flush/lowered kerbs are passable unless access prohibits them. Physical
 bollards are not opened by an access label. This conservative incident-segment
 removal can remove a short approach as well as the actual barrier crossing.
@@ -173,15 +220,45 @@ ways. Source records retain the reason. An excluded only-turn target never frees
 its approach to take an illegal alternative exit. Enumeration limit failures
 stop the build, rather than omit a restriction.
 
-Vehicle dimension/weight routing is outside this profile: explicit maximum
-height, width, weight, length or axle-load tags (other than `none`/`default`) close
-the way conservatively. This can exclude a road that an ordinary car could use.
-HGV-only/static speed rules do not supply a car speed or duration. These choices
-favor explicit omissions over guessed permissions and remain a limitation of this
-first milestone. Source semantics were checked against the OSM references for
-[access](https://wiki.openstreetmap.org/wiki/Key:access),
-[one-way travel](https://wiki.openstreetmap.org/wiki/Key:oneway), and
-[restriction relations](https://wiki.openstreetmap.org/wiki/Relation:restriction).
+The fixed loaded-car assumptions are **1.9 m height, 2.0 m width including mirrors,
+5.0 m length, 1.8 metric tonnes actual total weight, and 1.1 tonnes maximum load on
+any axle**. No trailer, roof load, adjustable vehicle parameters or extra clearance
+margin is modeled. These are implementation assumptions, not measurements of the
+user's car or a guarantee that every passenger vehicle fits.
+
+`maxheight`, `maxwidth`, `maxlength`, `maxweight` and `maxaxleload` apply to ways and
+relevant nodes. Numeric limits allow equality (1e-9 conversion tolerance); lower
+limits close the direction. Dimension defaults are metres; mass defaults are metric
+tonnes, including in US data. Supported explicit units are `m`, `t`, `kg`, `st`
+(short ton = 0.90718474 tonnes), `lt` (long ton = 1.0160469088 tonnes), and `lbs`
+(0.00045359237 tonnes). Dimensions also accept complete `feet'inches"` notation
+with inches less than 12; `14'9"` means 4.4958 m. Zero/negative values, decimal
+commas, unitless lists, ambiguous unit names, incomplete feet/inches and unknown
+values close the affected direction. No guessed repairs are made.
+
+Directional values override nondirectional values at the same scope; legal and
+`:physical` limits both apply. Vehicle/motor-vehicle/motorcar dimension scopes are
+also checked conservatively alongside generic limits. Unsupported applicable
+suffixes, including lane lists and conditions, close the feature. `:signed` metadata
+is not itself a limit. Explicit HGV, articulated-HGV, bus, PSV and emergency limits
+are unrelated to this car profile, including their conditions. `none`/`default`
+retain the ordinary-car default assumption; other nonnumeric values do not.
+A `height_restrictor` node is passable only with an explicit compatible height
+limit and otherwise permitted access; bollards and other physical barriers retain
+their existing conservative behavior. Nodes with directional limits are closed
+if either direction is incompatible because node travel direction is not modeled.
+
+Current OSM semantics were consulted on 2026-09-08:
+[units](https://wiki.openstreetmap.org/wiki/Map_features/Units),
+[height](https://wiki.openstreetmap.org/wiki/Key:maxheight),
+[width](https://wiki.openstreetmap.org/wiki/Key:maxwidth),
+[length](https://wiki.openstreetmap.org/wiki/Key:maxlength),
+[weight](https://wiki.openstreetmap.org/wiki/Key:maxweight),
+[axle load](https://wiki.openstreetmap.org/wiki/Key:maxaxleload),
+[access values](https://wiki.openstreetmap.org/wiki/Key:access), and
+[destination access](https://wiki.openstreetmap.org/wiki/Tag:access%3Ddestination).
+The car dimensions, strict parsing, endpoint qualification and snap bounds are
+local policy choices; OSM does not establish those implementation thresholds.
 
 ## Storage, builds and snapshots
 
@@ -204,31 +281,31 @@ The retained verified PBF supplies full original node metadata for rebuilds.
 The loader checks the payload checksum, format/profile, valid nodes, unique segment
 IDs, node/source references and directed adjacency of restriction paths. It builds an
 immutable in-memory adjacency graph and a prefix/failure-link automaton for prohibited
-paths. Dijkstra searches states that retain both the last directed edge and relevant
-restriction history, minimizing accumulated spherical road length. Endpoint scans
+paths. Dijkstra searches states that retain the last directed edge, relevant
+restriction history and destination-access phase, minimizing accumulated spherical road length. Endpoint scans
 are bounded by the snapshot and snap distance; no spatial database extension is
-required at this scale. The graph adds roughly 160 MiB to the SQLite snapshot and
+required at this scale. The graph adds roughly 180 MiB to the SQLite snapshot and
 uses substantial startup memory; planet-scale loading and production concurrency
 are outside this milestone.
 
 Build a separate candidate offline from the unchanged lookup bundle:
 
 ```sh
-mkdir -p data/routing
+mkdir -p data/routing-quality
 
 go run ./cmd/refresh build \
   -baseline data/openmaps.sqlite \
   -bundle data/newport.json \
   -checksum imports/newport.bundle.sha256 \
   -routing-pbf data/rhode-island-260801.osm.pbf \
-  -candidate data/routing/openmaps-routing.sqlite
+  -candidate data/routing-quality/candidate-v2.sqlite
 
 go run ./cmd/refresh compare \
   -baseline data/openmaps.sqlite \
-  -candidate data/routing/openmaps-routing.sqlite \
-  -report data/routing/comparison.json
+  -candidate data/routing-quality/candidate-v2.sqlite \
+  -report data/routing-quality/comparison.json
 
-go run ./cmd/server -db data/routing/openmaps-routing.sqlite -listen 127.0.0.1:8082
+go run ./cmd/server -db data/routing-quality/candidate-v2.sqlite -listen 127.0.0.1:8082
 ```
 
 Outputs must be new filenames. Use another candidate name if these already exist.
@@ -237,6 +314,13 @@ match the lookup manifest's filename and pinned SHA-256. Builds publish only aft
 verification; no source lock or existing database is rewritten. Byte-identical
 graph payloads and stable graph identifiers are expected from identical inputs and
 profile; SQLite file bytes need not be identical.
+
+Graph format **2** pairs only with `driving-distance-v2` and includes directional
+destination flags, service/elevation classifications and excluded-road snap guards.
+Retained format **1** / `driving-distance-v1` graphs remain readable with their
+original nearest-segment policy and original compiled exclusions. The API reports
+the loaded snapshot's profile. Unknown versions or mismatched profiles explicitly
+fail loading and snapshot validation; they are never silently downgraded.
 
 Snapshots without the routing table remain readable. They explicitly report
 `routing_available: false` in `/healthz`, and route requests return 503. A corrupt
@@ -256,7 +340,11 @@ an exact origin or destination and click the map. The default map action remains
 reverse address lookup. Ambiguous addresses never populate routing automatically.
 
 **Calculate driving route** shows a blue route, A/B endpoint markers, road distance
-and both snap gaps. Endpoint changes and new map-selection actions immediately
+and both snap gaps. Requested points are A/B; snapped road points are A′/B′ with separate
+coordinates. Dashed orange connectors show the unverified off-road gaps and are
+excluded from road distance. A farther snap explains its selection and nearest
+distance. Unreachable results show snaps and an explanation without a driving line.
+Endpoint changes and new map-selection actions immediately
 clear the old route and abort in-flight requests. Loading disables calculation;
 failures leave no stale geometry. **Clear route** resets endpoints, geometry and
 map action. Lookup markers and source precision retain their existing meaning.
@@ -271,13 +359,24 @@ The source-backed trip suite is explicit and does not acquire data:
 
 ```sh
 OPENMAPS_BASELINE="$PWD/data/openmaps.sqlite" \
-OPENMAPS_CANDIDATE="$PWD/data/routing/openmaps-routing.sqlite" \
+OPENMAPS_CANDIDATE="$PWD/data/routing-quality/candidate-v2.sqlite" \
   go test -tags=integration ./internal/routing -run TestNewportRouting -count=1 -v
 ```
 
-It checks representative distances, off-rectangle detours, source-node adjacency,
+The [27-case benchmark](../internal/routing/testdata/newport.json) checks
+source-tag evidence, required roads, forbidden destination shortcuts, geometric
+distance bounds (not copied router outputs), off-rectangle detours, source-node adjacency,
 geometry/distance agreement, one-way direction, prohibited paths, the API and an
-isolated deployment cycle in a temporary directory. It leaves the real deployment
+isolated deployment cycle in a temporary directory. It also accepts a retained
+routing graph as baseline to verify v1 → v2 → v1 profile loading and rollback. It leaves the real deployment
 state untouched. These checks establish source fidelity and deterministic behavior,
 not independently surveyed road legality or source completeness. See the
-[historical milestone findings](log/0015-newport-driving-routing.md).
+[historical initial findings](log/0015-newport-driving-routing.md) and
+[historical route-quality evaluation](log/0016-newport-driving-quality.md).
+
+To record old-graph observations without treating them as v2 quality expectations,
+set `OPENMAPS_ROUTING_OBSERVE=1`, choose the old graph as `OPENMAPS_CANDIDATE`, and
+run only `-run '^TestNewportRouting$'`. Source evidence, adjacency, one-way, banned
+path and distance/geometry checks still run; v2 policy assertions do not. A passing
+observation run is not a v2 quality pass. Historical v1 distances in the fixture
+are observations only. Generated before/after output belongs in ignored `data/`.
