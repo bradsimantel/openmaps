@@ -93,44 +93,44 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	mask, err := parameters(r, true)
 	if err != nil {
-		invalid(w, err)
+		routingInputFailure(w, err)
 		return
 	}
 	// parameters is shared with Places; these options are not routing URL options.
 	for key := range r.URL.Query() {
 		if key != "key" && key != "fields" && key != "$fields" {
-			invalid(w, fmt.Errorf("unsupported routing query parameter: %s", key))
+			routingInputFailure(w, fmt.Errorf("unsupported routing query parameter: %s", key))
 			return
 		}
 	}
 	supported := []string{"routes.distanceMeters", "routes.polyline.geoJsonLinestring"}
 	// Broad masks could imply fabricated duration/traffic fields. Require explicit paths.
 	if mask == "*" || mask == "routes" {
-		invalid(w, fmt.Errorf("request routes.distanceMeters and/or routes.polyline; wildcard routes masks are unsupported"))
+		routingInputFailure(w, fmt.Errorf("request routes.distanceMeters and/or routes.polyline; wildcard routes masks are unsupported"))
 		return
 	}
 	paths, err := parseMask(mask, supported)
 	if err != nil {
-		invalid(w, err)
+		routingInputFailure(w, err)
 		return
 	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
 	if err != nil {
-		invalid(w, fmt.Errorf("request too large or unreadable"))
+		routingInputFailure(w, fmt.Errorf("request too large or unreadable"))
 		return
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if err = uniqueJSON(dec); err != nil {
-		invalid(w, err)
+		routingInputFailure(w, err)
 		return
 	}
 	if _, err = dec.Token(); err != io.EOF {
-		invalid(w, fmt.Errorf("expected exactly one JSON object"))
+		routingInputFailure(w, fmt.Errorf("expected exactly one JSON object"))
 		return
 	}
 	fields, err := exactObject(raw, "origin", "destination", "travelMode", "routingPreference", "polylineEncoding", "polylineQuality")
 	if err != nil {
-		invalid(w, err)
+		routingInputFailure(w, err)
 		return
 	}
 	for key, value := range map[string]string{"travelMode": "DRIVE", "routingPreference": "TRAFFIC_UNAWARE", "polylineEncoding": "GEO_JSON_LINESTRING", "polylineQuality": "HIGH_QUALITY"} {
@@ -140,35 +140,58 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		var s string
 		if !exists || json.Unmarshal(got, &s) != nil || s != value {
-			invalid(w, fmt.Errorf("%s supports only %s%s", key, value, map[bool]string{true: " (required)", false: ""}[key == "polylineEncoding"]))
+			routingInputFailure(w, fmt.Errorf("%s supports only %s%s", key, value, map[bool]string{true: " (required)", false: ""}[key == "polylineEncoding"]))
 			return
 		}
 	}
-	origin, err := waypoint(fields["origin"])
+	origin, err := parseRouteWaypoint(fields["origin"])
 	if err != nil {
-		invalid(w, fmt.Errorf("origin: %w", err))
+		routingInputFailure(w, fmt.Errorf("origin: %w", err))
 		return
 	}
-	destination, err := waypoint(fields["destination"])
+	destination, err := parseRouteWaypoint(fields["destination"])
 	if err != nil {
-		invalid(w, fmt.Errorf("destination: %w", err))
+		routingInputFailure(w, fmt.Errorf("destination: %w", err))
 		return
 	}
-	result, err := h.Routing.Route(r.Context(), origin, destination)
+	a, originAddress, af, err := h.resolveRouteWaypoint(r.Context(), origin)
+	if err != nil {
+		failure(w, 500, "INTERNAL", "Address resolution failed")
+		return
+	}
+	if af != nil {
+		writeAddressFailure(w, "origin", af)
+		return
+	}
+	b, destinationAddress, af, err := h.resolveRouteWaypoint(r.Context(), destination)
+	if err != nil {
+		failure(w, 500, "INTERNAL", "Address resolution failed")
+		return
+	}
+	if af != nil {
+		writeAddressFailure(w, "destination", af)
+		return
+	}
+	result, err := h.Routing.RouteEndpoints(r.Context(), a, b)
+	originMeta := routeEndpointMetadata(result.Origin, originAddress)
+	destinationMeta := routeEndpointMetadata(result.Destination, destinationAddress)
 	if err != nil {
 		var re *routing.Error
 		if errors.As(err, &re) {
 			switch re.Outcome {
-			case "unavailable":
-				failure(w, 503, "UNAVAILABLE", "Routing unavailable in this snapshot")
+			case "unavailable", "address_routing_unavailable":
+				write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Routing or address association data unavailable in this snapshot; address requests require graph format 3"}, "openmaps": object{"outcome": re.Outcome, "endpoint": re.Endpoint, "origin": originMeta, "destination": destinationMeta}})
 			case "unreachable":
-				write(w, 200, object{"routes": []any{}, "openmaps": object{"outcome": "unreachable", "message": "No driving route connects these bounded snaps; no safe alternative snap is available. Disconnected roads and restrictions are preserved.", "origin": result.Origin, "destination": result.Destination, "profile": h.Routing.Metadata().Profile}})
+				write(w, 200, object{"routes": []any{}, "openmaps": object{"outcome": "unreachable", "message": "No driving route connects these bounded snaps; no safe alternative snap is available. Disconnected roads and restrictions are preserved.", "origin": originMeta, "destination": destinationMeta, "profile": h.Routing.Metadata().Profile}})
 			default:
 				message := fmt.Sprintf("No suitable driving road within 100 metres of the %s without bypassing restricted road access", re.Endpoint)
+				if re.Outcome == "endpoint_association_failed" {
+					message = "No acceptable address-to-road association within the documented bounds; access restrictions and competing roads are preserved"
+				}
 				if re.Outcome == "outside_coverage" {
 					message = fmt.Sprintf("The %s is outside the supported Newport endpoint rectangle", re.Endpoint)
 				}
-				write(w, 400, object{"error": object{"code": 400, "status": "INVALID_ARGUMENT", "message": message}, "openmaps": object{"outcome": re.Outcome, "endpoint": re.Endpoint}})
+				write(w, 400, object{"error": object{"code": 400, "status": "INVALID_ARGUMENT", "message": message}, "openmaps": object{"outcome": re.Outcome, "endpoint": re.Endpoint, "origin": originMeta, "destination": destinationMeta}})
 			}
 			return
 		}
@@ -177,6 +200,6 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	routes := object{"routes": []any{object{"distanceMeters": int(math.Round(result.Distance)), "polyline": object{"geoJsonLinestring": object{"type": "LineString", "coordinates": result.Geometry}}}}}
 	response := project(routes, paths).(object)
-	response["openmaps"] = object{"outcome": "routed", "profile": h.Routing.Metadata().Profile, "snap_limit_meters": routing.SnapLimit, "origin": result.Origin, "destination": result.Destination, "attribution": "© OpenStreetMap contributors", "attribution_uri": h.Routing.Metadata().Attribution, "source_release": h.Routing.Metadata().Release}
+	response["openmaps"] = object{"outcome": "routed", "profile": h.Routing.Metadata().Profile, "snap_limit_meters": routing.SnapLimit, "address_snap_limit_meters": routing.AddressSnapLimit, "access_point_limit_meters": routing.AccessPointLimit, "origin": originMeta, "destination": destinationMeta, "attribution": "© OpenStreetMap contributors", "attribution_uri": h.Routing.Metadata().Attribution, "source_release": h.Routing.Metadata().Release}
 	write(w, 200, response)
 }

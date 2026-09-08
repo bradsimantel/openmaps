@@ -523,6 +523,9 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 		gb[3] = math.Max(gb[3], n.Point[1])
 	}
 	d.Metadata.GraphBounds = gb
+	if err := readRoutingAccess(ctx, path, &d); err != nil {
+		return d, err
+	}
 	sort.Slice(d.Sources, func(i, j int) bool {
 		a, b := d.Sources[i], d.Sources[j]
 		if a.Kind != b.Kind {

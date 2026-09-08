@@ -1,25 +1,26 @@
 # Newport driving routing
 
 Open Maps implements **Google Routes API, REST v2 Compute Routes** as a small
-coordinate-only subset at `POST /directions/v2:computeRoutes`. It returns one
+address/coordinate subset at `POST /directions/v2:computeRoutes`. It returns one
 **shortest-distance** driving route on the supported static OSM graph. This is
 not Google's ranking, a fastest route, navigation guidance or SDK compatibility.
 No traffic, travel time, duration, speed, turn instructions or unavailable fields
 are inferred. The source is Geofabrik's retained Rhode Island OSM PBF,
-2026-08-01; address enrichment is not part of routing.
+2026-08-01. Address routing uses existing lookup records; no supplemental address source is acquired.
 
-Contract checked against current official Google documentation on 2026-09-07:
+Contract checked against current official Google documentation on 2026-09-08:
 [Compute Routes](https://developers.google.com/maps/documentation/routes/reference/rest/v2/TopLevel/computeRoutes),
-[Waypoint](https://developers.google.com/maps/documentation/routes/reference/rest/v2/Waypoint)
+[Waypoint](https://developers.google.com/maps/documentation/routes/reference/rest/v2/Waypoint),
+[address locations](https://developers.google.com/maps/documentation/routes/specify_location)
 and [response field masks](https://developers.google.com/maps/documentation/routes/choose_fields).
-Those references establish the endpoint, coordinate waypoint shape, metre distance,
+Those references establish the endpoint, address/coordinate waypoint union, metre distance,
 GeoJSON option and field-mask mechanism. The narrower choices below are Open Maps
 implementation decisions, not claims about everything Google supports.
 
 ## API contract
 
 ```sh
-curl -sS http://127.0.0.1:8082/directions/v2:computeRoutes \
+curl -sS http://127.0.0.1:8086/directions/v2:computeRoutes \
   -H 'Content-Type: application/json' \
   -H 'X-Goog-FieldMask: routes.distanceMeters,routes.polyline.geoJsonLinestring' \
   -d '{
@@ -33,9 +34,13 @@ curl -sS http://127.0.0.1:8082/directions/v2:computeRoutes \
 ```
 
 Required inputs are `origin`, `destination`, and
-`polylineEncoding: "GEO_JSON_LINESTRING"`. Each waypoint must contain exactly
-`location.latLng.latitude` and `location.latLng.longitude`, finite numbers in
-WGS84 decimal degrees. Optional `travelMode`, `routingPreference` and
+`polylineEncoding: "GEO_JSON_LINESTRING"`. Each waypoint contains exactly one of
+`address` (a string) or
+`location.latLng` (both `latitude` and `longitude`, finite numbers in WGS84
+decimal degrees). Address/address, coordinate/coordinate and either mixed order
+are supported. Address strings use the existing geocoder’s exact house-number
+and complete-street subset, including its context checks and explicit unit errors.
+Optional `travelMode`, `routingPreference` and
 `polylineQuality` accept only `DRIVE`, `TRAFFIC_UNAWARE` and `HIGH_QUALITY`,
 respectively. Omission uses those implemented choices. All source geometry
 vertices are returned; the overview/simplification and encoded-polyline options
@@ -51,12 +56,14 @@ An optional query `key` or `X-Goog-Api-Key` header is accepted without
 authentication, consistent with the local demo. Other query parameters and
 duplicate query parameters are rejected.
 
-Address strings, place IDs (Google or Open Maps), intermediate waypoints, heading,
+Place IDs (Google or Open Maps), intermediate waypoints, heading,
 side-of-road, vehicle stopover, travel modes other than driving, routing modifiers,
 avoidances, alternatives, departure/arrival times, traffic models, language/units,
-route matrix, toll prices and duration fields are unsupported. The API does not
-silently resolve addresses or pick an ambiguous address candidate. The browser
-coordinates existing Places/geocoding results and sends the chosen coordinates.
+route matrix, toll prices and duration fields are unsupported. The API resolves
+addresses and selects road endpoints automatically in the same
+request, or returns a structured failure. No candidate-selection or entrance-selection
+exchange is required. Google’s `geocodingResults` response field, region bias and
+plus codes remain unsupported; local source identity is in `openmaps`.
 
 A success has `routes: [{distanceMeters, polyline: {geoJsonLinestring}}]`, projected
 by the mask. `distanceMeters` is the rounded integer road distance in metres;
@@ -75,7 +82,10 @@ return zero distance and a two-position LineString with equal positions.
 | Snapped endpoints cannot connect | 200, `routes: []`, `openmaps.outcome=unreachable` and an explanatory message plus both snaps |
 | Outside endpoint coverage | 400, `error.status=INVALID_ARGUMENT`, `openmaps.outcome=outside_coverage` and `endpoint` |
 | No suitable road within snap limit | 400, `INVALID_ARGUMENT`, `openmaps.outcome=unsnappable` and `endpoint` |
-| Invalid/unsupported request | 400, Google-style `error` with code, status `INVALID_ARGUMENT`, and message |
+| Address has no unique exact match | 400, `INVALID_ARGUMENT`, `openmaps.outcome=address_resolution_failed`, `endpoint`, `reason=no_match` or `ambiguous`, and `candidate_count` |
+| Address has no acceptable road association | 400, `INVALID_ARGUMENT`, `openmaps.outcome=endpoint_association_failed` and `endpoint` |
+| Invalid/unsupported request, including units | 400, `INVALID_ARGUMENT`, `openmaps.outcome=unsupported_input` |
+| Address on retained graph v1/v2 | 503, `UNAVAILABLE`, `openmaps.outcome=address_routing_unavailable` |
 | Snapshot has no graph | 503, `error.status=UNAVAILABLE` |
 | Internal calculation failure | 500, `error.status=INTERNAL` |
 | Wrong method | 405 with `Allow: POST` |
@@ -85,7 +95,100 @@ and geographic failures are explicit local behavior. No-route is not proof that
 no legal real-world journey exists. There are no billing, quota or authentication
 error implementations.
 
-## Endpoint and graph coverage
+## Automatic address endpoints
+
+```sh
+curl -sS http://127.0.0.1:8086/directions/v2:computeRoutes \
+  -H 'Content-Type: application/json' \
+  -H 'X-Goog-FieldMask: routes.distanceMeters,routes.polyline' \
+  -d '{"origin":{"address":"26 Marlborough Street"},"destination":{"address":"1 Resolute Road"},"polylineEncoding":"GEO_JSON_LINESTRING"}'
+```
+
+`internal/api` calls the existing geocoder independently for each address, in
+origin/destination order. It requires **exactly one** retained identity after
+normalized number/street and supplied context matching. Equal labels do not
+establish equal identities. There is no retained preference or verified primary
+structure for the eight Bellevue or twelve Connell records; these requests fail
+as ambiguous. No first-ID selection, centroids, route-success ranking, nearby
+house substitution, unit stripping or street/locality fallback is used. Explicit
+units and unsupported address syntax fail. The standalone geocoding endpoint
+still returns all its existing candidates unchanged.
+
+The API compares the resolved source street with OSM `name`, using the existing
+label normalization, and filters containing-area candidates against any retained
+`addr:housenumber`/`addr:street` tags. Conflicting tags disqualify that area. Empty
+tags are unknown. TIGER name components, POI names, postal codes and proximity to
+a business are not street/access evidence. Routing receives coordinates and source
+way/area IDs; it performs containment, snapping and graph operations without text
+search. No public ID, source coordinate or lookup relationship is rewritten.
+
+Graph **3** evaluates each address endpoint once, before searching for a route:
+
+1. **Mapped access association.** The source point must lie inside a complete
+   retained building or parking ring (1 mm boundary-rounding tolerance). A parking
+   entrance must share an actual node with that containing parking ring and a
+   permitted graph segment. Restricted parking-area tags also disqualify entrance
+   associations and projections into the containing restricted parking area. A driveway must have an endpoint inside/on the
+   containing building/site ring. Follow only source-connected driveway geometry,
+   at most **150 m** and **32 settled nodes**, stopping at public-road junctions.
+   A driveway arrival must be on an unrestricted, non-service, non-elevated road
+   whose name matches the address street. The driveway may be private: its geometry
+   associates the site with a public junction, but **none of the private approach
+   is driven**. Barriers and closed approaches stay excluded from driving. The
+   source-to-selected-point straight-line distance must be **≤100 m**. Choose the
+   nearest supported point independently of trip success; distinct access nodes
+   within **1 m** of equal distance fail as competing associations. Identical-node
+   representations use source ordering. A mapped parking point can qualify its
+   destination zone; a public boundary does not.
+2. **Ordinary fallback.** If there is no supported access point within those bounds,
+   consider the **eight nearest** eligible road segments within **50 m**. Exclude
+   elevated roads and motorway/trunk snapping. A closer excluded motor-road guard
+   or unqualified destination road by more than **0.1 m** rejects the endpoint.
+   Choose nearest geometry; distance ties within **1e-8 m** use stable segment
+   reference. Distinct competing ways within **1 m** fail unless their projections
+   share a source junction within **20 m** along those segments, or the existing
+   safe service-to-street check applies. A matching named street can replace a
+   nearby service projection only under that existing check (≤30 m, ≤10 m farther,
+   ≤20 m along roads, ≤32 nodes, bidirectional unrestricted surface roads).
+   Crossing another mapped motor road or excluded guard rejects the connector.
+   These rules do not establish an entrance or the legality of any off-road gap.
+3. **Destination-only named street.** An off-road address may qualify only when its
+   source street matches the **nearest** motor road’s explicit OSM `name`, the road
+   is destination-only, and the projection is **≤40 m** away. The same guards,
+   competition and connector-crossing checks apply. A different nearby street,
+   unnamed restricted aisle or destination zone alone does not qualify. This is
+   source-backed street arrival, not a claim about a property’s entrance. Private,
+   customer, delivery and permit restrictions remain closed. Destination-zone
+   prefix/suffix rules below prevent through shortcuts.
+
+Limits are inclusive and are local policy choices, not surveyed accuracy claims.
+No fallback searches another road after an unreachable route. Source node identity,
+one-ways, prohibited maneuvers, barriers and destination phases govern all driving.
+The retained parking data has no proved address-to-parking-entrance association for
+the benchmark’s nearby waterfront addresses; a nearby entrance is not enough.
+Simple rings are supported; multipolygon/site/associatedStreet relation inference,
+parcel ownership, unseen fences, water obstacles and walking paths are not modeled.
+
+Each routed/unreachable endpoint retains the existing snap fields and additionally
+reports `selection_method`, `evidence` (OSM source references for address selections),
+`uncertainty`, and `off_road_gap_meters`. For an address, `resolved_address` includes
+`id`, `formatted_address`, `source_coordinate` (**[longitude, latitude]**),
+`partial_context` and source `attributions`. `requested` remains the exact source
+coordinate; `point` is the selected road coordinate. Methods are `coordinate_snap`,
+`nearest_road`, `address_street`, `destination_address_street`,
+`mapped_parking_entrance`, or `mapped_driveway_public_junction`.
+`nearest_distance_meters` is omitted for mapped associations, which rank access
+points rather than nearest-road projections. Global metadata gives coordinate
+`snap_limit_meters=100`, `address_snap_limit_meters=50`, and
+`access_point_limit_meters=100`.
+
+`routes.distanceMeters` includes **road travel only**. Gaps are straight-line
+source-to-road displacement, not driving/walking distance or verified connections.
+No entrance, access right or confidence percentage is fabricated. Geographic
+association failures preserve any resolved address metadata without inventing a
+selected road point. Address resolution failures have no resolved identity.
+
+## Coordinate endpoints and graph coverage
 
 Supported endpoints are arbitrary coordinates in the inclusive Newport preview
 rectangle: longitude **−71.33 to −71.29**, latitude **41.47 to 41.51**. This is
@@ -102,7 +205,7 @@ Geofabrik boundary, islands and disconnected components. Endpoints outside the
 preview remain unsupported even when graph data is present there. Basemap tiles
 are separate and can run out before the routing graph does.
 
-Each endpoint is evaluated independently, before route search. The closest eligible
+Each coordinate endpoint is evaluated independently, before route search. The closest eligible
 segment is found within **100 metres inclusive**, using local equirectangular
 projection and spherical distance (Earth radius 6,371,008.8 m). Distance ties within
 1e-8 m use the lexicographically smallest stable segment reference. Motorway/trunk
@@ -140,7 +243,7 @@ legal off-road path. All displayed connectors remain explicitly unverified.
 Interior snaps create partial directed edges for the request. A junction snap
 permits any legal initial heading; a one-way interior origin cannot drive backward.
 Snapping neither splits persistent graph identity nor changes the source entity.
-There is no heading, entrance, level or building-containment inference, and no complete
+For coordinate requests there is no heading, entrance, level or building-containment inference, and no complete
 assessment of obstacles between an off-road point and its snap. A nearest road
 can therefore be unsuitable as an actual property entrance. The displayed distance
 excludes these off-road gaps; they are reported separately. Immediate reversals
@@ -149,7 +252,7 @@ origin supplies a fresh initial heading. Longer legal loops remain possible.
 
 ## Driving profile and connectivity
 
-`driving-distance-v2` is an ordinary passenger-car profile. It uses OSM node identity
+`driving-distance-v3` retains the v2 ordinary passenger-car driving profile. It uses OSM node identity
 for junctions, never a geometry crossing or equality of coordinates. Bridges and
 tunnels stay separate unless they share an OSM node. Adjacent source vertices
 form segments, preserving full geometry and unnamed roads. Roundabouts, split
@@ -169,13 +272,14 @@ Other values (including no, private, permit, customers, delivery, discouraged an
 unknown) remain excluded. A coordinate request or selected lookup result supplies
 no private, customer, delivery or permit authorization.
 
-**Destination-only access** is retained per directed edge. A qualifying endpoint
+**Destination-only access** is retained per directed edge. A qualifying **coordinate** endpoint
 must lie on the mapped restricted road, within **0.1 m** of its projection solely
 for coordinate rounding. At a source node shared with any unrestricted motor-road
 direction, the endpoint does **not** qualify: a public boundary is no reason to
 travel through the restricted area. Otherwise an interior segment point or internal
-restricted-road node qualifies. Off-road property/address/POI coordinates do not
-qualify by proximity, guessed containment, a lookup relationship or presumed intent.
+restricted-road node qualifies. Off-road arbitrary/POI coordinates do not qualify by proximity or presumed intent.
+Address requests use the separate evidence policy above; their mere existence
+does not authorize a destination zone.
 Choosing an on-road point still does not establish a property entrance.
 
 Restricted segments connected by source nodes form destination zones; public roads
@@ -291,21 +395,21 @@ are outside this milestone.
 Build a separate candidate offline from the unchanged lookup bundle:
 
 ```sh
-mkdir -p data/routing-quality
+mkdir -p data/address-routing
 
 go run ./cmd/refresh build \
   -baseline data/openmaps.sqlite \
   -bundle data/newport.json \
   -checksum imports/newport.bundle.sha256 \
   -routing-pbf data/rhode-island-260801.osm.pbf \
-  -candidate data/routing-quality/candidate-v2.sqlite
+  -candidate data/address-routing/candidate-v3.sqlite
 
 go run ./cmd/refresh compare \
   -baseline data/openmaps.sqlite \
-  -candidate data/routing-quality/candidate-v2.sqlite \
-  -report data/routing-quality/comparison.json
+  -candidate data/address-routing/candidate-v3.sqlite \
+  -report data/address-routing/comparison.json
 
-go run ./cmd/server -db data/routing-quality/candidate-v2.sqlite -listen 127.0.0.1:8082
+go run ./cmd/server -db data/address-routing/candidate-v3.sqlite -listen 127.0.0.1:8086
 ```
 
 Outputs must be new filenames. Use another candidate name if these already exist.
@@ -315,7 +419,13 @@ verification; no source lock or existing database is rewritten. Byte-identical
 graph payloads and stable graph identifiers are expected from identical inputs and
 profile; SQLite file bytes need not be identical.
 
-Graph format **2** pairs only with `driving-distance-v2` and includes directional
+Graph format **3** pairs only with `driving-distance-v3` and adds endpoint evidence:
+complete local building/parking rings, driveway geometry, parking-entrance nodes,
+road names and original source records. A third PBF pass retains local geometry
+inside the preview plus 0.002 degrees; incomplete rings/driveways are omitted.
+Names of longer roads are retained without clipped geometry. Node order is checked
+against retained source ways, and shared node coordinates must agree. Format **2**
+/ `driving-distance-v2` remains readable with its coordinate policy and directional
 destination flags, service/elevation classifications and excluded-road snap guards.
 Retained format **1** / `driving-distance-v1` graphs remain readable with their
 original nearest-segment policy and original compiled exclusions. The API reports
@@ -334,10 +444,15 @@ or active demo selection is changed merely by building or serving a candidate.
 
 ## Browser and verification
 
-Choose a Places result or an explicit geocoding candidate, then **Use selection as
-origin/destination** in Driving route. Alternatively change **Map click** to set
-an exact origin or destination and click the map. The default map action remains
-reverse address lookup. Ambiguous addresses never populate routing automatically.
+Enter **Origin address** and **Destination address** in Driving route and click
+**Calculate driving route**. The browser sends one Compute Routes request and
+displays the returned identities, source/road points, methods and gaps. A failed
+address produces an error without any candidate-selection controls.
+
+Existing selected Places/geocoding results and map points can still supply
+coordinates for either endpoint, allowing mixed requests. Those explicit selections
+retain coordinate semantics. The separate geocoding preview still lets users inspect
+its candidates. The default map action remains reverse address lookup.
 
 **Calculate driving route** shows a blue route, A/B endpoint markers, road distance
 and both snap gaps. Requested points are A/B; snapped road points are A′/B′ with separate
@@ -359,7 +474,7 @@ The source-backed trip suite is explicit and does not acquire data:
 
 ```sh
 OPENMAPS_BASELINE="$PWD/data/openmaps.sqlite" \
-OPENMAPS_CANDIDATE="$PWD/data/routing-quality/candidate-v2.sqlite" \
+OPENMAPS_CANDIDATE="$PWD/data/address-routing/candidate-v3.sqlite" \
   go test -tags=integration ./internal/routing -run TestNewportRouting -count=1 -v
 ```
 
@@ -380,3 +495,22 @@ run only `-run '^TestNewportRouting$'`. Source evidence, adjacency, one-way, ban
 path and distance/geometry checks still run; v2 policy assertions do not. A passing
 observation run is not a v2 quality pass. Historical v1 distances in the fixture
 are observations only. Generated before/after output belongs in ignored `data/`.
+
+
+The [22-case address-to-address benchmark](../internal/routing/testdata/newport-addresses.json)
+uses 37 unchanged retained source records. It verifies identity/provenance, address
+failure policy, geometry/direction/restriction invariants, road distance, source-to-road
+displacement and HTTP responses. Previous API address input was unsupported;
+`OPENMAPS_ADDRESS_BEFORE` records the previous graph’s geocoded-coordinate pipeline
+as an observation, not as proof it supported one-request addresses.
+
+```sh
+OPENMAPS_BASELINE="$PWD/data/openmaps.sqlite" \
+OPENMAPS_CANDIDATE="$PWD/data/address-routing/candidate-v3.sqlite" \
+OPENMAPS_ADDRESS_BEFORE="$PWD/data/routing-quality/candidate-v2.sqlite" \
+  go test -tags=integration ./internal/routing -run '^TestNewportAddressRouting$' -count=1 -v
+```
+
+Run both existing routing and geocoding benchmarks too. The address integration test
+uses an isolated loopback HTTP server and reads snapshots without mutating them.
+See the [historical address-routing findings](log/0017-newport-address-routing.md).

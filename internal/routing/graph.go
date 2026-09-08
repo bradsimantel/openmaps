@@ -13,8 +13,8 @@ import (
 	"sort"
 )
 
-const Profile = "driving-distance-v2"
-const GraphVersion = 2
+const Profile = "driving-distance-v3"
+const GraphVersion = 3
 
 // Loaded ordinary passenger car, including mirrors; no trailer or roof load.
 const CarHeight, CarWidth, CarLength = 1.9, 2.0, 5.0 // metres
@@ -92,12 +92,13 @@ type Guard struct {
 	To      Point  `json:"to"`
 }
 type Data struct {
-	Metadata Metadata  `json:"metadata"`
-	Guards   []Guard   `json:"guards,omitempty"`
-	Nodes    []Node    `json:"nodes"`
-	Segments []Segment `json:"segments"`
-	Bans     []Ban     `json:"bans"`
-	Sources  []Source  `json:"sources"`
+	Access   AccessData `json:"access,omitempty"`
+	Metadata Metadata   `json:"metadata"`
+	Guards   []Guard    `json:"guards,omitempty"`
+	Nodes    []Node     `json:"nodes"`
+	Segments []Segment  `json:"segments"`
+	Bans     []Ban      `json:"bans"`
+	Sources  []Source   `json:"sources"`
 }
 type Summary struct {
 	Metadata Metadata `json:"metadata"`
@@ -118,6 +119,7 @@ type trieNode struct {
 	banned bool
 }
 type Store struct {
+	access          AccessData
 	meta            Metadata
 	nodes           map[int64]Point
 	segments        []Segment
@@ -134,7 +136,7 @@ type Store struct {
 func New(d Data) (*Store, error) {
 	s := &Store{meta: d.Metadata, nodes: map[int64]Point{}, segments: d.Segments, outgoing: map[int64][]int{}, directions: make([][2]int, len(d.Segments)), trie: []trieNode{{next: map[int]int{}}}}
 	b := d.Metadata.EndpointBounds
-	if !((d.Metadata.Version == 1 && d.Metadata.Profile == "driving-distance-v1") || (d.Metadata.Version == GraphVersion && d.Metadata.Profile == Profile)) || !(Point{b[0], b[1]}).Valid() {
+	if !((d.Metadata.Version == 1 && d.Metadata.Profile == "driving-distance-v1") || (d.Metadata.Version == 2 && d.Metadata.Profile == "driving-distance-v2") || (d.Metadata.Version == GraphVersion && d.Metadata.Profile == Profile)) || !(Point{b[0], b[1]}).Valid() {
 		return nil, fmt.Errorf("unsupported routing metadata")
 	}
 	if b[0] >= b[2] || b[1] >= b[3] || !(Point{b[2], b[3]}).Valid() || len(d.Nodes) == 0 || len(d.Segments) == 0 {
@@ -267,6 +269,10 @@ func New(d Data) (*Store, error) {
 			}
 		}
 	}
+	s.access = d.Access
+	if err := s.validateAccess(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 func (s *Store) advance(t, e int) (int, bool) {
@@ -286,13 +292,16 @@ type Error struct{ Outcome, Endpoint string }
 func (e *Error) Error() string { return e.Endpoint + ": " + e.Outcome }
 
 type Snap struct {
-	Point             Point   `json:"point"`
-	Distance          float64 `json:"distance_meters"`
-	Segment           string  `json:"segment"`
-	Requested         Point   `json:"requested"`
-	SelectionReason   string  `json:"selection_reason,omitempty"`
-	NearestDistance   float64 `json:"nearest_distance_meters"`
-	DestinationAccess bool    `json:"destination_access,omitempty"`
+	Method            string   `json:"selection_method,omitempty"`
+	Evidence          []string `json:"evidence,omitempty"`
+	Uncertainty       string   `json:"uncertainty,omitempty"`
+	Point             Point    `json:"point"`
+	Distance          float64  `json:"distance_meters"`
+	Segment           string   `json:"segment"`
+	Requested         Point    `json:"requested"`
+	SelectionReason   string   `json:"selection_reason,omitempty"`
+	NearestDistance   float64  `json:"nearest_distance_meters"`
+	DestinationAccess bool     `json:"destination_access,omitempty"`
 	index             int
 	fraction          float64
 	node              int64
@@ -493,16 +502,19 @@ func (q queue) Swap(i, j int) { q[i], q[j] = q[j], q[i] }
 func (q *queue) Push(x any)   { *q = append(*q, x.(item)) }
 func (q *queue) Pop() any     { x := (*q)[len(*q)-1]; *q = (*q)[:len(*q)-1]; return x }
 func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, error) {
+	return s.RouteEndpoints(ctx, Endpoint{Point: origin}, Endpoint{Point: destination})
+}
+func (s *Store) RouteEndpoints(ctx context.Context, origin, destination Endpoint) (Result, error) {
 	if s == nil {
 		return Result{}, &Error{"unavailable", "routing"}
 	}
-	a, e := s.snap(ctx, origin, "origin")
+	a, e := s.endpointSnap(ctx, origin, "origin")
 	if e != nil {
-		return Result{}, e
+		return Result{Origin: a}, e
 	}
-	b, e := s.snap(ctx, destination, "destination")
+	b, e := s.endpointSnap(ctx, destination, "destination")
 	if e != nil {
-		return Result{}, e
+		return Result{Origin: a, Destination: b}, e
 	}
 	result := Result{Origin: a, Destination: b}
 	aZone, bZone := 0, 0

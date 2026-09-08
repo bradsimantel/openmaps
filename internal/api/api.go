@@ -1,4 +1,4 @@
-// Package api translates supported Google Places REST v1 and Geocoding v3 subsets.
+// Package api translates supported Google Places v1, Geocoding v3 and Routes v2 subsets.
 package api
 
 import (

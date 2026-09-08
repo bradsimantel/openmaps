@@ -278,3 +278,21 @@ routing baseline. The latter verifies actual v1 → v2 → v1 profile responses.
 All such cycles use `t.TempDir()` deployment state. See the
 [historical quality milestone](log/0016-newport-driving-quality.md) for the candidate,
 rebuild/comparison checksums, source findings and evaluated differences.
+
+
+Graph format **3** (`driving-distance-v3`) adds automatic address endpoint evidence
+from the same pinned PBF. Build into a new candidate using the unchanged lookup
+bundle and the existing `-routing-pbf` option. Existing Places IDs, source records
+and coordinates remain unchanged. The independently checksummed SQLite payload
+contains local access geometry and source references, while API code resolves
+address labels at request time. Formats 1 and 2 remain readable for coordinate
+routing; address requests explicitly require format 3. No migration modifies a
+retained snapshot. See [routing](routing.md#automatic-address-endpoints).
+
+Run the address benchmark, existing coordinate/geocoding benchmarks, comparison,
+and an independent rebuild before review. Rehearse lookup-only → v3 → lookup-only
+and v2 → v3 → v2 using the existing integration snapshot cycle’s `t.TempDir()`
+state. Address availability, loaded profile and geocoding identities must return
+to the prior state. Never exercise switching against the active deployment merely
+to test a candidate. The [historical address milestone](log/0017-newport-address-routing.md)
+records actual before/after evaluations and reproducibility checks.

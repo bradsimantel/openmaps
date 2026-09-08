@@ -16,8 +16,8 @@ are implemented in the [Newport refresh workflow](docs/refresh.md). The original
 August data remains the baseline; the second pinned release is a historical July
 rehearsal, not a newer Overture release.
 
-**Driving routing is implemented in separate candidate snapshots:** select existing
-lookup results or arbitrary map points in the preview, calculate a shortest-distance
+**Driving routing is implemented in separate candidate snapshots:** supply addresses, existing
+lookup coordinates or arbitrary map points in one request, calculate a shortest-distance
 route, and see its geometry, road distance, requested/road endpoints and separate
 unverified snap gaps. The passenger-car profile interprets vehicle limits and
 supports strictly qualified destination-only access without through shortcuts. The graph uses the wider
@@ -55,10 +55,11 @@ coordinates, approximate precision and reverse distance. `364 Bellevue Avenue`
 requires choosing among eight distinct points; apartment requests are explicitly
 unsupported. See [the maintained geocoding contract](docs/geocoding.md).
 
-For driving, choose a lookup result and **Use selection as origin/destination**,
-or change **Map click** to select exact endpoints. Then **Calculate driving route**.
-**Clear route** resets the route and endpoints. Source address ambiguity still
-requires choosing a candidate. There is no travel-time or traffic estimate.
+For driving, enter **Origin address** and **Destination address**, then
+**Calculate driving route**. The API resolves addresses and road arrivals automatically
+or returns a clear failure in the same request. Selected lookup coordinates and
+map points can also supply either endpoint.
+**Clear route** resets the route and endpoints. Ambiguous address routes fail without a selection step. There is no travel-time or traffic estimate.
 Existing databases are never overwritten: to add routing to retained data, build
 and serve a [separate candidate](docs/routing.md#storage-builds-and-snapshots).
 
@@ -113,7 +114,7 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 | `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, and response field mask; up to five place predictions |
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
 | `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional English `language` and unauthenticated `key` |
-| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: coordinate origin/destination, driving, GeoJSON geometry and road distance; requires routing data and response mask |
+| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: address/coordinate origin/destination (including mixed), driving, GeoJSON geometry and road distance; requires routing data and response mask |
 | `GET /healthz` | Process health and routing availability; in deployment mode, loaded database fingerprint and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
 
@@ -281,7 +282,8 @@ details available. See [historical first-milestone verification results](docs/lo
   missing tiles. Browser libraries, fonts and sprites use external hosts.
 - Driving routing is static shortest distance for the documented ordinary-car profile.
   Restricted-access roads and incompatible/unknown limits can be excluded; conditions are not
-  evaluated. No traffic, duration, navigation instructions or entrance inference.
+  evaluated. No traffic, duration or navigation instructions; limited source-backed access associations,
+  with explicitly unverified property entrances and off-road gaps.
   Snap limits and disconnected coverage can produce no route. See
   [the exact profile and remaining limits](docs/routing.md).
 - Deployment hardening, continuous coverage evaluation and richer data are

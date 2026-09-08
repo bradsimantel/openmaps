@@ -298,6 +298,17 @@ func TestNewportRoutingSnapshotCycle(t *testing.T) {
 				t.Fatal("wrong loaded routing profile", rw.Body.String())
 			}
 		}
+		ar := httptest.NewRequest("POST", "/directions/v2:computeRoutes", strings.NewReader(`{"origin":{"address":"26 Marlborough Street"},"destination":{"address":"1 Resolute Road"},"polylineEncoding":"GEO_JSON_LINESTRING"}`))
+		ar.Header.Set("X-Goog-FieldMask", "routes.distanceMeters")
+		aw := httptest.NewRecorder()
+		live.ServeHTTP(aw, ar)
+		if profile == "driving-distance-v3" {
+			if aw.Code != 200 || !strings.Contains(aw.Body.String(), "destination_address_street") {
+				t.Fatal("address association not loaded", aw.Body.String())
+			}
+		} else if aw.Code != 503 {
+			t.Fatal("old snapshot accepted address associations", aw.Body.String())
+		}
 		p := httptest.NewRequest("POST", "/v1/places:autocomplete", strings.NewReader(`{"input":"White Horse"}`))
 		w = httptest.NewRecorder()
 		live.ServeHTTP(w, p)

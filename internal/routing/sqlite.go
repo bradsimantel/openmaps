@@ -8,6 +8,7 @@ import (
 	_ "modernc.org/sqlite"
 	"net/url"
 	"path/filepath"
+	"slices"
 )
 
 // Load reads an optional independently versioned graph. Absence is supported for
@@ -63,6 +64,67 @@ func Load(ctx context.Context, db *sql.DB) (*Store, *Summary, error) {
 	for _, ban := range d.Bans {
 		if !sources["relation"][ban.Relation] {
 			return nil, nil, fmt.Errorf("routing ban without source relation")
+		}
+	}
+	for _, w := range d.Access.Ways {
+		if !sources["way"][w.Way] {
+			return nil, nil, fmt.Errorf("access way without source")
+		}
+	}
+	for _, a := range d.Access.Areas {
+		if !sources["way"][a.Way] {
+			return nil, nil, fmt.Errorf("access area without source")
+		}
+	}
+	for _, e := range d.Access.Entrances {
+		if !sources["node"][e.Node] {
+			return nil, nil, fmt.Errorf("access entrance without source")
+		}
+	}
+	// Association fields must agree with retained source tags and node identities.
+	accessWays := map[int64]AccessWay{}
+	accessAreas := map[int64]AccessArea{}
+	entrances := map[int64]AccessEntrance{}
+	for _, w := range d.Access.Ways {
+		accessWays[w.Way] = w
+	}
+	for _, a := range d.Access.Areas {
+		accessAreas[a.Way] = a
+	}
+	for _, e := range d.Access.Entrances {
+		entrances[e.Node] = e
+	}
+	for _, source := range d.Sources {
+		if source.Kind == "way" {
+			w, wok := accessWays[source.ID]
+			a, aok := accessAreas[source.ID]
+			if !wok && !aok {
+				continue
+			}
+			var original struct {
+				Nodes []int64
+				Tags  map[string]string
+			}
+			if err := json.Unmarshal(source.Raw, &original); err != nil {
+				return nil, nil, err
+			}
+			if wok && (w.Name != original.Tags["name"] || w.Driveway && (original.Tags["service"] != "driveway" || original.Tags["highway"] != "service") || len(w.Nodes) > 0 && !slices.Equal(w.Nodes, original.Nodes)) {
+				return nil, nil, fmt.Errorf("access way differs from source")
+			}
+			if aok && (!slices.Equal(a.Nodes, original.Nodes) || a.Number != original.Tags["addr:housenumber"] || a.Street != original.Tags["addr:street"] || a.Parking != (original.Tags["amenity"] == "parking")) {
+				return nil, nil, fmt.Errorf("access area differs from source")
+			}
+		}
+		if source.Kind == "node" {
+			if _, ok := entrances[source.ID]; ok {
+				var original struct{ Tags map[string]string }
+				if err := json.Unmarshal(source.Raw, &original); err != nil {
+					return nil, nil, err
+				}
+				if original.Tags["amenity"] != "parking_entrance" {
+					return nil, nil, fmt.Errorf("parking entrance differs from source")
+				}
+			}
 		}
 	}
 	store, err := New(d)

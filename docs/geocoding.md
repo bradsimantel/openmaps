@@ -153,8 +153,11 @@ reverse scans. At this scale (~8,500 points), a scan needs no spatial index.
 It requires a valid non-dateline manifest `bbox`. There are no schema changes,
 new source imports, migrations, sidecar databases or writes to retained snapshots.
 Deployment reload opens Places, geocoding and any optional routing graph successfully
-before replacing the handler. Routing receives coordinates only after the user
-chooses a geocoding candidate; it does not resolve or collapse address ambiguity.
+before replacing the handler. Compute Routes can also receive address strings directly. Its API layer uses this
+geocoder, requires one source identity, and returns a structured failure for
+unresolved ambiguity without a selection exchange. It does not change this
+endpoint’s result set or geocoding preview behavior. Routing owns automatic road
+association after the API resolves the address.
 See [driving routing](routing.md). Requests carry the existing `X-OpenMaps-Dataset` fingerprint in
 deployment mode. Activation and rollback use the [refresh workflow](refresh.md).
 
