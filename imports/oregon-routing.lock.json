@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "region": "Oregon coordinate-routing evaluation with Washington and Idaho detour buffers",
+  "bbox": [
+    -124.8,
+    41.98,
+    -116.45,
+    46.3
+  ],
+  "coordinate_order": "longitude,latitude",
+  "routing_only": true,
+  "inputs": [
+    {
+      "file": "oregon-260907.osm.pbf",
+      "sha256": "421f9c31d5f59fd68f273b857529c61deb7d7e0aff5dc03ca22c83d661a98bae",
+      "release": "2026-09-07T20:21:20Z",
+      "url": "https://download.geofabrik.de/north-america/us/oregon-260907.osm.pbf",
+      "attribution": "https://www.openstreetmap.org/copyright"
+    },
+    {
+      "file": "washington-260907.osm.pbf",
+      "sha256": "78186f79979c2a1b9fed27fff978dca0bc73f7f9d09cf3d2d86ceca7b0b2c19f",
+      "release": "2026-09-07T20:21:20Z",
+      "url": "https://download.geofabrik.de/north-america/us/washington-260907.osm.pbf",
+      "attribution": "https://www.openstreetmap.org/copyright"
+    },
+    {
+      "file": "idaho-260907.osm.pbf",
+      "sha256": "0c46eba49a01fc72f15f14d033d62315c5f460b840ad912211230d874dcfd041",
+      "release": "2026-09-07T20:21:20Z",
+      "url": "https://download.geofabrik.de/north-america/us/idaho-260907.osm.pbf",
+      "attribution": "https://www.openstreetmap.org/copyright"
+    },
+    {
+      "file": "oregon-detours-260907.osm.pbf",
+      "sha256": "8b02d8f64a2e88c10a50cc68624b3763e6a2c12921751c97431878d36f7bab63",
+      "release": "2026-09-07T20:21:20Z",
+      "url": "https://download.geofabrik.de/north-america/us.html",
+      "attribution": "https://www.openstreetmap.org/copyright"
+    }
+  ]
+}

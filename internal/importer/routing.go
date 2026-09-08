@@ -26,7 +26,7 @@ func AddRouting(ctx context.Context, dbPath, pbf string, manifest json.RawMessag
 	}
 	var source Input
 	for _, v := range m.Inputs {
-		if strings.HasSuffix(v.File, ".osm.pbf") {
+		if v.File == filepath.Base(pbf) && strings.HasSuffix(v.File, ".osm.pbf") {
 			if source.File != "" {
 				return fmt.Errorf("multiple routing sources")
 			}
@@ -39,15 +39,11 @@ func AddRouting(ctx context.Context, dbPath, pbf string, manifest json.RawMessag
 	if err := Verify(pbf, source.SHA256); err != nil {
 		return err
 	}
-	d, err := readRouting(ctx, pbf, source, m.BBox)
+	d, err := readRoutingScope(ctx, pbf, source, m.BBox, !m.RoutingOnly)
 	if err != nil {
 		return err
 	}
 	if _, err = routing.New(d); err != nil {
-		return err
-	}
-	raw, err := json.Marshal(d)
-	if err != nil {
 		return err
 	}
 	db, err := sql.Open("sqlite", dbPath)
@@ -60,10 +56,7 @@ func AddRouting(ctx context.Context, dbPath, pbf string, manifest json.RawMessag
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "CREATE TABLE routing_graph(id INTEGER PRIMARY KEY CHECK(id=1),data BLOB NOT NULL,sha256 TEXT NOT NULL)"); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO routing_graph VALUES(1,?,?)", raw, routing.Digest(raw)); err != nil {
+	if err = routing.WriteGraph(ctx, tx, d); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -246,6 +239,9 @@ func scanPBF(ctx context.Context, path string, skipNodes, skipWays, skipRelation
 }
 
 func readRouting(ctx context.Context, path string, source Input, bounds [4]float64) (routing.Data, error) {
+	return readRoutingScope(ctx, path, source, bounds, true)
+}
+func readRoutingScope(ctx context.Context, path string, source Input, bounds [4]float64, addressEvidence bool) (routing.Data, error) {
 	d := routing.Data{Metadata: routing.Metadata{Version: routing.GraphVersion, CostModel: routing.CostModel, Profile: routing.Profile, EndpointBounds: bounds, Release: source.Release, URL: source.URL, SourceSHA256: source.SHA256, Attribution: source.Attribution, Counts: map[string]int{}}, Nodes: []routing.Node{}, Segments: []routing.Segment{}, Bans: []routing.Ban{}, Sources: []routing.Source{}}
 	roads := map[int64]road{}
 	motorWays := map[int64]*osm.Way{}
@@ -553,8 +549,10 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 		gb[3] = math.Max(gb[3], n.Point[1])
 	}
 	d.Metadata.GraphBounds = gb
-	if err := readRoutingAccess(ctx, path, &d); err != nil {
-		return d, err
+	if addressEvidence {
+		if err := readRoutingAccess(ctx, path, &d); err != nil {
+			return d, err
+		}
 	}
 	sort.Slice(d.Sources, func(i, j int) bool {
 		a, b := d.Sources[i], d.Sources[j]

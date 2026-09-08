@@ -79,7 +79,7 @@ func (s *Store) validateAccess() error {
 			if old, ok := coordinates[id]; ok && old != ps[i] {
 				return false
 			}
-			if old, ok := s.nodes[id]; ok && old != ps[i] {
+			if old, ok := s.lookupPoint(id); ok && old != ps[i] {
 				return false
 			}
 			coordinates[id] = ps[i]
@@ -99,7 +99,7 @@ func (s *Store) validateAccess() error {
 			if !p.Valid() || w.Nodes[i] <= 0 {
 				return fmt.Errorf("invalid access way geometry")
 			}
-			if q, ok := s.nodes[w.Nodes[i]]; ok && q != p {
+			if q, ok := s.lookupPoint(w.Nodes[i]); ok && q != p {
 				return fmt.Errorf("access/graph node mismatch")
 			}
 		}
@@ -125,13 +125,16 @@ func (s *Store) validateAccess() error {
 			return fmt.Errorf("invalid access entrance")
 		}
 		ids[e.Node] = true
-		if p, ok := s.nodes[e.Node]; ok && p != e.Point {
+		if p, ok := s.lookupPoint(e.Node); ok && p != e.Point {
 			return fmt.Errorf("entrance/graph node mismatch")
 		}
 	}
 	return nil
 }
 func (s *Store) endpointSnap(ctx context.Context, e Endpoint, role string) (Snap, error) {
+	if err := ctx.Err(); err != nil {
+		return Snap{}, err
+	}
 	if !e.Address {
 		return s.snap(ctx, e.Point, role)
 	}
@@ -157,13 +160,14 @@ func (s *Store) endpointSnap(ctx context.Context, e Endpoint, role string) (Snap
 	candidates := []Snap{}
 	nearest := math.Inf(1)
 	guard := math.Inf(1)
-	for i, v := range s.segments {
-		if i%4096 == 0 {
+	for k, i := range s.segmentIndex.query(nearBox(p, AddressSnapLimit)) {
+		v := s.segments[i]
+		if k%4096 == 0 {
 			if err := ctx.Err(); err != nil {
 				return Snap{}, err
 			}
 		}
-		a, b := s.nodes[v.From], s.nodes[v.To]
+		a, b := s.point(v.From), s.point(v.To)
 		if !nearBounds(p, a, b, AddressSnapLimit) {
 			continue
 		}
@@ -192,7 +196,8 @@ func (s *Store) endpointSnap(ctx context.Context, e Endpoint, role string) (Snap
 		}
 		candidates = append(candidates, c)
 	}
-	for _, g := range s.guards {
+	for _, i := range s.guardIndex.query(nearBox(p, AddressSnapLimit)) {
+		g := s.guards[i]
 		if nearBounds(p, g.From, g.To, AddressSnapLimit) {
 			q, _ := project(p, g.From, g.To)
 			guard = math.Min(guard, Distance(p, q))
@@ -271,7 +276,8 @@ func (s *Store) makeSnap(p Point, i int, q Point, t float64) Snap {
 func (s *Store) nodeSnap(p Point, n int64, public bool, streetWays map[int64]bool) (Snap, bool) {
 	best := Snap{}
 	found := false
-	for i, v := range s.segments {
+	for _, i := range s.segmentIndex.query(segmentBox(s.point(n), s.point(n))) {
+		v := s.segments[i]
 		if !v.Snap || v.Elevated || v.From != n && v.To != n || public && (s.zones[i] != 0 || v.Service || !streetWays[v.Way]) {
 			continue
 		}
@@ -279,7 +285,7 @@ func (s *Store) nodeSnap(p Point, n int64, public bool, streetWays map[int64]boo
 		if v.To == n {
 			t = 1
 		}
-		c := s.makeSnap(p, i, s.nodes[n], t)
+		c := s.makeSnap(p, i, s.point(n), t)
 		if !found || c.Segment < best.Segment {
 			best = c
 			found = true
@@ -308,7 +314,8 @@ func (s *Store) associatedPoints(e Endpoint) []Snap {
 		out = append(out, c)
 		seen[n] = true
 	}
-	for _, a := range s.access.Areas {
+	for _, i := range s.areaIndex.query(nearBox(e.Point, .001)) {
+		a := s.access.Areas[i]
 		if !e.Areas[a.Way] || !containsPoint(e.Point, a.Geometry) {
 			continue
 		}
@@ -323,7 +330,8 @@ func (s *Store) associatedPoints(e Endpoint) []Snap {
 				}
 			}
 		}
-		for _, w := range s.access.Ways {
+		for _, i := range s.accessIndex.query(geometryBox(a.Geometry).padMeters(.001)) {
+			w := s.access.Ways[i]
 			if !w.Driveway {
 				continue
 			}
@@ -347,28 +355,14 @@ func (s *Store) associatedPoints(e Endpoint) []Snap {
 func (s *Store) localSharedJunction(a, b Snap) bool {
 	x, y := s.segments[a.index], s.segments[b.index]
 	for _, n := range []int64{x.From, x.To} {
-		if (n == y.From || n == y.To) && Distance(a.Point, s.nodes[n])+Distance(b.Point, s.nodes[n]) <= 20 {
+		if (n == y.From || n == y.To) && Distance(a.Point, s.point(n))+Distance(b.Point, s.point(n)) <= 20 {
 			return true
 		}
 	}
 	return false
 }
 func (s *Store) drivewayBoundaries(start int64) []int64 {
-	type link struct {
-		to     int64
-		length float64
-	}
-	adj := map[int64][]link{}
-	for _, w := range s.access.Ways {
-		if w.Driveway {
-			for i := 1; i < len(w.Nodes); i++ {
-				a, b := w.Nodes[i-1], w.Nodes[i]
-				d := Distance(w.Geometry[i-1], w.Geometry[i])
-				adj[a] = append(adj[a], link{b, d})
-				adj[b] = append(adj[b], link{a, d})
-			}
-		}
-	}
+	adj := s.driveways
 	pending := map[int64]float64{start: 0}
 	seen := map[int64]bool{}
 	out := []int64{}
@@ -410,7 +404,8 @@ func (s *Store) drivewayBoundaries(start int64) []int64 {
 }
 
 func (s *Store) restrictedParkingPoint(address, road Point) bool {
-	for _, a := range s.access.Areas {
+	for _, i := range s.areaIndex.query(nearBox(address, .001)) {
+		a := s.access.Areas[i]
 		if a.Parking && a.Restricted && containsPoint(address, a.Geometry) && containsPoint(road, a.Geometry) {
 			return true
 		}

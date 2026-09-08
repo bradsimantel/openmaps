@@ -103,8 +103,10 @@ type Data struct {
 	Sources  []Source   `json:"sources"`
 }
 type Summary struct {
-	Metadata Metadata `json:"metadata"`
-	SHA256   string   `json:"sha256"`
+	Layout        string   `json:"layout,omitempty"`
+	Preprocessing string   `json:"preprocessing,omitempty"`
+	Metadata      Metadata `json:"metadata"`
+	SHA256        string   `json:"sha256"`
 }
 
 func Digest(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
@@ -122,26 +124,38 @@ type trieNode struct {
 	banned bool
 }
 type Store struct {
-	access          AccessData
-	meta            Metadata
-	nodes           map[int64]Point
-	segments        []Segment
-	edges           []edge
-	outgoing        map[int64][]int
-	directions      [][2]int
-	trie            []trieNode
-	guards          []Guard
-	zones           []int
-	restrictedNodes map[int64]bool
-	publicNodes     map[int64]bool
+	continuation                                     []int32
+	maxMetersPerSecond                               float64
+	segmentIndex, guardIndex, areaIndex, accessIndex spatialIndex
+	driveways                                        map[int64][]drivewayLink
+	access                                           AccessData
+	meta                                             Metadata
+	nodeIndex                                        map[int64]int32
+	points                                           []Point
+	offsets                                          []uint32
+	adjacency                                        []int
+	segments                                         []Segment
+	edges                                            []edge
+	directions                                       [][2]int
+	trie                                             []trieNode
+	guards                                           []Guard
+	zones                                            []int
+	restrictedNodes                                  map[int64]bool
+	publicNodes                                      map[int64]bool
 }
 
-func New(d Data) (*Store, error) {
+func New(d Data) (*Store, error) { return newStore(d, false) }
+func newStore(d Data, owned bool) (*Store, error) {
+	if len(d.Nodes) > math.MaxInt32 || len(d.Segments) > math.MaxInt32/2 || len(d.Guards) > math.MaxInt32 {
+		return nil, fmt.Errorf("routing array capacity exceeded")
+	}
 	if d.Metadata.Version == GraphVersion {
-		d.Segments = append([]Segment(nil), d.Segments...)
+		if !owned {
+			d.Segments = append([]Segment(nil), d.Segments...)
+		}
 		sort.Slice(d.Segments, func(i, j int) bool { return d.Segments[i].ID < d.Segments[j].ID })
 	}
-	costs := map[int64]WayCost{}
+	costs := make(map[int64]WayCost, len(d.Costs))
 	if d.Metadata.Version == GraphVersion {
 		if d.Metadata.CostModel != CostModel {
 			return nil, fmt.Errorf("unsupported routing cost model %q", d.Metadata.CostModel)
@@ -160,7 +174,7 @@ func New(d Data) (*Store, error) {
 	} else if d.Metadata.CostModel != "" || len(d.Costs) != 0 {
 		return nil, fmt.Errorf("legacy graph contains unsupported costs")
 	}
-	s := &Store{meta: d.Metadata, nodes: map[int64]Point{}, segments: d.Segments, outgoing: map[int64][]int{}, directions: make([][2]int, len(d.Segments)), trie: []trieNode{{next: map[int]int{}}}}
+	s := &Store{meta: d.Metadata, nodeIndex: make(map[int64]int32, len(d.Nodes)), points: make([]Point, 0, len(d.Nodes)), segments: d.Segments, directions: make([][2]int, len(d.Segments)), trie: []trieNode{{next: map[int]int{}}}}
 	b := d.Metadata.EndpointBounds
 	if !((d.Metadata.Version == 1 && d.Metadata.Profile == "driving-distance-v1") || (d.Metadata.Version == 2 && d.Metadata.Profile == "driving-distance-v2") || (d.Metadata.Version == 3 && d.Metadata.Profile == "driving-distance-v3") || (d.Metadata.Version == GraphVersion && d.Metadata.Profile == Profile)) || !(Point{b[0], b[1]}).Valid() {
 		return nil, fmt.Errorf("unsupported routing graph version/profile: %d/%q", d.Metadata.Version, d.Metadata.Profile)
@@ -169,21 +183,44 @@ func New(d Data) (*Store, error) {
 		return nil, fmt.Errorf("invalid routing graph")
 	}
 	for _, n := range d.Nodes {
-		if _, ok := s.nodes[n.ID]; ok || n.ID <= 0 || !n.Point.Valid() {
+		if _, ok := s.nodeIndex[n.ID]; ok || n.ID <= 0 || !n.Point.Valid() {
 			return nil, fmt.Errorf("invalid routing node %d", n.ID)
 		}
-		s.nodes[n.ID] = n.Point
+		s.nodeIndex[n.ID] = int32(len(s.points))
+		s.points = append(s.points, n.Point)
 	}
-	refs := map[EdgeRef]int{}
-	ids := map[string]bool{}
+	s.offsets = make([]uint32, len(s.points)+1)
+	edgeCount := 0
+	for _, v := range d.Segments {
+		if v.Forward {
+			edgeCount++
+		}
+		if v.Backward {
+			edgeCount++
+		}
+	}
+	s.edges = make([]edge, 0, edgeCount)
+	ids := make(map[string]int, len(d.Segments)+len(d.Guards))
+	lookupEdge := func(ref EdgeRef) (int, bool) {
+		i := ids[ref.Segment] - 1
+		if i < 0 || i >= len(s.directions) {
+			return 0, false
+		}
+		dir := 0
+		if ref.Reverse {
+			dir = 1
+		}
+		id := s.directions[i][dir]
+		return id, id >= 0
+	}
 	usedCosts := map[int64]bool{}
 	for i, v := range d.Segments {
-		a, ok := s.nodes[v.From]
-		z, yes := s.nodes[v.To]
-		if !ok || !yes || v.From == v.To || v.Way <= 0 || v.ID == "" || ids[v.ID] || (!v.Forward && !v.Backward) {
+		a, ok := s.lookupPoint(v.From)
+		z, yes := s.lookupPoint(v.To)
+		if !ok || !yes || v.From == v.To || v.Way <= 0 || v.ID == "" || ids[v.ID] != 0 || (!v.Forward && !v.Backward) {
 			return nil, fmt.Errorf("invalid routing segment %s", v.ID)
 		}
-		ids[v.ID] = true
+		ids[v.ID] = i + 1
 		usedCosts[v.Way] = true
 		l := Distance(a, z)
 		if l <= 0 {
@@ -214,9 +251,8 @@ func New(d Data) (*Store, error) {
 			}
 			id := len(s.edges)
 			s.edges = append(s.edges, e)
-			s.outgoing[e.from] = append(s.outgoing[e.from], id)
+			s.offsets[s.nodeIndex[e.from]+1]++
 			s.directions[i][dir] = id
-			refs[EdgeRef{v.ID, dir == 1}] = id
 		}
 	}
 	for way := range costs {
@@ -231,7 +267,7 @@ func New(d Data) (*Store, error) {
 		t := 0
 		last := -1
 		for _, ref := range ban.Path {
-			id, ok := refs[ref]
+			id, ok := lookupEdge(ref)
 			if !ok || last >= 0 && s.edges[last].to != s.edges[id].from {
 				return nil, fmt.Errorf("invalid routing ban relation %d", ban.Relation)
 			}
@@ -270,22 +306,23 @@ func New(d Data) (*Store, error) {
 
 	s.guards = d.Guards
 	for _, g := range d.Guards {
-		if g.Segment == "" || g.Way <= 0 || ids[g.Segment] || !g.From.Valid() || !g.To.Valid() {
+		if g.Segment == "" || g.Way <= 0 || ids[g.Segment] != 0 || !g.From.Valid() || !g.To.Valid() {
 			return nil, fmt.Errorf("invalid snap guard")
 		}
-		ids[g.Segment] = true
+		ids[g.Segment] = -1
 	}
 	s.restrictedNodes = map[int64]bool{}
 	for _, ban := range d.Bans {
 		for _, ref := range ban.Path {
-			e := s.edges[refs[ref]]
+			id, _ := lookupEdge(ref)
+			e := s.edges[id]
 			s.restrictedNodes[e.from] = true
 			s.restrictedNodes[e.to] = true
 		}
 	}
 	s.zones = make([]int, len(s.segments))
 	byNode := map[int64][]int{}
-	s.publicNodes = map[int64]bool{}
+	s.publicNodes = make(map[int64]bool, len(d.Nodes))
 	for _, v := range s.segments {
 		if v.Forward && !v.DestinationForward || v.Backward && !v.DestinationBackward {
 			s.publicNodes[v.From] = true
@@ -320,6 +357,9 @@ func New(d Data) (*Store, error) {
 	if err := s.validateAccess(); err != nil {
 		return nil, err
 	}
+	s.packAdjacency()
+	s.buildSpatial()
+	s.buildChains()
 	return s, nil
 }
 func (s *Store) advance(t, e int) (int, bool) {
@@ -363,6 +403,9 @@ func project(p, a, b Point) (Point, float64) {
 	return Point{a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])}, t
 }
 func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error) {
+	if err := ctx.Err(); err != nil {
+		return Snap{}, err
+	}
 	b := s.meta.EndpointBounds
 	if !p.Valid() {
 		return Snap{}, &Error{"invalid_coordinate", endpoint}
@@ -373,8 +416,9 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 	best := Snap{Distance: math.Inf(1)}
 	candidates := []Snap{}
 	restrictedDistance := math.Inf(1)
-	for i, v := range s.segments {
-		if i%4096 == 0 {
+	for k, i := range s.segmentIndex.query(coordinateBox(p)) {
+		v := s.segments[i]
+		if k%4096 == 0 {
 			if e := ctx.Err(); e != nil {
 				return Snap{}, e
 			}
@@ -382,8 +426,8 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 		if !v.Snap {
 			continue
 		}
-		a, z := s.nodes[v.From], s.nodes[v.To] // Cheap bounds rejection before projection/haversine.
-		if p[1] < math.Min(a[1], z[1])-.001 || p[1] > math.Max(a[1], z[1])+.001 || p[0] < math.Min(a[0], z[0])-.002 || p[0] > math.Max(a[0], z[0])+.002 {
+		a, z := s.point(v.From), s.point(v.To) // Cheap bounds rejection before projection/haversine.
+		if !coordinateBox(p).intersects(segmentBox(a, z)) {
 			continue
 		}
 		q, t := project(p, a, z)
@@ -431,8 +475,9 @@ func (s *Store) snap(ctx context.Context, p Point, endpoint string) (Snap, error
 		return candidates[i].Segment < candidates[j].Segment
 	})
 	best = candidates[0]
-	for _, g := range s.guards {
-		if p[1] < math.Min(g.From[1], g.To[1])-.001 || p[1] > math.Max(g.From[1], g.To[1])+.001 || p[0] < math.Min(g.From[0], g.To[0])-.002 || p[0] > math.Max(g.From[0], g.To[0])+.002 {
+	for _, i := range s.guardIndex.query(coordinateBox(p)) {
+		g := s.guards[i]
+		if !coordinateBox(p).intersects(segmentBox(g.From, g.To)) {
 			continue
 		}
 		q, _ := project(p, g.From, g.To)
@@ -470,7 +515,7 @@ func (s *Store) safeStreetCandidate(a, b Snap) bool {
 		node     int64
 		distance float64
 	}
-	queue := []visit{{x.From, Distance(a.Point, s.nodes[x.From])}, {x.To, Distance(a.Point, s.nodes[x.To])}}
+	queue := []visit{{x.From, Distance(a.Point, s.point(x.From))}, {x.To, Distance(a.Point, s.point(x.To))}}
 	seen := map[int64]float64{}
 	for i := 0; i < len(queue) && i < 32; i++ {
 		v := queue[i]
@@ -481,10 +526,10 @@ func (s *Store) safeStreetCandidate(a, b Snap) bool {
 			continue
 		}
 		seen[v.node] = v.distance
-		if (v.node == y.From || v.node == y.To) && v.distance+Distance(s.nodes[v.node], b.Point) <= 20 {
+		if (v.node == y.From || v.node == y.To) && v.distance+Distance(s.point(v.node), b.Point) <= 20 {
 			return !s.connectorCrossesRoad(a, b)
 		}
-		for _, id := range s.outgoing[v.node] {
+		for _, id := range s.out(v.node) {
 			e := s.edges[id]
 			seg := s.segments[e.segment]
 			if seg.Way == x.Way && seg.Forward && seg.Backward && !seg.Elevated && s.zones[e.segment] == 0 {
@@ -504,15 +549,17 @@ func (s *Store) connectorCrossesRoad(a, b Snap) bool {
 		cross := func(x, y, z Point) float64 { return (y[0]-x[0])*(z[1]-x[1]) - (y[1]-x[1])*(z[0]-x[0]) }
 		return cross(p, q, c)*cross(p, q, d) < 0 && cross(c, d, p)*cross(c, d, q) < 0
 	}
-	for _, v := range s.segments {
+	for _, i := range s.segmentIndex.query(segmentBox(a.Requested, b.Point)) {
+		v := s.segments[i]
 		if v.Way == s.segments[a.index].Way || v.Way == s.segments[b.index].Way {
 			continue
 		}
-		if crosses(s.nodes[v.From], s.nodes[v.To]) {
+		if crosses(s.point(v.From), s.point(v.To)) {
 			return true
 		}
 	}
-	for _, g := range s.guards {
+	for _, i := range s.guardIndex.query(segmentBox(a.Requested, b.Point)) {
+		g := s.guards[i]
 		if crosses(g.From, g.To) {
 			return true
 		}
@@ -531,11 +578,15 @@ type state struct{ edge, trie, phase int }
 type item struct {
 	state    state
 	distance float64
+	priority float64
 }
 type queue []item
 
 func (q queue) Len() int { return len(q) }
 func (q queue) Less(i, j int) bool {
+	if q[i].priority != q[j].priority {
+		return q[i].priority < q[j].priority
+	}
 	if q[i].distance != q[j].distance {
 		return q[i].distance < q[j].distance
 	}
@@ -554,15 +605,20 @@ func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, e
 	return s.RouteEndpoints(ctx, Endpoint{Point: origin}, Endpoint{Point: destination})
 }
 func (s *Store) RouteEndpoints(ctx context.Context, origin, destination Endpoint) (Result, error) {
-	return s.routeEndpoints(ctx, origin, destination, false)
+	return s.routeEndpoints(ctx, origin, destination, false, true)
 }
 
 // RouteDistanceEndpoints is an internal benchmark comparator using the same
 // endpoints, restrictions and elapsed-time model, while minimizing road distance.
 func (s *Store) RouteDistanceEndpoints(ctx context.Context, origin, destination Endpoint) (Result, error) {
-	return s.routeEndpoints(ctx, origin, destination, true)
+	return s.routeEndpoints(ctx, origin, destination, true, true)
 }
-func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint, distanceOnly bool) (Result, error) {
+
+// RouteReferenceEndpoints retains unaccelerated Dijkstra for offline correctness checks.
+func (s *Store) RouteReferenceEndpoints(ctx context.Context, origin, destination Endpoint) (Result, error) {
+	return s.routeEndpoints(ctx, origin, destination, false, false)
+}
+func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint, distanceOnly, accelerated bool) (Result, error) {
 	if s == nil {
 		return Result{}, &Error{"unavailable", "routing"}
 	}
@@ -629,7 +685,11 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 		direct = true
 	}
 	distances := map[state]float64{}
-	previous := map[state]state{}
+	type trace struct {
+		parent state
+		first  int
+	}
+	previous := map[state]trace{}
 	q := &queue{}
 	heap.Init(q)
 	root := state{-1, 0, 0}
@@ -637,14 +697,44 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 		root.phase = 1
 	}
 	add := func(st state, d float64, prev state) {
+		first := st.edge
+		if accelerated {
+			for steps := 0; s.continuation[st.edge] >= 0; steps++ {
+				in := s.edges[st.edge]
+				if in.to == s.segments[b.index].From || in.to == s.segments[b.index].To {
+					break
+				}
+				if steps%1024 == 0 && ctx.Err() != nil {
+					return
+				}
+				id := int(s.continuation[st.edge])
+				tr, ok := s.advance(st.trie, id)
+				phase, allowed := transition(st.phase, id)
+				if !ok || !allowed {
+					break
+				}
+				d += cost(id, s.edges[id].length)
+				st = state{id, tr, phase}
+			}
+		}
+
 		if old, ok := distances[st]; !ok || d < old {
 			distances[st] = d
-			previous[st] = prev
-			heap.Push(q, item{st, d})
+			previous[st] = trace{prev, first}
+			priority := d
+			if accelerated {
+				lower := Distance(s.point(s.edges[st.edge].to), b.Point)
+				if !distanceOnly && s.HasDuration() {
+					lower /= s.maxMetersPerSecond
+				}
+				// Downward margin protects pruning against floating-point roundoff.
+				priority += math.Max(0, lower*(1-1e-12)-1e-8)
+			}
+			heap.Push(q, item{state: st, distance: d, priority: priority})
 		}
 	}
 	if a.node != 0 {
-		for _, id := range s.outgoing[a.node] {
+		for _, id := range s.out(a.node) {
 			tr, ok := s.advance(0, id)
 			if phase, allowed := transition(root.phase, id); ok && allowed {
 				add(state{id, tr, phase}, cost(id, s.edges[id].length), root)
@@ -655,7 +745,7 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 			if id < 0 {
 				continue
 			}
-			length := Distance(a.Point, s.nodes[s.edges[id].to])
+			length := Distance(a.Point, s.point(s.edges[id].to))
 			tr, ok := s.advance(0, id)
 			if phase, allowed := transition(root.phase, id); ok && allowed {
 				add(state{id, tr, phase}, cost(id, length), root)
@@ -688,7 +778,7 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 			if !ok || !allowed {
 				continue
 			}
-			v := d + cost(id, Distance(s.nodes[node], b.Point))
+			v := d + cost(id, Distance(s.point(node), b.Point))
 			if v < best {
 				best = v
 				direct = false
@@ -705,7 +795,7 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 		if cur.distance != distances[cur.state] {
 			continue
 		}
-		if cur.distance >= best {
+		if cur.priority >= best {
 			break
 		}
 		iterations++
@@ -716,7 +806,7 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 		}
 		in := s.edges[cur.state.edge]
 		checkEnd(in.to, cur.state, cur.distance)
-		for _, id := range s.outgoing[in.to] {
+		for _, id := range s.out(in.to) {
 			out := s.edges[id]
 			if out.segment == in.segment {
 				continue
@@ -727,6 +817,9 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 			}
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	if math.IsInf(best, 1) {
 		return result, &Error{"unreachable", "destination"}
 	}
@@ -734,13 +827,19 @@ func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint
 	travel := []int{}
 	if !direct {
 		path := []int{}
-		for st := endState; st.edge >= 0; st = previous[st] {
-			path = append(path, st.edge)
+		for st := endState; st.edge >= 0; st = previous[st].parent {
+			block := []int{previous[st].first}
+			for block[len(block)-1] != st.edge {
+				block = append(block, int(s.continuation[block[len(block)-1]]))
+			}
+			for i := len(block) - 1; i >= 0; i-- {
+				path = append(path, block[i])
+			}
 		}
 		for i := len(path) - 1; i >= 0; i-- {
 			travel = append(travel, path[i])
 			v := s.edges[path[i]]
-			result.Geometry = append(result.Geometry, s.nodes[v.to])
+			result.Geometry = append(result.Geometry, s.point(v.to))
 			result.Segments = append(result.Segments, s.segments[v.segment].ID)
 		}
 		if endEdge >= 0 {

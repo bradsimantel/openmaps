@@ -209,3 +209,10 @@ Routing graph v4 adds estimated driving duration after the existing automatic
 address-to-road resolution. Geocoding identities, ambiguity and source coordinates
 are unchanged; unverified off-road gaps contribute neither driving distance nor
 duration. See [routing’s time model](routing.md#estimated-speed-and-elapsed-time-model).
+
+
+The separate [Oregon routing evaluation](routing-scale.md) contains no geocoding
+records or address associations. It does not expand Newport address coverage.
+Routing storage/index changes preserve Newport IDs, source coordinates and the
+existing automatic address orchestration. Deployment requests share a snapshot
+lease, so each address resolution and route calculation uses the same snapshot.

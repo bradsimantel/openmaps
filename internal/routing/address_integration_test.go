@@ -56,11 +56,8 @@ func TestNewportAddressRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err = db.QueryRow("SELECT data FROM routing_graph").Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	var data routing.Data
-	if err = json.Unmarshal(raw, &data); err != nil {
+	data, err := routing.ReadData(ctx, db)
+	if err != nil {
 		t.Fatal(err)
 	}
 	raw = nil

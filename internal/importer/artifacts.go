@@ -25,6 +25,7 @@ type Input struct {
 	Attribution string    `json:"attribution"`
 }
 type Manifest struct {
+	RoutingOnly     bool       `json:"routing_only,omitempty"`
 	Schema          int        `json:"schema"`
 	Region          string     `json:"region"`
 	BBox            [4]float64 `json:"bbox"`

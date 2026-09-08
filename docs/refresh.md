@@ -166,8 +166,11 @@ SQLite file in place. Archive it along with its lock, bundle and identity eviden
 
 On the next API or health request, the server detects a changed selection,
 validates and opens Places, the geocoding address index and any optional routing
-graph before replacing its handler. It holds a lock through each
-lookup request; requests are serialized for this small demo. A failed reload
+graph before replacing its handler. Requests hold shared snapshot leases; normal
+routing and lookup requests can run concurrently. One request loads a changed
+selection while others use the previous snapshot, and publication waits for old
+leases before closing SQLite. Snapshot validation supplies its already loaded
+graph to avoid a second allocation. A failed reload
 retains the last working handler and makes health return HTTP 503 with an error.
 Successful API responses include `X-OpenMaps-Dataset`. Check health after every
 switch. Autocomplete and details are separate requests; an ID removed between
@@ -254,7 +257,10 @@ unpublished candidate; it never edits the baseline. Omitting the flag creates a
 lookup-only snapshot, and comparison makes any loss of routing explicit. See
 [the maintained driving profile, contract and build commands](routing.md).
 
-Routing payloads have their own version and content checksum in `routing_graph`.
+Routing manifests have their own version and content checksum in `routing_graph`.
+New snapshots use `routing-chunks-v1` and checksummed `routing_chunks`; the
+manifest commits to query records and separately stored provenance. Comparison
+includes layout and preprocessing versions. Retained JSON graphs remain readable.
 Snapshot validation checks graph integrity and connectivity references as well as
 the existing lookup checks. A missing table is supported for retained snapshots;
 a present but corrupt/unsupported graph fails validation and loading. Health reports
@@ -314,3 +320,12 @@ must never use the active deployment state. Health reports
 `routing_duration_available` alongside routing availability. See the [historical
 time-routing verification](log/0018-newport-estimated-driving-time.md) for the
 source findings, route comparisons, candidate checksums and remaining uncertainty.
+
+
+The [Oregon scaling workflow](routing-scale.md) adds explicit routing-only
+snapshots with empty lookup tables, source pins and no invented address coverage.
+A routing-only snapshot without a valid graph is rejected by snapshot validation.
+The regional snapshot lifetime test exercises concurrent replacement, failure and
+rollback exclusively through temporary deployment state. The initiating reload
+request can take a full graph load; server writes allow two minutes for this
+regional operation. Building Oregon candidates never changes the active selection.

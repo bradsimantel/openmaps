@@ -68,36 +68,43 @@ func openSnapshot(path string) (*sql.DB, error) {
 
 // ReadSnapshot validates the SQLite structure, references, source anchors, and
 // searchable row coverage before returning a deterministic logical snapshot.
-func ReadSnapshot(ctx context.Context, path string) (s Snapshot, err error) {
+func ReadSnapshot(ctx context.Context, path string) (Snapshot, error) {
+	s, _, err := ReadSnapshotWithRouting(ctx, path)
+	return s, err
+}
+
+// ReadSnapshotWithRouting returns the graph already checked during snapshot
+// validation so live replacement need not allocate and build it a second time.
+func ReadSnapshotWithRouting(ctx context.Context, path string) (s Snapshot, router *routing.Store, err error) {
 	s = Snapshot{Identities: map[string]string{}, History: map[string]Identity{}, Entities: map[string]EntityState{}, Sources: map[string]SourceState{}, Relationships: []Relationship{}}
 	db, e := openSnapshot(path)
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	defer db.Close()
 	var check string
 	if e = db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&check); e != nil {
-		return s, e
+		return s, nil, e
 	}
 	if check != "ok" {
-		return s, fmt.Errorf("integrity: %s", check)
+		return s, nil, fmt.Errorf("integrity: %s", check)
 	}
 	rows, e := db.QueryContext(ctx, "PRAGMA foreign_key_check")
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	bad := rows.Next()
 	e = rows.Err()
 	rows.Close()
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	if bad {
-		return s, fmt.Errorf("foreign key check failed")
+		return s, nil, fmt.Errorf("foreign key check failed")
 	}
 	var version string
 	if e = db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); e != nil || version != "1" {
-		return s, fmt.Errorf("unsupported schema: %s: %v", version, e)
+		return s, nil, fmt.Errorf("unsupported schema: %s: %v", version, e)
 	}
 	for k, dst := range map[string]any{"manifest": &s.Manifest, "identities": &s.Identities, "identity_history": &s.History} {
 		var value string
@@ -106,10 +113,10 @@ func ReadSnapshot(ctx context.Context, path string) (s Snapshot, err error) {
 			continue
 		}
 		if e != nil {
-			return s, e
+			return s, nil, e
 		}
 		if e = json.Unmarshal([]byte(value), dst); e != nil {
-			return s, e
+			return s, nil, e
 		}
 	}
 	if s.Identities == nil {
@@ -120,39 +127,43 @@ func ReadSnapshot(ctx context.Context, path string) (s Snapshot, err error) {
 	}
 	rows, e = db.QueryContext(ctx, "SELECT id,kind,name,address,website,subtype,lat,lng,closed,attributions FROM entities ORDER BY id")
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	for rows.Next() {
 		var v EntityState
 		var attrs string
 		if e = rows.Scan(&v.ID, &v.Kind, &v.Name, &v.Address, &v.Website, &v.Subtype, &v.Location.Lat, &v.Location.Lng, &v.Closed, &attrs); e != nil {
 			rows.Close()
-			return s, e
+			return s, nil, e
 		}
 		if e = json.Unmarshal([]byte(attrs), &v.Attributions); e != nil {
 			rows.Close()
-			return s, e
+			return s, nil, e
 		}
 		s.Entities[v.ID] = v
 	}
 	e = rows.Err()
 	rows.Close()
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
-	if len(s.Entities) == 0 {
-		return s, fmt.Errorf("empty snapshot")
+	var scope Manifest
+	if e = json.Unmarshal(s.Manifest, &scope); e != nil {
+		return s, nil, e
+	}
+	if len(s.Entities) == 0 && !scope.RoutingOnly {
+		return s, nil, fmt.Errorf("empty snapshot")
 	}
 	rows, e = db.QueryContext(ctx, "SELECT source_key,entity_id,release,priority,attributes,paths,raw FROM source_records ORDER BY source_key")
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	for rows.Next() {
 		var key, attrs, paths, raw string
 		var v SourceState
 		if e = rows.Scan(&key, &v.ID, &v.Release, &v.Priority, &attrs, &paths, &raw); e != nil {
 			rows.Close()
-			return s, e
+			return s, nil, e
 		}
 		v.Attributes = json.RawMessage(attrs)
 		v.Paths = json.RawMessage(paths)
@@ -162,7 +173,7 @@ func ReadSnapshot(ctx context.Context, path string) (s Snapshot, err error) {
 	e = rows.Err()
 	rows.Close()
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	referenced := map[string]bool{}
 	for key, v := range s.Sources {
@@ -172,79 +183,82 @@ func ReadSnapshot(ctx context.Context, path string) (s Snapshot, err error) {
 		}
 		entity, ok := s.Entities[v.ID]
 		if !ok || PublicID(anchor) != v.ID {
-			return s, fmt.Errorf("invalid identity: %s", key)
+			return s, nil, fmt.Errorf("invalid identity: %s", key)
 		}
 		h := Identity{anchor, entity.Kind}
 		if old, ok := s.History[key]; ok && old != h {
-			return s, fmt.Errorf("inconsistent identity history: %s", key)
+			return s, nil, fmt.Errorf("inconsistent identity history: %s", key)
 		}
 		s.History[key] = h
 		referenced[v.ID] = true
 	}
 	if len(referenced) != len(s.Entities) {
-		return s, fmt.Errorf("entity without source")
+		return s, nil, fmt.Errorf("entity without source")
 	}
 	rows, e = db.QueryContext(ctx, "SELECT from_id,to_id,kind,evidence FROM relationships ORDER BY from_id,to_id,kind")
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	for rows.Next() {
 		var r Relationship
 		if e = rows.Scan(&r.From, &r.To, &r.Kind, &r.Evidence); e != nil {
 			rows.Close()
-			return s, e
+			return s, nil, e
 		}
 		s.Relationships = append(s.Relationships, r)
 	}
 	e = rows.Err()
 	rows.Close()
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	var invalid int
 	e = db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM entities e LEFT JOIN entity_fts f ON e.rowid=f.rowid WHERE f.rowid IS NULL OR f.name!=e.normalized_name) + (SELECT count(*) FROM entity_fts f LEFT JOIN entities e ON e.rowid=f.rowid WHERE e.id IS NULL)`).Scan(&invalid)
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	if invalid != 0 {
-		return s, fmt.Errorf("FTS coverage/name mismatch: %d", invalid)
+		return s, nil, fmt.Errorf("FTS coverage/name mismatch: %d", invalid)
 	}
 	rows, e = db.QueryContext(ctx, `SELECT e.id,e.normalized_name,f.name,f.address,f.aliases,coalesce(sr.attributes,'{}')
  FROM entities e JOIN entity_fts f ON e.rowid=f.rowid
  LEFT JOIN attribute_provenance p ON p.entity_id=e.id AND p.attribute='aliases'
  LEFT JOIN source_records sr ON sr.source_key=p.source_key`)
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
 	for rows.Next() {
 		var id, normalized, name, address, aliases, attrs string
 		if e = rows.Scan(&id, &normalized, &name, &address, &aliases, &attrs); e != nil {
 			rows.Close()
-			return s, e
+			return s, nil, e
 		}
 		var values struct {
 			Aliases []string `json:"aliases"`
 		}
 		if e = json.Unmarshal([]byte(attrs), &values); e != nil {
 			rows.Close()
-			return s, e
+			return s, nil, e
 		}
 		v := s.Entities[id]
 		if normalized != places.Normalize(v.Name) || name != normalized || address != places.Normalize(v.Address) || aliases != places.Normalize(strings.Join(values.Aliases, " ")) {
 			rows.Close()
-			return s, fmt.Errorf("FTS content mismatch: %s", id)
+			return s, nil, fmt.Errorf("FTS content mismatch: %s", id)
 		}
 	}
 	e = rows.Err()
 	rows.Close()
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
-	_, s.Routing, e = routing.Load(ctx, db)
+	router, s.Routing, e = routing.Load(ctx, db)
+	if e == nil && scope.RoutingOnly && (s.Routing == nil || len(s.Entities) != 0) {
+		e = fmt.Errorf("invalid routing-only snapshot")
+	}
 	if e != nil {
-		return s, e
+		return s, nil, e
 	}
-	return s, nil
+	return s, router, nil
 }
 
 // Reconcile permits only reviewed one-to-one provider replacements. Splits and

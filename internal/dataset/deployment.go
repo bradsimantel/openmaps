@@ -194,7 +194,9 @@ func Rollback(ctx context.Context, path string) error {
 }
 
 type Live struct {
-	mu        sync.Mutex
+	mu        sync.RWMutex
+	reloadMu  sync.Mutex
+	closed    bool
 	statePath string
 	current   File
 	store     *places.Store
@@ -205,8 +207,6 @@ type Live struct {
 
 func Open(ctx context.Context, statePath string) (*Live, error) {
 	l := &Live{statePath: statePath}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if e := l.reload(ctx); e != nil {
 		return nil, e
 	}
@@ -217,10 +217,23 @@ func (l *Live) reload(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	if s.Current == l.current {
+	l.mu.RLock()
+	same, closed := s.Current == l.current, l.closed
+	l.mu.RUnlock()
+	if closed {
+		return fmt.Errorf("deployment closed")
+	}
+	if same {
 		return nil
 	}
-	if e = Validate(ctx, s.Current); e != nil {
+	if !filepath.IsAbs(s.Current.Path) || len(s.Current.SHA256) != 64 {
+		return fmt.Errorf("invalid snapshot reference")
+	}
+	if e = importer.Verify(s.Current.Path, s.Current.SHA256); e != nil {
+		return e
+	}
+	_, router, e := importer.ReadSnapshotWithRouting(ctx, s.Current.Path)
+	if e != nil {
 		return e
 	}
 	next, e := places.Open(s.Current.Path)
@@ -232,11 +245,8 @@ func (l *Live) reload(ctx context.Context) error {
 		next.Close()
 		return e
 	}
-	router, e := routing.Open(ctx, s.Current.Path)
-	if e != nil {
-		next.Close()
-		return e
-	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	old := l.store
 	l.store = next
 	l.geocoder = geocoder
@@ -248,23 +258,45 @@ func (l *Live) reload(ctx context.Context) error {
 	return nil
 }
 func (l *Live) Close() error {
+	l.reloadMu.Lock()
+	defer l.reloadMu.Unlock()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed {
+		return nil
+	}
+	l.closed = true
 	if l.store != nil {
 		return l.store.Close()
 	}
 	return nil
 }
 
-// Hold the lock through a request so an in-flight lookup never loses its DB.
-// Local demo requests are serialized. Only a changed selection opens/checks a DB.
+// Requests hold a shared lease through response completion. A single request
+// loads a changed snapshot outside that lease; concurrent requests keep using
+// the previous snapshot. Publication waits for old leases before closing SQLite.
 func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if e := l.reload(r.Context()); e != nil {
-		l.lastError = e.Error()
-	} else {
-		l.lastError = ""
+	if l.reloadMu.TryLock() {
+		err := l.reload(r.Context())
+		message := ""
+		if err != nil {
+			message = err.Error()
+		}
+		l.mu.RLock()
+		changed := l.lastError != message
+		l.mu.RUnlock()
+		if changed {
+			l.mu.Lock()
+			l.lastError = message
+			l.mu.Unlock()
+		}
+		l.reloadMu.Unlock()
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if l.closed {
+		http.Error(w, "deployment closed", http.StatusServiceUnavailable)
+		return
 	}
 	if r.URL.Path == "/healthz" {
 		w.Header().Set("Content-Type", "application/json")

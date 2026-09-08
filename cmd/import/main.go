@@ -52,6 +52,13 @@ func run() error {
 	if err = dec.Decode(&b); err != nil {
 		return err
 	}
+	var scope importer.Manifest
+	if err = json.Unmarshal(b.Manifest, &scope); err != nil {
+		return err
+	}
+	if scope.RoutingOnly && *routingPBF == "" {
+		return fmt.Errorf("routing-only bundle requires -routing-pbf")
+	}
 	if _, err = os.Stat(*db); err == nil {
 		return fmt.Errorf("output exists; choose a new -db path")
 	} else if !os.IsNotExist(err) {

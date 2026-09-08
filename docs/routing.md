@@ -1,4 +1,4 @@
-# Newport driving routing
+# Driving routing
 
 Open Maps implements **Google Routes API, REST v2 Compute Routes** as a small
 address/coordinate subset at `POST /directions/v2:computeRoutes`. It returns one
@@ -6,8 +6,11 @@ address/coordinate subset at `POST /directions/v2:computeRoutes`. It returns one
 uncalibrated speed model below. Distance and duration exclude off-road gaps.
 This is not Google's ranking, traffic prediction, navigation guidance or SDK
 compatibility. Retained graph v1–v3 snapshots still optimize distance and have no
-duration estimates. The source is Geofabrik's retained Rhode Island OSM PBF,
-2026-08-01. Address routing uses existing lookup records; no supplemental address source is acquired.
+duration estimates. The Newport source is Geofabrik's retained Rhode Island OSM PBF,
+2026-08-01. Address routing uses existing lookup records; no supplemental address
+source is acquired. A separate Oregon coordinate-only evaluation uses pinned
+Oregon and neighboring detour coverage; see
+[storage, scaling and Oregon scope](routing-scale.md).
 
 Contract checked against current official Google documentation on 2026-09-08:
 [Compute Routes](https://developers.google.com/maps/documentation/routes/reference/rest/v2/TopLevel/computeRoutes),
@@ -479,15 +482,14 @@ speeds allow for ordinary interruptions without inventing individual control
 states. This can still underprice a particular turn, queue or signal; small
 modeled savings should not be treated as observed improvements.
 
-Dijkstra uses nonnegative deterministic costs and preserves last edge, prohibited
-path history and destination phase. V4 adjacency is ordered by stable segment
-reference, forward before reverse. Exact queue-cost ties use directed-edge order,
-then restriction-state index and destination phase; equal relaxations retain the
-first predecessor, and an equal-cost direct segment wins. Serialized restriction
-order is reproducible. No epsilon discards a small cost improvement. Endpoints are
-selected once, independently of route cost or trip success. The internal
-`RouteDistanceEndpoints` comparator uses identical endpoints, restrictions and
-time estimates while minimizing distance; it is not a public routing mode.
+The accelerated search uses nonnegative deterministic costs and preserves last
+edge, prohibited-path history and destination phase. Geometry-chain preprocessing
+and an admissible A* bound reduce work; the original Dijkstra remains an internal
+correctness reference. V4 adjacency is ordered by stable segment reference,
+forward before reverse. See [search semantics and tie handling](routing-scale.md#endpoint-indexing-and-search).
+No epsilon discards a small cost improvement. Endpoints are selected once,
+independently of route cost or trip success. `RouteDistanceEndpoints` remains an
+internal comparator under identical endpoint and elapsed-time assumptions.
 
 The response’s `openmaps.cost_model` identifies these semantics;
 `openmaps.time_estimate_note` states uncalibrated speeds, missing traffic and
@@ -498,31 +500,26 @@ missing/duplicate way costs and invalid speeds fail loading and validation.
 ## Storage, builds and snapshots
 
 `internal/importer/routing.go` owns PBF interpretation. It first reads highway ways
-and restrictions, then reads only needed nodes on a second pass; it does not keep
-all 5.8 million extract nodes in memory. Missing references fail the build. No new
-dependency, process, routing service or network acquisition was added.
+and restrictions, then reads only needed nodes on a second pass, discarding
+unneeded extract nodes. Missing references fail the build. The Go service and
+runtime dependencies remain unchanged. The separate Oregon evaluation acquires
+pinned regional extracts and uses Osmium for complete-way corridor extraction
+and merging; see [its source scope and build commands](routing-scale.md).
 
-A new snapshot may add a `routing_graph` SQLite table with one immutable,
-independently versioned JSON payload and its SHA-256. The payload contains source
-node IDs, node versions/coordinates, source-derived segment IDs (`way:ordinal`),
-directions, snapping eligibility, prohibited paths, full highway/restriction raw
-records, relevant tagged-node raw records, source decisions, release/URL/checksum,
-measured bounds, counts and attribution. This is a graph payload, not a lookup
-entity table: it does not assign new public Places IDs or merge roads and addresses. Segment
-references reproduce the pinned way and node ordinal; they are not permanent
-public entity IDs when a later source edit changes a way’s node sequence.
-The retained verified PBF supplies full original node metadata for rebuilds.
+New builds store a checksummed, versioned manifest in `routing_graph` and bounded
+binary record chunks in `routing_chunks`, separating query data from raw
+provenance. Runtime coordinates and adjacency use contiguous arrays; source
+references, full geometry, directional costs, prohibited-path history and
+endpoint evidence retain their meanings. Spatial indexes replace regional
+endpoint/guard scans. The graph adds about 34 MiB to the Newport SQLite candidate;
+query data still consumes substantially more RAM than its compressed storage.
 
-The loader checks the payload checksum, format/profile, valid nodes, unique segment
-IDs, node/source references and directed adjacency of restriction paths. It builds an
-immutable in-memory adjacency graph and a prefix/failure-link automaton for prohibited
-paths. Dijkstra searches states that retain the last directed edge, relevant
-restriction history and destination-access phase. Graph v4 minimizes estimated elapsed seconds; retained versions minimize
-accumulated spherical road length. Endpoint scans
-are bounded by the snapshot and snap distance; no spatial database extension is
-required at this scale. The graph adds roughly 205 MiB to the SQLite snapshot and
-uses substantial startup memory; planet-scale loading and production concurrency
-are outside this milestone.
+Retained JSON formats 1–4 remain readable and validated without changing their
+source data, profile, cost model or public IDs. New storage and preprocessing
+versions are separate from graph/profile versions. Corruption or an unknown
+version rejects the candidate. See [layout, algorithms, memory tradeoffs, Oregon
+builds and verification](routing-scale.md). Full national hierarchy and bounded
+national query-data loading remain unfinished.
 
 Build a separate candidate offline from the unchanged lookup bundle:
 
@@ -548,10 +545,10 @@ Outputs must be new filenames. Use another candidate name if these already exist
 `cmd/import` also accepts `-routing-pbf` for a fresh non-refresh build. The PBF must
 match the lookup manifest's filename and pinned SHA-256. Builds publish only after
 verification; no source lock or existing database is rewritten. Byte-identical
-graph payloads and stable graph identifiers are expected from identical inputs and
+graph manifests and chunks and stable graph identifiers are expected from identical inputs and
 profile; SQLite file bytes need not be identical.
 
-Format **4** pairs only with `driving-time-v4` and `estimated-driving-v1`, adding
+Graph semantics **4** pairs only with `driving-time-v4` and `estimated-driving-v1`, adding
 per-way directional cost records to the unchanged v3 graph/access geometry.
 Independent rebuilds must reproduce these records and their assumption notes.
 

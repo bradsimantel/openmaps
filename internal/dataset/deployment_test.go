@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"openmaps/internal/importer"
 	"openmaps/internal/routing"
@@ -344,5 +346,54 @@ func TestRoutingAvailabilityAndAtomicRollback(t *testing.T) {
 	db.Close()
 	if _, e = importer.ReadSnapshot(ctx, next); e == nil {
 		t.Fatal("accepted a segment without source provenance")
+	}
+}
+
+// Blocking a response must not serialize an independent request. Close waits
+// for the response lease, keeping every domain usable until it is released.
+type blockedWriter struct {
+	*httptest.ResponseRecorder
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *blockedWriter) Write(p []byte) (int, error) {
+	w.once.Do(func() { close(w.entered); <-w.release })
+	return w.ResponseRecorder.Write(p)
+}
+func TestConcurrentSnapshotLeases(t *testing.T) {
+	_, _, state, _ := fixture(t)
+	l, err := Open(context.Background(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := &blockedWriter{ResponseRecorder: httptest.NewRecorder(), entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan struct{})
+	go func() { l.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil)); close(done) }()
+	<-w.entered
+	second := make(chan int, 1)
+	go func() { code, _ := serve(l, "/healthz"); second <- code }()
+	select {
+	case code := <-second:
+		if code != 200 {
+			t.Fatal(code)
+		}
+	case <-time.After(2 * time.Second):
+		close(w.release)
+		t.Fatal("requests serialized")
+	}
+	closed := make(chan struct{})
+	go func() { l.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Fatal("closed in-flight snapshot")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(w.release)
+	<-done
+	<-closed
+	if code, _ := serve(l, "/healthz"); code != 503 {
+		t.Fatal("closed deployment remained available", code)
 	}
 }

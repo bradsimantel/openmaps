@@ -2,6 +2,7 @@ package importer
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -130,8 +131,40 @@ func TestRoutingPBFBuildReproducibilityAndMissingNodes(t *testing.T) {
 	if _, e = readRouting(context.Background(), pbf, source, m.BBox); e == nil {
 		t.Fatal("accepted missing nodes")
 	}
-	raw, _ := json.Marshal(a)
-	if routing.Digest(raw) != snap.Routing.SHA256 {
-		t.Fatal("graph fingerprint differs")
+	connection, err := sql.Open("sqlite", db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	restored, err := routing.ReadData(context.Background(), connection)
+	left, _ := json.Marshal(a)
+	right, _ := json.Marshal(restored)
+	if err != nil || string(left) != string(right) {
+		t.Fatal("graph logical records differ", err)
+	}
+}
+
+func TestRoutingOnlySnapshotDoesNotInventLookupRecords(t *testing.T) {
+	m, dir := regionFixture(t)
+	m.RoutingOnly = true
+	raw, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := Bundle{Schema: 1, Manifest: raw, Identities: map[string]string{}}
+	path := filepath.Join(dir, "routing-only.sqlite")
+	ctx := context.Background()
+	if err := Build(ctx, path, b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadSnapshot(ctx, path); err == nil {
+		t.Fatal("routing-only snapshot without graph accepted")
+	}
+	if err := AddRouting(ctx, path, filepath.Join(dir, "streets.osm.pbf"), raw); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := ReadSnapshot(ctx, path)
+	if err != nil || len(snap.Entities) != 0 || len(snap.Sources) != 0 || snap.Routing == nil {
+		t.Fatal("routing-only source/lookup scope", err)
 	}
 }

@@ -23,7 +23,11 @@ unverified snap gaps. The passenger-car profile interprets vehicle limits and
 supports strictly qualified destination-only access without through shortcuts. The graph uses the wider
 retained Rhode Island extract for detours. The active August baseline is unchanged
 and has no routing graph. See [the routing contract and candidate build](docs/routing.md).
-Nearby place search and general text search remain future milestones.
+A separate Oregon coordinate-routing candidate and source-backed benchmark now
+cover regional scaling and boundary detours. [Storage and scaling](docs/routing-scale.md)
+describes the compact layout, concurrent snapshot leases and unfinished national
+hierarchy work. Oregon has no address coverage. Nearby place search and general
+text search remain future milestones.
 
 ## Run the Newport demo
 
@@ -66,7 +70,8 @@ and serve a [separate candidate](docs/routing.md#storage-builds-and-snapshots).
 
 `data/` is ignored by Git.
 The OSM regional PBF is about 52 MB; canonical Overture subsets and SQLite add
-further local storage. The optional routing graph adds about 205 MiB to SQLite. The Protomaps cutout is about 3.8 MB. Internet is required
+further local storage. The optional chunked Newport routing graph adds about
+34 MiB to SQLite. The Protomaps cutout is about 3.8 MB. Internet is required
 for initial downloads, esm.sh browser libraries and Protomaps-hosted fonts/sprites.
 Lookup APIs
 and local basemap tile requests work without external services after import.
@@ -145,7 +150,7 @@ and source limitations](docs/geocoding.md) and the [historical contract decision
 
 Launch rectangle: longitude **−71.33 to −71.29**, latitude **41.47 to 41.51**.
 It covers downtown Newport and nearby streets, not the full municipality.
-This is also the supported routing endpoint rectangle; routing graph coverage
+This is also the Newport candidate's routing endpoint rectangle; graph coverage
 uses the whole retained Rhode Island extract to allow detours outside it.
 
 | Imported data | Pinned source | Records |
@@ -213,9 +218,10 @@ index. Activation replaces all available domains together. The owned Go import p
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
-Routing remains independent of text search and address resolution. Its Go Dijkstra
-engine searches directed edges with turn-restriction history; the provider adapter
-and optional SQLite graph payload use the existing import/snapshot workflow. See
+Routing remains independent of text search and address resolution. Its accelerated search skips forced geometry chains and uses A* while preserving
+directed-edge turn history and destination access. Dijkstra remains an internal
+correctness reference; bounded SQLite chunks and spatial indexes use the existing
+import/snapshot workflow. See
 [the maintained routing design](docs/routing.md).
 
 ## Verification
@@ -267,6 +273,12 @@ records the 31-trip coordinate and 22-case address comparisons, reproducible
 candidate builds, browser checks and measured startup-memory cost. No independent
 travel-time observations were available; passing route invariants is not
 validation of real-world estimate accuracy.
+
+The [historical routing scale and Oregon evaluation](docs/log/0019-routing-scale-and-oregon.md)
+records compact storage, indexed endpoint selection, search acceleration,
+source-backed regional cases, concurrent replacement and measured resource use.
+The [maintained scaling documentation](docs/routing-scale.md) explains the current
+implementation and the unfinished work before national coverage.
 
 ## Current limitations and next work
 

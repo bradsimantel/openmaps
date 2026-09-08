@@ -71,7 +71,7 @@ func main() {
 		http.ServeFile(w, r, *tiles)
 	})
 	mux.Handle("/", http.FileServer(http.Dir(*public)))
-	server := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second}
 	log.Printf("Open Maps: http://%s", *listen)
 	log.Fatal(server.ListenAndServe())
 }

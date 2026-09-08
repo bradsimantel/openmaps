@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http/httptest"
 	"os"
@@ -38,15 +39,11 @@ func TestNewportRouting(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer db.Close()
+	data, e := routing.ReadData(ctx, db)
+	if e != nil {
+		t.Fatal(e)
+	}
 	var raw []byte
-	if e = db.QueryRow("SELECT data FROM routing_graph WHERE id=1").Scan(&raw); e != nil {
-		t.Fatal(e)
-	}
-	var data routing.Data
-	if e = json.Unmarshal(raw, &data); e != nil {
-		t.Fatal(e)
-	}
-	raw = nil
 	s, e := routing.New(data)
 	if e != nil {
 		t.Fatal(e)
@@ -109,6 +106,10 @@ func TestNewportRouting(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			start := time.Now()
 			r, e := s.Route(ctx, tc.Origin, tc.Destination)
+			reference, refError := s.RouteReferenceEndpoints(ctx, routing.Endpoint{Point: tc.Origin}, routing.Endpoint{Point: tc.Destination})
+			if fmt.Sprint(e) != fmt.Sprint(refError) || math.Abs(r.Duration-reference.Duration) > 1e-6 || !reflect.DeepEqual(r.Origin, reference.Origin) || !reflect.DeepEqual(r.Destination, reference.Destination) {
+				t.Fatal("accelerated/reference mismatch", e, refError, r.Duration, reference.Duration)
+			}
 			if tc.EvidenceNote == "" {
 				t.Fatal("missing independent evidence")
 			}
