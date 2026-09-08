@@ -2,27 +2,30 @@
 
 Open Maps implements **Google Routes API, REST v2 Compute Routes** as a small
 address/coordinate subset at `POST /directions/v2:computeRoutes`. It returns one
-**shortest-distance** driving route on the supported static OSM graph. This is
-not Google's ranking, a fastest route, navigation guidance or SDK compatibility.
-No traffic, travel time, duration, speed, turn instructions or unavailable fields
-are inferred. The source is Geofabrik's retained Rhode Island OSM PBF,
+**estimated-time-optimal** driving route on graph v4, using the explicit,
+uncalibrated speed model below. Distance and duration exclude off-road gaps.
+This is not Google's ranking, traffic prediction, navigation guidance or SDK
+compatibility. Retained graph v1–v3 snapshots still optimize distance and have no
+duration estimates. The source is Geofabrik's retained Rhode Island OSM PBF,
 2026-08-01. Address routing uses existing lookup records; no supplemental address source is acquired.
 
 Contract checked against current official Google documentation on 2026-09-08:
 [Compute Routes](https://developers.google.com/maps/documentation/routes/reference/rest/v2/TopLevel/computeRoutes),
 [Waypoint](https://developers.google.com/maps/documentation/routes/reference/rest/v2/Waypoint),
 [address locations](https://developers.google.com/maps/documentation/routes/specify_location)
-and [response field masks](https://developers.google.com/maps/documentation/routes/choose_fields).
+and [response field masks](https://developers.google.com/maps/documentation/routes/choose_fields)
+and [traffic-unaware routing](https://developers.google.com/maps/documentation/routes/traffic-opt).
 Those references establish the endpoint, address/coordinate waypoint union, metre distance,
-GeoJSON option and field-mask mechanism. The narrower choices below are Open Maps
+GeoJSON option, duration strings in seconds, equality of `duration` and
+`staticDuration` for `TRAFFIC_UNAWARE`, and the field-mask mechanism. The narrower choices below are Open Maps
 implementation decisions, not claims about everything Google supports.
 
 ## API contract
 
 ```sh
-curl -sS http://127.0.0.1:8086/directions/v2:computeRoutes \
+curl -sS http://127.0.0.1:8087/directions/v2:computeRoutes \
   -H 'Content-Type: application/json' \
-  -H 'X-Goog-FieldMask: routes.distanceMeters,routes.polyline.geoJsonLinestring' \
+  -H 'X-Goog-FieldMask: routes.distanceMeters,routes.duration,routes.staticDuration,routes.polyline.geoJsonLinestring' \
   -d '{
     "origin":{"location":{"latLng":{"latitude":41.49138952,"longitude":-71.31373108}}},
     "destination":{"location":{"latLng":{"latitude":41.48654393,"longitude":-71.30830418}}},
@@ -48,9 +51,11 @@ are unsupported. JSON is limited to 16 KiB; nulls, duplicate keys, unknown field
 wrong types and trailing JSON are rejected.
 
 One response mask is required: `X-Goog-FieldMask`, `fields`, or `$fields`.
-Supported paths are `routes.distanceMeters`, `routes.polyline`, and
+Supported paths are `routes.distanceMeters`, `routes.duration`,
+`routes.staticDuration`, `routes.polyline`, and
 `routes.polyline.geoJsonLinestring`, individually or comma separated. Broad `*`
-and `routes` masks are rejected so they cannot imply fields such as duration.
+and `routes` masks are rejected so they cannot imply unavailable navigation or
+traffic fields.
 GeoJSON is selected as a complete object, not through individual coordinate paths.
 An optional query `key` or `X-Goog-Api-Key` header is accepted without
 authentication, consistent with the local demo. Other query parameters and
@@ -59,22 +64,26 @@ duplicate query parameters are rejected.
 Place IDs (Google or Open Maps), intermediate waypoints, heading,
 side-of-road, vehicle stopover, travel modes other than driving, routing modifiers,
 avoidances, alternatives, departure/arrival times, traffic models, language/units,
-route matrix, toll prices and duration fields are unsupported. The API resolves
+route matrix and toll prices are unsupported. The API resolves
 addresses and selects road endpoints automatically in the same
 request, or returns a structured failure. No candidate-selection or entrance-selection
 exchange is required. Google’s `geocodingResults` response field, region bias and
 plus codes remain unsupported; local source identity is in `openmaps`.
 
-A success has `routes: [{distanceMeters, polyline: {geoJsonLinestring}}]`, projected
+A v4 success has `routes: [{distanceMeters, duration, staticDuration, polyline: {geoJsonLinestring}}]`, projected
 by the mask. `distanceMeters` is the rounded integer road distance in metres;
-GeoJSON is a `LineString` whose coordinates are **[longitude, latitude]**. It
+`duration` and `staticDuration` are equal strings such as `"139s"`, rounded
+once to the nearest whole second after summing the selected road travel. They
+exclude live and historical traffic, departure-time predictions and off-road
+connectors. Fractional internal arithmetic does not establish second-level
+accuracy. GeoJSON is a `LineString` whose coordinates are **[longitude, latitude]**. It
 starts and ends on the snapped road, not necessarily at the requested points.
 The always-present local `openmaps` extension reports `outcome: "routed"`,
 `profile`, `snap_limit_meters`, both snaps (`requested`, `point`, `distance_meters`,
 `nearest_distance_meters`, reproducible source segment reference; optional
 `selection_reason` and `destination_access`), source release and OSM attribution/URI. Requested
 coordinates and source entity identities are not changed. Equal snapped endpoints
-return zero distance and a two-position LineString with equal positions.
+return zero distance, `"0s"` duration when requested/available, and a two-position LineString with equal positions.
 
 | Outcome | HTTP / envelope |
 | --- | --- |
@@ -86,6 +95,7 @@ return zero distance and a two-position LineString with equal positions.
 | Address has no acceptable road association | 400, `INVALID_ARGUMENT`, `openmaps.outcome=endpoint_association_failed` and `endpoint` |
 | Invalid/unsupported request, including units | 400, `INVALID_ARGUMENT`, `openmaps.outcome=unsupported_input` |
 | Address on retained graph v1/v2 | 503, `UNAVAILABLE`, `openmaps.outcome=address_routing_unavailable` |
+| Duration mask on retained graph v1/v2/v3 | 503, `UNAVAILABLE`, `openmaps.outcome=time_estimate_unavailable`; distance-only requests still work |
 | Snapshot has no graph | 503, `error.status=UNAVAILABLE` |
 | Internal calculation failure | 500, `error.status=INTERNAL` |
 | Wrong method | 405 with `Allow: POST` |
@@ -98,7 +108,7 @@ error implementations.
 ## Automatic address endpoints
 
 ```sh
-curl -sS http://127.0.0.1:8086/directions/v2:computeRoutes \
+curl -sS http://127.0.0.1:8087/directions/v2:computeRoutes \
   -H 'Content-Type: application/json' \
   -H 'X-Goog-FieldMask: routes.distanceMeters,routes.polyline' \
   -d '{"origin":{"address":"26 Marlborough Street"},"destination":{"address":"1 Resolute Road"},"polylineEncoding":"GEO_JSON_LINESTRING"}'
@@ -122,7 +132,7 @@ a business are not street/access evidence. Routing receives coordinates and sour
 way/area IDs; it performs containment, snapping and graph operations without text
 search. No public ID, source coordinate or lookup relationship is rewritten.
 
-Graph **3** evaluates each address endpoint once, before searching for a route:
+Graph **3 and 4** evaluate each address endpoint once, before searching for a route:
 
 1. **Mapped access association.** The source point must lie inside a complete
    retained building or parking ring (1 mm boundary-rounding tolerance). A parking
@@ -182,7 +192,8 @@ points rather than nearest-road projections. Global metadata gives coordinate
 `snap_limit_meters=100`, `address_snap_limit_meters=50`, and
 `access_point_limit_meters=100`.
 
-`routes.distanceMeters` includes **road travel only**. Gaps are straight-line
+`routes.distanceMeters`, `routes.duration` and `routes.staticDuration` include
+**road travel only**. Gaps are straight-line
 source-to-road displacement, not driving/walking distance or verified connections.
 No entrance, access right or confidence percentage is fabricated. Geographic
 association failures preserve any resolved address metadata without inventing a
@@ -252,7 +263,7 @@ origin supplies a fresh initial heading. Longer legal loops remain possible.
 
 ## Driving profile and connectivity
 
-`driving-distance-v3` retains the v2 ordinary passenger-car driving profile. It uses OSM node identity
+`driving-time-v4` retains the v3 ordinary passenger-car access and endpoint profile. It uses OSM node identity
 for junctions, never a geometry crossing or equality of coordinates. Bridges and
 tunnels stay separate unless they share an OSM node. Adjacent source vertices
 form segments, preserving full geometry and unnamed roads. Roundabouts, split
@@ -364,6 +375,126 @@ Current OSM semantics were consulted on 2026-09-08:
 The car dimensions, strict parsing, endpoint qualification and snap bounds are
 local policy choices; OSM does not establish those implementation thresholds.
 
+## Estimated-speed and elapsed-time model
+
+Graph **4**, profile **`driving-time-v4`**, cost model **`estimated-driving-v1`**
+persists one `WayCost` per included source way in the existing SQLite graph payload.
+Each direction has effective `kph`, optional numeric `limit_kph`, and assumption
+`notes`; original OSM tags, source version and checksum remain separate provenance.
+`limit_kph` is the interpreted ceiling (including the conservative minimum of
+conditional ceilings), not a claim that it applies at every time. Absence is
+unknown, never an invented legal default. All driving restrictions above still
+apply before costs are considered. Costs cannot open an excluded edge.
+
+These are **local, uncalibrated model assumptions**, not measured Newport averages
+or statutory speed limits. Missing speed information uses the following effective
+road-travel speeds in **km/h**:
+
+| Road class | Effective speed |
+| --- | ---: |
+| motorway / trunk | 80 / 65 |
+| primary / secondary / tertiary | 40 / 35 / 30 |
+| residential / unclassified | 25 |
+| motorway_link / trunk_link | 40 / 35 |
+| primary_link / secondary_link / tertiary_link | 30 / 25 / 25 |
+| service, including alley or no subtype | 10 |
+| service driveway / parking_aisle / drive-through / slipway | 7 |
+| other service subtype / living_street | 7 |
+
+Mapped `junction=roundabout` or `circular` roads cap movement at **20 km/h**,
+including high-class ways. This conservative circulatory-road assumption avoids
+pricing a trunk-class roundabout as an open mainline; it is not an extra
+intersection delay and adds nothing per geometry vertex. [RIDOT’s roundabout
+guidance](https://dot.ri.gov/safety/roundabout_safety.php) describes reduced
+circulating speeds; it does not calibrate this 20 km/h effective-speed assumption,
+which may understate progress on larger circular roads.
+
+Numeric limits cap the effective speed at **80% of the limit**, or the lower
+class/surface default. This separates expected progress from continuous travel at
+the posted maximum. The 80% factor allows headroom for ordinary interruptions; it
+is not a traffic observation or an assertion of local calibration. It is constant,
+not fitted to benchmark output. Road classification and service geometry justify
+slower local/access-road defaults, but do not establish actual journey speeds.
+
+Surfaces cap that estimate: paving stones, sett, brick, metal, compacted and fine
+gravel **20**; unpaved, gravel, ground, dirt and cobblestones/pebblestones **15**;
+grass, sand and dirt/sand **7 km/h**. Asphalt, paved and concrete (including
+lanes/plates) add no cap. Missing surface retains the class assumption with a note;
+unrecognized nonempty surface caps at **10** with an uncertainty note. These caps
+change cost, not the existing access profile.
+
+Provider parsing stays in `internal/importer`; the domain speed defaults, elapsed
+costs and path search stay in `internal/routing`:
+
+- Bare positive decimals mean **km/h**, including in US source data. `km/h`, `kph`,
+  `mph` (×1.609344) and `knots` (×1.852) are supported with a separating space.
+  No geographic unit inference, decimal comma, list, exponent or guessed repair.
+  Values above 300 km/h, zero, negatives and nonfinite values are unresolved.
+- Source-order `maxspeed:forward`/`:backward` overrides the nondirectional limit
+  at the same scope. Specificity is motorcar, motor_vehicle, vehicle, generic.
+  Reverse-only ways still use the backward estimate. Unrelated HGV, bus, PSV,
+  bicycle, foot, emergency, motorcycle and trailer tags do not constrain this car.
+- `none` means no numeric maximum; retain the class/surface assumption, with a
+  note. `walk` uses an explicitly assumed **4 km/h**, without inventing a numeric
+  legal walking speed. Other symbolic values (`signals`, country/type codes),
+  malformed values and unsupported applicable keys (such as lane limits) cap the
+  estimate at **5 km/h** and record uncertainty. This is a fallback estimate, not
+  proof of compliance with an unknown legal ceiling. Raw values are not discarded.
+  `maxspeed:type`, `:source`, `:signed`, `:reason` and `:practical` do not themselves
+  supply a numeric legal maximum.
+- Numeric `maxspeed:advisory` values cap expected speed directly and are not stored
+  as legal limits. Applicable advisory variants are intersected conservatively.
+- No conditions are evaluated. Split value/condition pairs at semicolons **outside
+  parentheses**, preserving opening-hours semicolons. Apply every numeric
+  potentially applicable conditional ceiling at all times, alongside the base
+  ceiling, including directional/car conditions. Higher conditional values never
+  increase speed. Unknown values or malformed expressions use the 5 km/h fallback
+  and a note. There is no calendar, flashing-sign state or departure-time input.
+- A retained point speed tag cannot establish a complete speed zone. For the sparse
+  speed-tagged nodes on retained road ways, conservatively cap the **incident way**
+  in both directions using the point’s estimates; record its node ID and unknown
+  direction/zone extent. Do not infer a way-wide legal limit from a sign point.
+  This bounded policy may overextend the lower estimate within that source way
+  and cannot reconstruct an untagged school-zone extent beyond it.
+
+Current primary OSM references checked 2026-09-08:
+[maxspeed and direction](https://wiki.openstreetmap.org/wiki/Key:maxspeed),
+[units](https://wiki.openstreetmap.org/wiki/Map_features/Units),
+[conditional restrictions](https://wiki.openstreetmap.org/wiki/Conditional_restrictions),
+[advisory speed](https://wiki.openstreetmap.org/wiki/Key:maxspeed:advisory),
+[surface](https://wiki.openstreetmap.org/wiki/Key:surface), and
+[service classifications](https://wiki.openstreetmap.org/wiki/Key:service).
+These explain source semantics; the numerical effective-speed defaults are Open
+Maps policy choices.
+
+Elapsed seconds are **sum(road metres × 3.6 / effective km/h)**, including only
+traversed portions of endpoint segments. There is **no separate preference score**,
+intersection delay or turn penalty. Inspection found mixed junction/approach-node
+signal and stop representations, incomplete directions, and no cycle timings.
+The [signal](https://wiki.openstreetmap.org/wiki/Tag:highway%3Dtraffic_signals) and
+[stop](https://wiki.openstreetmap.org/wiki/Tag:highway%3Dstop) tagging conventions
+allow multiple representations. Adding a delay per tagged node risks charging the
+same junction twice, and adding delay per geometry vertex is unjustified. Class
+speeds allow for ordinary interruptions without inventing individual control
+states. This can still underprice a particular turn, queue or signal; small
+modeled savings should not be treated as observed improvements.
+
+Dijkstra uses nonnegative deterministic costs and preserves last edge, prohibited
+path history and destination phase. V4 adjacency is ordered by stable segment
+reference, forward before reverse. Exact queue-cost ties use directed-edge order,
+then restriction-state index and destination phase; equal relaxations retain the
+first predecessor, and an equal-cost direct segment wins. Serialized restriction
+order is reproducible. No epsilon discards a small cost improvement. Endpoints are
+selected once, independently of route cost or trip success. The internal
+`RouteDistanceEndpoints` comparator uses identical endpoints, restrictions and
+time estimates while minimizing distance; it is not a public routing mode.
+
+The response’s `openmaps.cost_model` identifies these semantics;
+`openmaps.time_estimate_note` states uncalibrated speeds, missing traffic and
+excluded gaps. Health adds `routing_duration_available`. Retained v1–v3 graphs do
+not acquire inferred costs at load time. Unknown graph/profile/cost-model versions,
+missing/duplicate way costs and invalid speeds fail loading and validation.
+
 ## Storage, builds and snapshots
 
 `internal/importer/routing.go` owns PBF interpretation. It first reads highway ways
@@ -386,30 +517,31 @@ The loader checks the payload checksum, format/profile, valid nodes, unique segm
 IDs, node/source references and directed adjacency of restriction paths. It builds an
 immutable in-memory adjacency graph and a prefix/failure-link automaton for prohibited
 paths. Dijkstra searches states that retain the last directed edge, relevant
-restriction history and destination-access phase, minimizing accumulated spherical road length. Endpoint scans
+restriction history and destination-access phase. Graph v4 minimizes estimated elapsed seconds; retained versions minimize
+accumulated spherical road length. Endpoint scans
 are bounded by the snapshot and snap distance; no spatial database extension is
-required at this scale. The graph adds roughly 180 MiB to the SQLite snapshot and
+required at this scale. The graph adds roughly 205 MiB to the SQLite snapshot and
 uses substantial startup memory; planet-scale loading and production concurrency
 are outside this milestone.
 
 Build a separate candidate offline from the unchanged lookup bundle:
 
 ```sh
-mkdir -p data/address-routing
+mkdir -p data/time-routing
 
 go run ./cmd/refresh build \
   -baseline data/openmaps.sqlite \
   -bundle data/newport.json \
   -checksum imports/newport.bundle.sha256 \
   -routing-pbf data/rhode-island-260801.osm.pbf \
-  -candidate data/address-routing/candidate-v3.sqlite
+  -candidate data/time-routing/candidate-v4-final.sqlite
 
 go run ./cmd/refresh compare \
   -baseline data/openmaps.sqlite \
-  -candidate data/address-routing/candidate-v3.sqlite \
-  -report data/address-routing/comparison.json
+  -candidate data/time-routing/candidate-v4-final.sqlite \
+  -report data/time-routing/comparison.json
 
-go run ./cmd/server -db data/address-routing/candidate-v3.sqlite -listen 127.0.0.1:8086
+go run ./cmd/server -db data/time-routing/candidate-v4-final.sqlite -listen 127.0.0.1:8087
 ```
 
 Outputs must be new filenames. Use another candidate name if these already exist.
@@ -419,7 +551,11 @@ verification; no source lock or existing database is rewritten. Byte-identical
 graph payloads and stable graph identifiers are expected from identical inputs and
 profile; SQLite file bytes need not be identical.
 
-Graph format **3** pairs only with `driving-distance-v3` and adds endpoint evidence:
+Format **4** pairs only with `driving-time-v4` and `estimated-driving-v1`, adding
+per-way directional cost records to the unchanged v3 graph/access geometry.
+Independent rebuilds must reproduce these records and their assumption notes.
+
+Retained graph format **3** pairs only with `driving-distance-v3` and adds endpoint evidence:
 complete local building/parking rings, driveway geometry, parking-entrance nodes,
 road names and original source records. A third PBF pass retains local geometry
 inside the preview plus 0.002 degrees; incomplete rings/driveways are omitted.
@@ -454,17 +590,19 @@ coordinates for either endpoint, allowing mixed requests. Those explicit selecti
 retain coordinate semantics. The separate geocoding preview still lets users inspect
 its candidates. The default map action remains reverse address lookup.
 
-**Calculate driving route** shows a blue route, A/B endpoint markers, road distance
-and both snap gaps. Requested points are A/B; snapped road points are A′/B′ with separate
+**Calculate driving route** shows a blue route, A/B endpoint markers, road distance,
+estimated duration (rounded to minutes, with “less than 1 min” for short trips),
+and both snap gaps. The estimate is labeled as excluding live traffic. Requested points are A/B; snapped road points are A′/B′ with separate
 coordinates. Dashed orange connectors show the unverified off-road gaps and are
-excluded from road distance. A farther snap explains its selection and nearest
+excluded from road distance and duration. A farther snap explains its selection and nearest
 distance. Unreachable results show snaps and an explanation without a driving line.
 Endpoint changes and new map-selection actions immediately
 clear the old route and abort in-flight requests. Loading disables calculation;
 failures leave no stale geometry. **Clear route** resets endpoints, geometry and
 map action. Lookup markers and source precision retain their existing meaning.
-Retained snapshots show routing unavailable. Map-library failures still leave
-lookup and route-distance responses usable, but geometry cannot be displayed.
+Lookup-only snapshots show routing unavailable. Retained graph v1–v3 snapshots
+show distance routing with time estimates unavailable. Map-library failures still leave
+lookup, distance and available duration responses usable, but geometry cannot be displayed.
 
 Routine `go test ./...` fixtures are small and offline. They cover directed travel,
 partial-edge snapping, exact junction endpoints, snap limits, disconnected/crossing
@@ -474,16 +612,16 @@ The source-backed trip suite is explicit and does not acquire data:
 
 ```sh
 OPENMAPS_BASELINE="$PWD/data/openmaps.sqlite" \
-OPENMAPS_CANDIDATE="$PWD/data/address-routing/candidate-v3.sqlite" \
+OPENMAPS_CANDIDATE="$PWD/data/time-routing/candidate-v4-final.sqlite" \
   go test -tags=integration ./internal/routing -run TestNewportRouting -count=1 -v
 ```
 
-The [27-case benchmark](../internal/routing/testdata/newport.json) checks
+The [31-case benchmark](../internal/routing/testdata/newport.json) checks
 source-tag evidence, required roads, forbidden destination shortcuts, geometric
 distance bounds (not copied router outputs), off-rectangle detours, source-node adjacency,
 geometry/distance agreement, one-way direction, prohibited paths, the API and an
 isolated deployment cycle in a temporary directory. It also accepts a retained
-routing graph as baseline to verify v1 → v2 → v1 profile loading and rollback. It leaves the real deployment
+routing graph as baseline to verify v3 → v4 → v3 profile, duration availability and rollback. It leaves the real deployment
 state untouched. These checks establish source fidelity and deterministic behavior,
 not independently surveyed road legality or source completeness. See the
 [historical initial findings](log/0015-newport-driving-routing.md) and
@@ -500,17 +638,26 @@ are observations only. Generated before/after output belongs in ignored `data/`.
 The [22-case address-to-address benchmark](../internal/routing/testdata/newport-addresses.json)
 uses 37 unchanged retained source records. It verifies identity/provenance, address
 failure policy, geometry/direction/restriction invariants, road distance, source-to-road
-displacement and HTTP responses. Previous API address input was unsupported;
-`OPENMAPS_ADDRESS_BEFORE` records the previous graph’s geocoded-coordinate pipeline
-as an observation, not as proof it supported one-request addresses.
+displacement and HTTP responses. With a retained v3 `OPENMAPS_ADDRESS_BEFORE`,
+it compares the old address route and v4 route under the **same candidate time
+model**, checks unchanged endpoint resolution and independently sums duration.
+For older v1/v2 snapshots, the geocoded-coordinate observation remains historical;
+those APIs did not support one-request address routing.
 
 ```sh
 OPENMAPS_BASELINE="$PWD/data/openmaps.sqlite" \
-OPENMAPS_CANDIDATE="$PWD/data/address-routing/candidate-v3.sqlite" \
-OPENMAPS_ADDRESS_BEFORE="$PWD/data/routing-quality/candidate-v2.sqlite" \
+OPENMAPS_CANDIDATE="$PWD/data/time-routing/candidate-v4-final.sqlite" \
+OPENMAPS_ADDRESS_BEFORE="$PWD/data/address-routing/candidate-v3.sqlite" \
   go test -tags=integration ./internal/routing -run '^TestNewportAddressRouting$' -count=1 -v
 ```
 
 Run both existing routing and geocoding benchmarks too. The address integration test
 uses an isolated loopback HTTP server and reads snapshots without mutating them.
 See the [historical address-routing findings](log/0017-newport-address-routing.md).
+
+The time comparison also checks that the distance-minimizing route is no longer than the time-optimal route,
+and the time optimum is no slower under the same model, with identical
+endpoints. Two source-backed ordinary-road alternatives must avoid service
+through-travel within a 30% distance allowance. This is a declared practical-route
+criterion, not independent travel-time evidence. See the [historical estimated-time
+evaluation](log/0018-newport-estimated-driving-time.md).

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -105,6 +106,10 @@ func TestNewportAddressRouting(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	costs := map[int64]routing.WayCost{}
+	for _, c := range data.Costs {
+		costs[c.Way] = c
+	}
 	nodes := map[int64]routing.Point{}
 	segments := map[string]routing.Segment{}
 	// Interior geometry pairs have exact source nodes. Endpoint partial segments
@@ -158,7 +163,11 @@ func TestNewportAddressRouting(t *testing.T) {
 			}
 			body, _ := json.Marshal(map[string]any{"origin": map[string]string{"address": tc.Origin}, "destination": map[string]string{"address": tc.Destination}, "polylineEncoding": "GEO_JSON_LINESTRING"})
 			req, _ := http.NewRequest("POST", server.URL+"/directions/v2:computeRoutes", strings.NewReader(string(body)))
-			req.Header.Set("X-Goog-FieldMask", "routes.distanceMeters,routes.polyline")
+			mask := "routes.distanceMeters,routes.polyline"
+			if graph.HasDuration() {
+				mask += ",routes.duration,routes.staticDuration"
+			}
+			req.Header.Set("X-Goog-FieldMask", mask)
 			res, err := server.Client().Do(req)
 			if err != nil {
 				t.Fatal(err)
@@ -178,8 +187,9 @@ func TestNewportAddressRouting(t *testing.T) {
 			}
 			var response struct {
 				Routes []struct {
-					Distance int `json:"distanceMeters"`
-					Polyline struct {
+					Distance                 int `json:"distanceMeters"`
+					Duration, StaticDuration string
+					Polyline                 struct {
 						Line struct{ Coordinates []routing.Point } `json:"geoJsonLinestring"`
 					}
 				}
@@ -204,6 +214,66 @@ func TestNewportAddressRouting(t *testing.T) {
 			}
 			if res.StatusCode != 200 || len(response.Routes) != 1 {
 				t.Fatal(string(bytes))
+			}
+			if graph.HasDuration() && before != nil && before.Metadata().Version >= 3 {
+				oldReq := httptest.NewRequest("POST", "/directions/v2:computeRoutes", strings.NewReader(string(body)))
+				oldReq.Header.Set("X-Goog-FieldMask", "routes.distanceMeters,routes.polyline")
+				oldHTTP := httptest.NewRecorder()
+				api.Handler{Routing: before, Geocoding: geocoder}.ServeHTTP(oldHTTP, oldReq)
+				previous := response
+				previous.Routes = nil
+				if err := json.Unmarshal(oldHTTP.Body.Bytes(), &previous); err != nil || oldHTTP.Code != 200 || len(previous.Routes) != 1 {
+					t.Fatal("retained address route regression", oldHTTP.Body.String(), err)
+				}
+				if !reflect.DeepEqual(previous.Openmaps, m) {
+					t.Fatal("costs changed endpoint resolution")
+				}
+				// Price both source geometries under candidate directional speeds.
+				price := func(points []routing.Point, origin, destination endpoint) (float64, float64, []int64) {
+					metres, seconds := 0.0, 0.0
+					ways := []int64{}
+					for i := 1; i < len(points); i++ {
+						x, y := points[i-1], points[i]
+						refs := directed[pair{x, y}]
+						if len(refs) == 0 {
+							for _, id := range []string{origin.Segment, destination.Segment} {
+								seg := segments[id]
+								a, b := nodes[seg.From], nodes[seg.To]
+								length := routing.Distance(a, b)
+								if math.Abs(routing.Distance(a, x)+routing.Distance(x, b)-length) < .01 && math.Abs(routing.Distance(a, y)+routing.Distance(y, b)-length) < .01 {
+									refs = append(refs, routing.EdgeRef{Segment: id, Reverse: routing.Distance(a, x) > routing.Distance(a, y)})
+									break
+								}
+							}
+						}
+						if len(refs) == 0 {
+							t.Fatal("cannot price source geometry")
+						}
+						ref := refs[0]
+						seg := segments[ref.Segment]
+						v := costs[seg.Way].Forward.KPH
+						if ref.Reverse {
+							v = costs[seg.Way].Backward.KPH
+						}
+						length := routing.Distance(x, y)
+						metres += length
+						seconds += length * 3.6 / v
+						if len(ways) == 0 || ways[len(ways)-1] != seg.Way {
+							ways = append(ways, seg.Way)
+						}
+					}
+					return metres, seconds, ways
+				}
+				oldM, oldS, oldWays := price(previous.Routes[0].Polyline.Line.Coordinates, previous.Openmaps.Origin, previous.Openmaps.Destination)
+				newM, newS, newWays := price(response.Routes[0].Polyline.Line.Coordinates, m.Origin, m.Destination)
+				if newM+1e-6 < oldM || newS > oldS+1e-6 {
+					t.Fatal("objective regression", oldM, newM, oldS, newS)
+				}
+				if response.Routes[0].Duration != fmt.Sprintf("%.0fs", math.Round(newS)) || response.Routes[0].Duration != response.Routes[0].StaticDuration {
+					t.Fatal("duration contract", response.Routes[0])
+				}
+				record, _ := json.Marshal(map[string]any{"name": tc.Name, "distance_meters": oldM, "time_meters": newM, "distance_seconds": oldS, "time_seconds": newS, "distance_ways": oldWays, "time_ways": newWays, "changed": !reflect.DeepEqual(previous.Routes[0].Polyline, response.Routes[0].Polyline)})
+				t.Logf("ADDRESS_TIME_COMPARISON %s", record)
 			}
 			for i, e := range []endpoint{m.Origin, m.Destination} {
 				g := a

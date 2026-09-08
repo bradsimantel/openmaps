@@ -17,8 +17,8 @@ August data remains the baseline; the second pinned release is a historical July
 rehearsal, not a newer Overture release.
 
 **Driving routing is implemented in separate candidate snapshots:** supply addresses, existing
-lookup coordinates or arbitrary map points in one request, calculate a shortest-distance
-route, and see its geometry, road distance, requested/road endpoints and separate
+lookup coordinates or arbitrary map points in one request, calculate an estimated-time driving
+route, and see its geometry, road distance, estimated duration, requested/road endpoints and separate
 unverified snap gaps. The passenger-car profile interprets vehicle limits and
 supports strictly qualified destination-only access without through shortcuts. The graph uses the wider
 retained Rhode Island extract for detours. The active August baseline is unchanged
@@ -59,13 +59,14 @@ For driving, enter **Origin address** and **Destination address**, then
 **Calculate driving route**. The API resolves addresses and road arrivals automatically
 or returns a clear failure in the same request. Selected lookup coordinates and
 map points can also supply either endpoint.
-**Clear route** resets the route and endpoints. Ambiguous address routes fail without a selection step. There is no travel-time or traffic estimate.
+**Clear route** resets the route and endpoints. Ambiguous address routes fail without a selection step. Duration uses conservative, uncalibrated speed estimates and excludes live traffic
+and unverified off-road gaps. Retained older routing graphs provide distance only.
 Existing databases are never overwritten: to add routing to retained data, build
 and serve a [separate candidate](docs/routing.md#storage-builds-and-snapshots).
 
 `data/` is ignored by Git.
 The OSM regional PBF is about 52 MB; canonical Overture subsets and SQLite add
-further local storage. The optional routing graph adds about 180 MiB to SQLite. The Protomaps cutout is about 3.8 MB. Internet is required
+further local storage. The optional routing graph adds about 205 MiB to SQLite. The Protomaps cutout is about 3.8 MB. Internet is required
 for initial downloads, esm.sh browser libraries and Protomaps-hosted fonts/sprites.
 Lookup APIs
 and local basemap tile requests work without external services after import.
@@ -114,7 +115,7 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 | `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, and response field mask; up to five place predictions |
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
 | `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional English `language` and unauthenticated `key` |
-| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: address/coordinate origin/destination (including mixed), driving, GeoJSON geometry and road distance; requires routing data and response mask |
+| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: address/coordinate origin/destination (including mixed), driving, GeoJSON geometry, road distance and estimated duration; requires routing data and response mask |
 | `GET /healthz` | Process health and routing availability; in deployment mode, loaded database fingerprint and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
 
@@ -196,7 +197,7 @@ cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
 cmd/refresh/        Snapshot build, comparison, review, activation and rollback
 internal/places/    Domain entities, autocomplete, details and search normalization
 internal/geocoding/ Address label matching, bounded nearest address lookup and fixtures
-internal/routing/   Immutable driving graph, road snapping and shortest-distance routes
+internal/routing/   Immutable driving graph, road snapping and estimated-time routes
 internal/api/       Google request/response translation and errors
 internal/importer/  Source adapters, schema, identity history and refresh comparison
 internal/dataset/   Atomic deployment selection and live HTTP handler replacement
@@ -239,7 +240,8 @@ cover normalized address numbers/streets, context, duplicate
 identities, explicit unit errors, invalid coordinates, distance cutoffs and
 coverage, plus atomic snapshot selection and rollback. Routing adds one-way and
 via-way restrictions, barriers/access, disconnected and crossing roads, snapping,
-API contract/errors, source-backed detour checks and isolated rollback. No regional
+API contract/errors, speed units/directions/uncertainty, duration accumulation,
+longer-but-faster routes, source-backed detour checks and isolated rollback. No regional
 source downloads are part of `go test ./...`.
 
 Browser verification now works through the Codex desktop in-app browser plugin.
@@ -259,6 +261,12 @@ Check a real business, address, street and area through autocomplete, details an
 map placement. Also check keyboard selection, empty results, fast input changes,
 mobile layout and JavaScript errors. Blocking esm.sh should leave search and
 details available. See [historical first-milestone verification results](docs/log/0003-first-milestone-verification.md).
+
+The [historical estimated-time verification](docs/log/0018-newport-estimated-driving-time.md)
+records the 31-trip coordinate and 22-case address comparisons, reproducible
+candidate builds, browser checks and measured startup-memory cost. No independent
+travel-time observations were available; passing route invariants is not
+validation of real-world estimate accuracy.
 
 ## Current limitations and next work
 
@@ -280,9 +288,9 @@ details available. See [historical first-milestone verification results](docs/lo
   locks, replacement evidence and snapshot identity history across rebuilds.
 - The local map cutout is finite; zooming or panning far outside Newport can show
   missing tiles. Browser libraries, fonts and sprites use external hosts.
-- Driving routing is static shortest distance for the documented ordinary-car profile.
+- Driving routing minimizes an uncalibrated estimated duration for the documented ordinary-car profile.
   Restricted-access roads and incompatible/unknown limits can be excluded; conditions are not
-  evaluated. No traffic, duration or navigation instructions; limited source-backed access associations,
+  evaluated. No live/historical traffic or navigation instructions; limited source-backed access associations,
   with explicitly unverified property entrances and off-road gaps.
   Snap limits and disconnected coverage can produce no route. See
   [the exact profile and remaining limits](docs/routing.md).

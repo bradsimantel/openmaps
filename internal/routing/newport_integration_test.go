@@ -51,6 +51,10 @@ func TestNewportRouting(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	costs := map[int64]routing.WayCost{}
+	for _, c := range data.Costs {
+		costs[c.Way] = c
+	}
 	segments := map[string]routing.Segment{}
 	nodes := map[int64]routing.Point{}
 	sources := map[int64]struct {
@@ -83,6 +87,7 @@ func TestNewportRouting(t *testing.T) {
 		Max                 float64 `json:"max_meters"`
 		MaxSnap             float64 `json:"max_snap_meters"`
 		RequiredWays        []int64 `json:"required_ways"`
+		ForbidService       bool    `json:"forbid_service_when_timed"`
 		ForbidDestination   bool    `json:"forbid_destination"`
 		FartherOrigin       bool    `json:"farther_origin"`
 		EvidenceNote        string  `json:"evidence_note"`
@@ -143,6 +148,9 @@ func TestNewportRouting(t *testing.T) {
 				for _, id := range r.Segments {
 					seg := segments[id]
 					used[seg.Way] = true
+					if s.HasDuration() && tc.ForbidService && seg.Service {
+						t.Fatal("service shortcut despite practical ordinary-road witness", id)
+					}
 					if tc.ForbidDestination && (seg.DestinationForward || seg.DestinationBackward) {
 						t.Fatal("destination through shortcut", id)
 					}
@@ -153,7 +161,19 @@ func TestNewportRouting(t *testing.T) {
 					}
 				}
 			}
+			if s.HasDuration() {
+				old, err := s.RouteDistanceEndpoints(ctx, routing.Endpoint{Point: tc.Origin}, routing.Endpoint{Point: tc.Destination})
+				if err != nil || !reflect.DeepEqual(old.Origin, r.Origin) || !reflect.DeepEqual(old.Destination, r.Destination) || old.Distance > r.Distance+1e-6 || r.Duration > old.Duration+1e-6 {
+					t.Fatal("objective or endpoint invariant", old, r, err)
+				}
+				if tc.ForbidService && r.Distance > 1.3*old.Distance {
+					t.Fatal("excessive detour versus source-connected shortcut", old.Distance, r.Distance)
+				}
+				record, _ := json.Marshal(map[string]any{"name": tc.Name, "distance_meters": old.Distance, "time_meters": r.Distance, "distance_seconds": old.Duration, "time_seconds": r.Duration, "distance_path": old.Segments, "time_path": r.Segments, "changed": !reflect.DeepEqual(old.Segments, r.Segments)})
+				t.Logf("TIME_COMPARISON %s", record)
+			}
 			outside := false
+			var seconds float64
 			var sum float64
 			path := []routing.EdgeRef{}
 			names := []string{}
@@ -180,6 +200,13 @@ func TestNewportRouting(t *testing.T) {
 				}
 				path = append(path, routing.EdgeRef{Segment: id, Reverse: reverse})
 				sum += routing.Distance(a, b)
+				if s.HasDuration() {
+					speed := costs[seg.Way].Forward.KPH
+					if reverse {
+						speed = costs[seg.Way].Backward.KPH
+					}
+					seconds += routing.Distance(a, b) * 3.6 / speed
+				}
 				way := sources[seg.Way]
 				found := false
 				for j := 1; j < len(way.Nodes); j++ {
@@ -198,6 +225,9 @@ func TestNewportRouting(t *testing.T) {
 				if len(names) == 0 || names[len(names)-1] != name {
 					names = append(names, name)
 				}
+			}
+			if s.HasDuration() && math.Abs(seconds-r.Duration) > 1e-6 {
+				t.Fatal("duration differs from independent source-edge sum", seconds, r.Duration)
 			}
 			if math.Abs(sum-r.Distance) > .1 {
 				t.Fatal("distance/geometry differs", sum, r.Distance)
@@ -283,10 +313,11 @@ func TestNewportRoutingSnapshotCycle(t *testing.T) {
 		w := httptest.NewRecorder()
 		live.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil))
 		var h struct {
-			Routing bool `json:"routing_available"`
+			Routing  bool `json:"routing_available"`
+			Duration bool `json:"routing_duration_available"`
 		}
 		json.Unmarshal(w.Body.Bytes(), &h)
-		if w.Code != 200 || h.Routing != available {
+		if w.Code != 200 || h.Routing != available || h.Duration != (profile == routing.Profile) {
 			t.Fatal(w.Body.String())
 		}
 		if available {
@@ -298,11 +329,25 @@ func TestNewportRoutingSnapshotCycle(t *testing.T) {
 				t.Fatal("wrong loaded routing profile", rw.Body.String())
 			}
 		}
+		durationReq := httptest.NewRequest("POST", "/directions/v2:computeRoutes", strings.NewReader(`{"origin":{"location":{"latLng":{"latitude":41.49138952,"longitude":-71.31373108}}},"destination":{"location":{"latLng":{"latitude":41.48654393,"longitude":-71.30830418}}},"polylineEncoding":"GEO_JSON_LINESTRING"}`))
+		durationReq.Header.Set("X-Goog-FieldMask", "routes.duration,routes.staticDuration")
+		dw := httptest.NewRecorder()
+		live.ServeHTTP(dw, durationReq)
+		if profile == routing.Profile {
+			var response struct {
+				Routes []struct{ Duration, StaticDuration string }
+			}
+			if err := json.Unmarshal(dw.Body.Bytes(), &response); err != nil || dw.Code != 200 || len(response.Routes) != 1 || response.Routes[0].Duration == "" || response.Routes[0].Duration != response.Routes[0].StaticDuration {
+				t.Fatal("duration not loaded", dw.Body.String())
+			}
+		} else if dw.Code != 503 || !strings.Contains(dw.Body.String(), "time_estimate_unavailable") {
+			t.Fatal("duration leaked into rollback", dw.Body.String())
+		}
 		ar := httptest.NewRequest("POST", "/directions/v2:computeRoutes", strings.NewReader(`{"origin":{"address":"26 Marlborough Street"},"destination":{"address":"1 Resolute Road"},"polylineEncoding":"GEO_JSON_LINESTRING"}`))
 		ar.Header.Set("X-Goog-FieldMask", "routes.distanceMeters")
 		aw := httptest.NewRecorder()
 		live.ServeHTTP(aw, ar)
-		if profile == "driving-distance-v3" {
+		if profile == "driving-distance-v3" || profile == routing.Profile {
 			if aw.Code != 200 || !strings.Contains(aw.Body.String(), "destination_address_street") {
 				t.Fatal("address association not loaded", aw.Body.String())
 			}

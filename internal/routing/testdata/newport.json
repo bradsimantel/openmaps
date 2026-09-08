@@ -617,5 +617,158 @@
       }
     ],
     "evidence_note": "Constructed 5 m along service approach plus 1 m toward Edgar Court from shared source node 201065273. Unrestricted bidirectional junction permits bounded street preference independent of destination."
+  },
+  {
+    "name": "Eisenhower to Valley public-road alternative",
+    "origin": [
+      -71.3059962,
+      41.5098274
+    ],
+    "destination": [
+      -71.290008,
+      41.509979
+    ],
+    "outcome": "routed",
+    "outside_preview": true,
+    "max_meters": 5000,
+    "max_snap_meters": 0.1,
+    "forbid_destination": true,
+    "evidence": [
+      {
+        "way": 1206620085,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "way": 19349778,
+        "tags": {
+          "highway": "service"
+        }
+      },
+      {
+        "way": 617523920,
+        "tags": {
+          "highway": "secondary",
+          "maxspeed": "25 mph"
+        }
+      }
+    ],
+    "evidence_note": "Exact OSM endpoints 201217390/201217604. Service ways off Adelaide form a through connection to Valley; an ordinary-road witness via Hillside, Admiral Kalbfus, Miantonomi and Green End exists. Compare both under one model; low-speed service maneuvering should not win merely by saving metres. Preserve boundary detour and all source restrictions. Quality expectation: use the ordinary-road witness without service through-travel when adding at most 30% distance. This is a practical-routing criterion, not measured journey-time validation.",
+    "forbid_service_when_timed": true
+  },
+  {
+    "name": "JT Connell to Admiral Kalbfus around service shortcut",
+    "origin": [
+      -71.3174247,
+      41.5030388
+    ],
+    "destination": [
+      -71.3187432,
+      41.506818
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 5000,
+    "max_snap_meters": 0.1,
+    "forbid_destination": true,
+    "evidence": [
+      {
+        "way": 1285454388,
+        "tags": {
+          "highway": "service"
+        }
+      },
+      {
+        "way": 1285454389,
+        "tags": {
+          "highway": "service"
+        }
+      },
+      {
+        "way": 1159238007,
+        "tags": {
+          "highway": "primary"
+        }
+      },
+      {
+        "way": 28077306,
+        "tags": {
+          "highway": "tertiary"
+        }
+      }
+    ],
+    "evidence_note": "Exact OSM nodes 201153329/201206997 on public roads. Source service ways 1285454388/1285454389 connect across the corner; a continuous public-road witness uses the mapped JT Connell junction. Faster routing must retain the real junction and may trade modest distance for less service-road travel; never invent an elevated crossing. Quality expectation: use the ordinary-road witness without service through-travel when adding at most 30% distance. This is a practical-routing criterion, not measured journey-time validation.",
+    "forbid_service_when_timed": true
+  },
+  {
+    "name": "Narragansett to Bellevue without residential cut-through",
+    "origin": [
+      -71.3107983,
+      41.4751282
+    ],
+    "destination": [
+      -71.3090665,
+      41.486572
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 5000,
+    "max_snap_meters": 0.1,
+    "forbid_destination": true,
+    "evidence": [
+      {
+        "way": 661061478,
+        "tags": {
+          "highway": "secondary"
+        }
+      },
+      {
+        "way": 329995274,
+        "tags": {
+          "highway": "residential"
+        }
+      },
+      {
+        "way": 440717074,
+        "tags": {
+          "highway": "secondary",
+          "maxspeed": "25 mph"
+        }
+      }
+    ],
+    "evidence_note": "Exact OSM endpoints 201121049/201224580. Both Narragansett/Bellevue and Spring/Dixon/Bellevue are source-connected public-road witnesses. Compare the slightly longer secondary-road option against the residential Dixon shortcut; direction, geometry and same endpoints remain hard invariants, not a surveyed fastest-route assertion."
+  },
+  {
+    "name": "Goat Island bridge approach to downtown",
+    "origin": [
+      -71.3172023,
+      41.4907181
+    ],
+    "destination": [
+      -71.3090665,
+      41.486572
+    ],
+    "outcome": "routed",
+    "outside_preview": false,
+    "max_meters": 5000,
+    "max_snap_meters": 0.1,
+    "forbid_destination": true,
+    "evidence": [
+      {
+        "way": 19351906,
+        "tags": {
+          "highway": "primary"
+        }
+      },
+      {
+        "way": 661061479,
+        "tags": {
+          "highway": "secondary",
+          "oneway": "yes"
+        }
+      }
+    ],
+    "evidence_note": "Exact OSM endpoints on West Marlborough and Redwood. Downtown divided avenues and one-way Thames require actual directed junctions. No destination parking through shortcut; road-only distance and time exclude any endpoint gaps. No exact preferred path is asserted without traffic observations."
   }
 ]

@@ -274,11 +274,12 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		json.NewEncoder(w).Encode(struct {
-			RoutingAvailable bool   `json:"routing_available"`
-			Status           string `json:"status"`
-			Dataset          File   `json:"dataset"`
-			Error            string `json:"error,omitempty"`
-		}{l.router != nil, status, l.current, l.lastError})
+			RoutingAvailable  bool   `json:"routing_available"`
+			DurationAvailable bool   `json:"routing_duration_available"`
+			Status            string `json:"status"`
+			Dataset           File   `json:"dataset"`
+			Error             string `json:"error,omitempty"`
+		}{l.router != nil, l.router.HasDuration(), status, l.current, l.lastError})
 		return
 	}
 	w.Header().Set("X-OpenMaps-Dataset", l.current.SHA256)

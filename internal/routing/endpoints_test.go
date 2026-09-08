@@ -171,18 +171,18 @@ func TestAddressRetainedVersions(t *testing.T) {
 func TestAccessIntegrity(t *testing.T) {
 	d, _ := associationFixture()
 	d.Access.Ways[0].Geometry[0] = Point{.001, 0}
-	if _, err := New(d); err == nil {
+	if _, err := New(uniformCosts(d)); err == nil {
 		t.Fatal("conflicting source node coordinates accepted")
 	}
 	d, _ = associationFixture()
 	d.Access.Areas[0].Nodes = d.Access.Areas[0].Nodes[:3]
-	if _, err := New(d); err == nil {
+	if _, err := New(uniformCosts(d)); err == nil {
 		t.Fatal("malformed polygon accepted")
 	}
 	d, _ = associationFixture()
 	d.Metadata.Version = 2
 	d.Metadata.Profile = "driving-distance-v2"
-	if _, err := New(d); err == nil {
+	if _, err := New(uniformCosts(d)); err == nil {
 		t.Fatal("unversioned access semantics accepted")
 	}
 }

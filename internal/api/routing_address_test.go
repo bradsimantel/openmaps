@@ -21,7 +21,7 @@ func addressRouteRequest(h api.Handler, origin, destination string) *httptest.Re
 }
 func addressRoutingHandler(t *testing.T, edits ...func(*importer.Bundle)) api.Handler {
 	h := geocodingHandler(t, edits...)
-	s, err := routing.New(routing.Data{Metadata: routing.Metadata{Version: 3, Profile: routing.Profile, EndpointBounds: [4]float64{-71.33, 41.47, -71.29, 41.51}}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{-71.311, 41.4901}}, {ID: 2, Point: routing.Point{-71.309, 41.4901}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Backward: true, Snap: true}}, Access: routing.AccessData{Ways: []routing.AccessWay{{Way: 1, Name: "Marlborough Street", Nodes: []int64{1, 2}, Geometry: []routing.Point{{-71.311, 41.4901}, {-71.309, 41.4901}}}}}})
+	s, err := routing.New(routing.Data{Metadata: routing.Metadata{Version: 3, Profile: "driving-distance-v3", EndpointBounds: [4]float64{-71.33, 41.47, -71.29, 41.51}}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{-71.311, 41.4901}}, {ID: 2, Point: routing.Point{-71.309, 41.4901}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Backward: true, Snap: true}}, Access: routing.AccessData{Ways: []routing.AccessWay{{Way: 1, Name: "Marlborough Street", Nodes: []int64{1, 2}, Geometry: []routing.Point{{-71.311, 41.4901}, {-71.309, 41.4901}}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestAddressRouteUnreachableAndAssociationMetadata(t *testing.T) {
 	h := addressRoutingHandler(t)
 	// A distinct coordinate component makes this a real mixed-input no-route,
 	// after both endpoints have been selected independently.
-	d := routing.Data{Metadata: routing.Metadata{Version: 3, Profile: routing.Profile, EndpointBounds: [4]float64{-71.33, 41.47, -71.29, 41.51}}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{-71.311, 41.4901}}, {ID: 2, Point: routing.Point{-71.309, 41.4901}}, {ID: 3, Point: routing.Point{-71.305, 41.4901}}, {ID: 4, Point: routing.Point{-71.303, 41.4901}}}, Segments: []routing.Segment{{ID: "a", Way: 1, From: 1, To: 2, Forward: true, Backward: true, Snap: true}, {ID: "b", Way: 2, From: 3, To: 4, Forward: true, Backward: true, Snap: true}}}
+	d := routing.Data{Metadata: routing.Metadata{Version: 3, Profile: "driving-distance-v3", EndpointBounds: [4]float64{-71.33, 41.47, -71.29, 41.51}}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{-71.311, 41.4901}}, {ID: 2, Point: routing.Point{-71.309, 41.4901}}, {ID: 3, Point: routing.Point{-71.305, 41.4901}}, {ID: 4, Point: routing.Point{-71.303, 41.4901}}}, Segments: []routing.Segment{{ID: "a", Way: 1, From: 1, To: 2, Forward: true, Backward: true, Snap: true}, {ID: "b", Way: 2, From: 3, To: 4, Forward: true, Backward: true, Snap: true}}}
 	var err error
 	h.Routing, err = routing.New(d)
 	if err != nil {

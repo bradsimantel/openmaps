@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"openmaps/internal/routing"
 	"strings"
@@ -12,7 +13,7 @@ const routeBody = `{"origin":{"location":{"latLng":{"latitude":0,"longitude":0}}
 
 func routeHandler(t *testing.T) Handler {
 	t.Helper()
-	s, e := routing.New(routing.Data{Metadata: routing.Metadata{Version: routing.GraphVersion, Profile: routing.Profile, EndpointBounds: [4]float64{-1, -1, 1, 1}, Attribution: "https://www.openstreetmap.org/copyright", Release: "fixture"}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{0, 0}}, {ID: 2, Point: routing.Point{.004, 0}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Snap: true}}})
+	s, e := routing.New(routing.Data{Costs: []routing.WayCost{{Way: 1, Forward: routing.Speed{KPH: 36, Notes: []string{"fixture"}}, Backward: routing.Speed{KPH: 36, Notes: []string{"fixture"}}}}, Metadata: routing.Metadata{Version: routing.GraphVersion, CostModel: routing.CostModel, Profile: routing.Profile, EndpointBounds: [4]float64{-1, -1, 1, 1}, Attribution: "https://www.openstreetmap.org/copyright", Release: "fixture"}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{0, 0}}, {ID: 2, Point: routing.Point{.004, 0}}}, Segments: []routing.Segment{{ID: "1:0", Way: 1, From: 1, To: 2, Forward: true, Snap: true}}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -59,7 +60,7 @@ func TestRouteContract(t *testing.T) {
 			}
 		})
 	}
-	for _, mask := range []string{"", "*", "routes", "routes.duration", "routes.distanceMeters,routes.staticDuration", "routes.polyline.encodedPolyline"} {
+	for _, mask := range []string{"", "*", "routes", "routes,routes.duration", "routes.duration,*", "routes.legs.duration", "routes.polyline.encodedPolyline"} {
 		w := routeRequest(h, routeBody, mask, path, "POST")
 		if w.Code != 400 {
 			t.Fatal(mask, w.Code, w.Body.String())
@@ -89,5 +90,76 @@ func TestRouteFailures(t *testing.T) {
 		if w.Code != tc.code || !strings.Contains(w.Body.String(), tc.contains) {
 			t.Fatalf("want %d %s: %d %s", tc.code, tc.contains, w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestEstimatedDurationContract(t *testing.T) {
+	h := routeHandler(t)
+	path := "/directions/v2:computeRoutes"
+	for _, mask := range []string{"routes.duration", "routes.staticDuration", "routes.duration,routes.staticDuration,routes.distanceMeters"} {
+		w := routeRequest(h, routeBody, mask, path, "POST")
+		var body struct {
+			Routes   []map[string]any
+			Openmaps map[string]any
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 200 || len(body.Routes) != 1 || body.Openmaps["cost_model"] != routing.CostModel {
+			t.Fatal(w.Body.String())
+		}
+		for _, key := range []string{"duration", "staticDuration"} {
+			value, exists := body.Routes[0][key]
+			if exists != strings.Contains(mask, "routes."+key) || exists && value != "44s" {
+				t.Fatal(w.Body.String())
+			}
+		}
+	}
+	// Repeated tiny edges must be accumulated before rounding, and source-to-road
+	// gaps must never contribute. Zero-length routes return an explicit 0s.
+	zero := strings.Replace(routeBody, `"longitude":0.004`, `"longitude":0`, 1)
+	w := routeRequest(h, zero, "routes.duration,routes.staticDuration", path, "POST")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"duration":"0s"`) || !strings.Contains(w.Body.String(), `"staticDuration":"0s"`) {
+		t.Fatal(w.Body.String())
+	}
+	for _, field := range []string{`"routingPreference":"TRAFFIC_AWARE"`, `"routingPreference":"TRAFFIC_AWARE_OPTIMAL"`, `"departureTime":"2026-09-08T10:00:00Z"`, `"arrivalTime":"2026-09-08T10:00:00Z"`, `"trafficModel":"BEST_GUESS"`, `"routeModifiers":{"avoidHighways":true}`, `"computeAlternativeRoutes":true`, `"requestedReferenceRoutes":["SHORTER_DISTANCE"]`, `"extraComputations":["TRAFFIC_ON_POLYLINE"]`} {
+		body := strings.Replace(routeBody, `"origin":`, field+`,"origin":`, 1)
+		w := routeRequest(h, body, "routes.duration", path, "POST")
+		if w.Code != 400 || !strings.Contains(w.Body.String(), "INVALID_ARGUMENT") {
+			t.Fatal(w.Body.String())
+		}
+	}
+	d := routing.Data{Metadata: routing.Metadata{Version: 3, Profile: "driving-distance-v3", EndpointBounds: [4]float64{-1, -1, 1, 1}}, Nodes: []routing.Node{{ID: 1, Point: routing.Point{0, 0}}, {ID: 2, Point: routing.Point{.004, 0}}}, Segments: []routing.Segment{{ID: "a", Way: 1, From: 1, To: 2, Forward: true, Snap: true}}}
+	var err error
+	h.Routing, err = routing.New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = routeRequest(h, routeBody, "routes.duration", path, "POST")
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "time_estimate_unavailable") {
+		t.Fatal(w.Body.String())
+	}
+	w = routeRequest(h, routeBody, "routes.distanceMeters", path, "POST")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+}
+
+func TestDurationRoundsOnlyAfterAccumulation(t *testing.T) {
+	d := routing.Data{Metadata: routing.Metadata{Version: routing.GraphVersion, Profile: routing.Profile, CostModel: routing.CostModel, EndpointBounds: [4]float64{-1, -1, 1, 1}}, Costs: []routing.WayCost{{Way: 1, Forward: routing.Speed{KPH: 36, Notes: []string{"fixture"}}, Backward: routing.Speed{KPH: 36, Notes: []string{"fixture"}}}}}
+	for i := 0; i <= 10; i++ {
+		d.Nodes = append(d.Nodes, routing.Node{ID: int64(i + 1), Point: routing.Point{float64(i) * .00002, 0}})
+		if i > 0 {
+			d.Segments = append(d.Segments, routing.Segment{ID: fmt.Sprint(i), Way: 1, From: int64(i), To: int64(i + 1), Forward: true, Snap: true})
+		}
+	}
+	s, err := routing.New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.ReplaceAll(strings.ReplaceAll(routeBody, `"longitude":0.004`, `"longitude":0.0002`), `"latitude":0`, `"latitude":0.0001`)
+	w := routeRequest(Handler{Routing: s}, body, "routes.duration,routes.staticDuration,routes.distanceMeters", "/directions/v2:computeRoutes", "POST")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"duration":"2s"`) || !strings.Contains(w.Body.String(), `"distanceMeters":22`) {
+		t.Fatal(w.Body.String())
 	}
 }

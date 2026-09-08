@@ -1,4 +1,4 @@
-// Package routing owns a static driving graph, snapping and shortest-distance
+// Package routing owns a static driving graph, snapping and estimated-time
 // routes. Coordinates are WGS84 longitude,latitude; all distances are metres.
 package routing
 
@@ -13,8 +13,8 @@ import (
 	"sort"
 )
 
-const Profile = "driving-distance-v3"
-const GraphVersion = 3
+const Profile = "driving-time-v4"
+const GraphVersion = 4
 
 // Loaded ordinary passenger car, including mirrors; no trailer or roof load.
 const CarHeight, CarWidth, CarLength = 1.9, 2.0, 5.0 // metres
@@ -73,6 +73,7 @@ type Source struct {
 	Decision string          `json:"decision"`
 }
 type Metadata struct {
+	CostModel      string         `json:"cost_model,omitempty"`
 	Version        int            `json:"version"`
 	Profile        string         `json:"profile"`
 	EndpointBounds [4]float64     `json:"endpoint_bounds"`
@@ -92,6 +93,7 @@ type Guard struct {
 	To      Point  `json:"to"`
 }
 type Data struct {
+	Costs    []WayCost  `json:"costs,omitempty"`
 	Access   AccessData `json:"access,omitempty"`
 	Metadata Metadata   `json:"metadata"`
 	Guards   []Guard    `json:"guards,omitempty"`
@@ -112,6 +114,7 @@ type edge struct {
 	segment  int
 	reverse  bool
 	length   float64
+	seconds  float64
 }
 type trieNode struct {
 	next   map[int]int
@@ -134,10 +137,33 @@ type Store struct {
 }
 
 func New(d Data) (*Store, error) {
+	if d.Metadata.Version == GraphVersion {
+		d.Segments = append([]Segment(nil), d.Segments...)
+		sort.Slice(d.Segments, func(i, j int) bool { return d.Segments[i].ID < d.Segments[j].ID })
+	}
+	costs := map[int64]WayCost{}
+	if d.Metadata.Version == GraphVersion {
+		if d.Metadata.CostModel != CostModel {
+			return nil, fmt.Errorf("unsupported routing cost model %q", d.Metadata.CostModel)
+		}
+		for _, c := range d.Costs {
+			if _, ok := costs[c.Way]; ok || c.Way <= 0 {
+				return nil, fmt.Errorf("invalid or duplicate routing cost")
+			}
+			for _, v := range []Speed{c.Forward, c.Backward} {
+				if !(v.KPH > 0 && v.KPH <= 300) || math.IsNaN(v.LimitKPH) || math.IsInf(v.LimitKPH, 0) || v.LimitKPH < 0 || v.LimitKPH > 300 || v.LimitKPH > 0 && v.KPH > v.LimitKPH || len(v.Notes) == 0 {
+					return nil, fmt.Errorf("invalid routing speed for way %d", c.Way)
+				}
+			}
+			costs[c.Way] = c
+		}
+	} else if d.Metadata.CostModel != "" || len(d.Costs) != 0 {
+		return nil, fmt.Errorf("legacy graph contains unsupported costs")
+	}
 	s := &Store{meta: d.Metadata, nodes: map[int64]Point{}, segments: d.Segments, outgoing: map[int64][]int{}, directions: make([][2]int, len(d.Segments)), trie: []trieNode{{next: map[int]int{}}}}
 	b := d.Metadata.EndpointBounds
-	if !((d.Metadata.Version == 1 && d.Metadata.Profile == "driving-distance-v1") || (d.Metadata.Version == 2 && d.Metadata.Profile == "driving-distance-v2") || (d.Metadata.Version == GraphVersion && d.Metadata.Profile == Profile)) || !(Point{b[0], b[1]}).Valid() {
-		return nil, fmt.Errorf("unsupported routing metadata")
+	if !((d.Metadata.Version == 1 && d.Metadata.Profile == "driving-distance-v1") || (d.Metadata.Version == 2 && d.Metadata.Profile == "driving-distance-v2") || (d.Metadata.Version == 3 && d.Metadata.Profile == "driving-distance-v3") || (d.Metadata.Version == GraphVersion && d.Metadata.Profile == Profile)) || !(Point{b[0], b[1]}).Valid() {
+		return nil, fmt.Errorf("unsupported routing graph version/profile: %d/%q", d.Metadata.Version, d.Metadata.Profile)
 	}
 	if b[0] >= b[2] || b[1] >= b[3] || !(Point{b[2], b[3]}).Valid() || len(d.Nodes) == 0 || len(d.Segments) == 0 {
 		return nil, fmt.Errorf("invalid routing graph")
@@ -150,6 +176,7 @@ func New(d Data) (*Store, error) {
 	}
 	refs := map[EdgeRef]int{}
 	ids := map[string]bool{}
+	usedCosts := map[int64]bool{}
 	for i, v := range d.Segments {
 		a, ok := s.nodes[v.From]
 		z, yes := s.nodes[v.To]
@@ -157,6 +184,7 @@ func New(d Data) (*Store, error) {
 			return nil, fmt.Errorf("invalid routing segment %s", v.ID)
 		}
 		ids[v.ID] = true
+		usedCosts[v.Way] = true
 		l := Distance(a, z)
 		if l <= 0 {
 			return nil, fmt.Errorf("zero routing segment")
@@ -166,7 +194,21 @@ func New(d Data) (*Store, error) {
 			if !allow {
 				continue
 			}
-			e := edge{v.From, v.To, i, dir == 1, l}
+			e := edge{from: v.From, to: v.To, segment: i, reverse: dir == 1, length: l}
+			if d.Metadata.Version == GraphVersion {
+				c, ok := costs[v.Way]
+				if !ok {
+					return nil, fmt.Errorf("missing routing cost for way %d", v.Way)
+				}
+				speed := c.Forward.KPH
+				if dir == 1 {
+					speed = c.Backward.KPH
+				}
+				e.seconds = l * 3.6 / speed
+				if math.IsInf(e.seconds, 0) || e.seconds <= 0 {
+					return nil, fmt.Errorf("nonfinite routing duration for way %d", v.Way)
+				}
+			}
 			if dir == 1 {
 				e.from, e.to = e.to, e.from
 			}
@@ -175,6 +217,11 @@ func New(d Data) (*Store, error) {
 			s.outgoing[e.from] = append(s.outgoing[e.from], id)
 			s.directions[i][dir] = id
 			refs[EdgeRef{v.ID, dir == 1}] = id
+		}
+	}
+	for way := range costs {
+		if !usedCosts[way] {
+			return nil, fmt.Errorf("routing cost without included way %d", way)
 		}
 	}
 	for _, ban := range d.Bans {
@@ -286,6 +333,7 @@ func (s *Store) advance(t, e int) (int, bool) {
 	return t, !s.trie[t].banned
 }
 func (s *Store) Metadata() Metadata { return s.meta }
+func (s *Store) HasDuration() bool  { return s != nil && s.meta.CostModel == CostModel }
 
 type Error struct{ Outcome, Endpoint string }
 
@@ -475,6 +523,7 @@ func (s *Store) connectorCrossesRoad(a, b Snap) bool {
 type Result struct {
 	Geometry            []Point
 	Distance            float64
+	Duration            float64 // estimated road seconds; only available with CostModel
 	Origin, Destination Snap
 	Segments            []string
 }
@@ -505,8 +554,23 @@ func (s *Store) Route(ctx context.Context, origin, destination Point) (Result, e
 	return s.RouteEndpoints(ctx, Endpoint{Point: origin}, Endpoint{Point: destination})
 }
 func (s *Store) RouteEndpoints(ctx context.Context, origin, destination Endpoint) (Result, error) {
+	return s.routeEndpoints(ctx, origin, destination, false)
+}
+
+// RouteDistanceEndpoints is an internal benchmark comparator using the same
+// endpoints, restrictions and elapsed-time model, while minimizing road distance.
+func (s *Store) RouteDistanceEndpoints(ctx context.Context, origin, destination Endpoint) (Result, error) {
+	return s.routeEndpoints(ctx, origin, destination, true)
+}
+func (s *Store) routeEndpoints(ctx context.Context, origin, destination Endpoint, distanceOnly bool) (Result, error) {
 	if s == nil {
 		return Result{}, &Error{"unavailable", "routing"}
+	}
+	cost := func(id int, length float64) float64 {
+		if !distanceOnly && s.meta.CostModel == CostModel {
+			return length * s.edges[id].seconds / s.edges[id].length
+		}
+		return length
 	}
 	a, e := s.endpointSnap(ctx, origin, "origin")
 	if e != nil {
@@ -552,7 +616,11 @@ func (s *Store) RouteEndpoints(ctx context.Context, origin, destination Endpoint
 		forward := v.Forward && (!v.DestinationForward || aZone != 0 || bZone != 0)
 		backward := v.Backward && (!v.DestinationBackward || aZone != 0 || bZone != 0)
 		if a.fraction <= b.fraction && forward || a.fraction >= b.fraction && backward {
-			best = Distance(a.Point, b.Point)
+			dir := 0
+			if a.fraction > b.fraction || !forward {
+				dir = 1
+			}
+			best = cost(s.directions[a.index][dir], Distance(a.Point, b.Point))
 			direct = true
 		}
 	}
@@ -579,21 +647,18 @@ func (s *Store) RouteEndpoints(ctx context.Context, origin, destination Endpoint
 		for _, id := range s.outgoing[a.node] {
 			tr, ok := s.advance(0, id)
 			if phase, allowed := transition(root.phase, id); ok && allowed {
-				add(state{id, tr, phase}, s.edges[id].length, root)
+				add(state{id, tr, phase}, cost(id, s.edges[id].length), root)
 			}
 		}
 	} else {
-		for dir, id := range s.directions[a.index] {
+		for _, id := range s.directions[a.index] {
 			if id < 0 {
 				continue
 			}
-			fraction := 1 - a.fraction
-			if dir == 1 {
-				fraction = a.fraction
-			}
+			length := Distance(a.Point, s.nodes[s.edges[id].to])
 			tr, ok := s.advance(0, id)
 			if phase, allowed := transition(root.phase, id); ok && allowed {
-				add(state{id, tr, phase}, fraction*s.edges[id].length, root)
+				add(state{id, tr, phase}, cost(id, length), root)
 			}
 		}
 	}
@@ -611,7 +676,7 @@ func (s *Store) RouteEndpoints(ctx context.Context, origin, destination Endpoint
 			}
 			return
 		}
-		for dir, id := range s.directions[b.index] {
+		for _, id := range s.directions[b.index] {
 			if id < 0 || s.edges[id].from != node {
 				continue
 			}
@@ -623,11 +688,7 @@ func (s *Store) RouteEndpoints(ctx context.Context, origin, destination Endpoint
 			if !ok || !allowed {
 				continue
 			}
-			fraction := b.fraction
-			if dir == 1 {
-				fraction = 1 - b.fraction
-			}
-			v := d + fraction*s.edges[id].length
+			v := d + cost(id, Distance(s.nodes[node], b.Point))
 			if v < best {
 				best = v
 				direct = false
@@ -662,33 +723,48 @@ func (s *Store) RouteEndpoints(ctx context.Context, origin, destination Endpoint
 			}
 			tr, ok := s.advance(cur.state.trie, id)
 			if phase, allowed := transition(cur.state.phase, id); ok && allowed {
-				add(state{id, tr, phase}, cur.distance+out.length, cur.state)
+				add(state{id, tr, phase}, cur.distance+cost(id, out.length), cur.state)
 			}
 		}
 	}
 	if math.IsInf(best, 1) {
 		return result, &Error{"unreachable", "destination"}
 	}
-	result.Distance = best
 	result.Geometry = []Point{a.Point}
+	travel := []int{}
 	if !direct {
 		path := []int{}
 		for st := endState; st.edge >= 0; st = previous[st] {
 			path = append(path, st.edge)
 		}
 		for i := len(path) - 1; i >= 0; i-- {
+			travel = append(travel, path[i])
 			v := s.edges[path[i]]
 			result.Geometry = append(result.Geometry, s.nodes[v.to])
 			result.Segments = append(result.Segments, s.segments[v.segment].ID)
 		}
 		if endEdge >= 0 {
+			travel = append(travel, endEdge)
 			result.Segments = append(result.Segments, s.segments[s.edges[endEdge].segment].ID)
 		}
 	} else {
 		result.Segments = []string{a.Segment}
+		dir := 0
+		if a.fraction > b.fraction || !s.segments[a.index].Forward {
+			dir = 1
+		}
+		travel = append(travel, s.directions[a.index][dir])
 	}
 	if result.Geometry[len(result.Geometry)-1] != b.Point || len(result.Geometry) == 1 {
 		result.Geometry = append(result.Geometry, b.Point)
+	}
+	for i := 1; i < len(result.Geometry); i++ {
+		length := Distance(result.Geometry[i-1], result.Geometry[i])
+		result.Distance += length
+		if length > 0 && s.meta.CostModel == CostModel {
+			e := s.edges[travel[i-1]]
+			result.Duration += length * e.seconds / e.length
+		}
 	}
 	return result, ctx.Err()
 }

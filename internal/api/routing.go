@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strings"
 
 	"openmaps/internal/routing"
 )
@@ -103,11 +104,13 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	supported := []string{"routes.distanceMeters", "routes.polyline.geoJsonLinestring"}
-	// Broad masks could imply fabricated duration/traffic fields. Require explicit paths.
-	if mask == "*" || mask == "routes" {
-		routingInputFailure(w, fmt.Errorf("request routes.distanceMeters and/or routes.polyline; wildcard routes masks are unsupported"))
-		return
+	supported := []string{"routes.distanceMeters", "routes.duration", "routes.staticDuration", "routes.polyline.geoJsonLinestring"}
+	// Broad masks could imply unsupported navigation/traffic fields. Require explicit paths.
+	for _, part := range strings.Split(mask, ",") {
+		if part = strings.TrimSpace(part); part == "*" || part == "routes" {
+			routingInputFailure(w, fmt.Errorf("request explicit supported route fields; wildcard routes masks are unsupported"))
+			return
+		}
 	}
 	paths, err := parseMask(mask, supported)
 	if err != nil {
@@ -154,6 +157,14 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 		routingInputFailure(w, fmt.Errorf("destination: %w", err))
 		return
 	}
+	if !h.Routing.HasDuration() {
+		for _, p := range paths {
+			if p == "routes.duration" || p == "routes.staticDuration" {
+				write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Estimated duration requires a graph v4 candidate; retained graphs still support distance routing"}, "openmaps": object{"outcome": "time_estimate_unavailable"}})
+				return
+			}
+		}
+	}
 	a, originAddress, af, err := h.resolveRouteWaypoint(r.Context(), origin)
 	if err != nil {
 		failure(w, 500, "INTERNAL", "Address resolution failed")
@@ -198,8 +209,19 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 		failure(w, 500, "INTERNAL", "Routing calculation failed")
 		return
 	}
-	routes := object{"routes": []any{object{"distanceMeters": int(math.Round(result.Distance)), "polyline": object{"geoJsonLinestring": object{"type": "LineString", "coordinates": result.Geometry}}}}}
+	route := object{"distanceMeters": int(math.Round(result.Distance)), "polyline": object{"geoJsonLinestring": object{"type": "LineString", "coordinates": result.Geometry}}}
+	if h.Routing.HasDuration() {
+		// Round once after accumulation, never per edge. Whole seconds avoid
+		// presenting an uncalibrated estimate with spurious fractional precision.
+		duration := fmt.Sprintf("%.0fs", math.Round(result.Duration))
+		route["duration"], route["staticDuration"] = duration, duration
+	}
+	routes := object{"routes": []any{route}}
 	response := project(routes, paths).(object)
 	response["openmaps"] = object{"outcome": "routed", "profile": h.Routing.Metadata().Profile, "snap_limit_meters": routing.SnapLimit, "address_snap_limit_meters": routing.AddressSnapLimit, "access_point_limit_meters": routing.AccessPointLimit, "origin": originMeta, "destination": destinationMeta, "attribution": "© OpenStreetMap contributors", "attribution_uri": h.Routing.Metadata().Attribution, "source_release": h.Routing.Metadata().Release}
+	if h.Routing.HasDuration() {
+		response["openmaps"].(object)["cost_model"] = h.Routing.Metadata().CostModel
+		response["openmaps"].(object)["time_estimate_note"] = "Uncalibrated estimated driving time; excludes live/historical traffic and unverified off-road gaps. Conservative speed assumptions and conditional ceilings apply."
+	}
 	write(w, 200, response)
 }

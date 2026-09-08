@@ -246,7 +246,7 @@ func scanPBF(ctx context.Context, path string, skipNodes, skipWays, skipRelation
 }
 
 func readRouting(ctx context.Context, path string, source Input, bounds [4]float64) (routing.Data, error) {
-	d := routing.Data{Metadata: routing.Metadata{Version: routing.GraphVersion, Profile: routing.Profile, EndpointBounds: bounds, Release: source.Release, URL: source.URL, SourceSHA256: source.SHA256, Attribution: source.Attribution, Counts: map[string]int{}}, Nodes: []routing.Node{}, Segments: []routing.Segment{}, Bans: []routing.Ban{}, Sources: []routing.Source{}}
+	d := routing.Data{Metadata: routing.Metadata{Version: routing.GraphVersion, CostModel: routing.CostModel, Profile: routing.Profile, EndpointBounds: bounds, Release: source.Release, URL: source.URL, SourceSHA256: source.SHA256, Attribution: source.Attribution, Counts: map[string]int{}}, Nodes: []routing.Node{}, Segments: []routing.Segment{}, Bans: []routing.Ban{}, Sources: []routing.Source{}}
 	roads := map[int64]road{}
 	motorWays := map[int64]*osm.Way{}
 	relations := []*osm.Relation{}
@@ -286,6 +286,7 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 		return d, err
 	}
 	nodes := map[int64]routing.Node{}
+	speedNodes := map[int64]map[string]string{}
 	err = scanPBF(ctx, path, false, true, true, func(o osm.Object) error {
 		n, ok := o.(*osm.Node)
 		if !ok || !need[int64(n.ID)] {
@@ -296,6 +297,13 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 		if len(n.Tags) > 0 {
 			t := osmTags(n.Tags)
 			decision := "node tags retained"
+			for k := range t {
+				if k == "maxspeed" || strings.HasPrefix(k, "maxspeed:") {
+					speedNodes[id] = t
+					decision = "point speed retained; conservative incident-way estimate, zone extent unknown"
+					break
+				}
+			}
 			if barrierBlocked(t) {
 				blocked[id] = true
 				decision = "blocked node"
@@ -377,6 +385,28 @@ func readRouting(ctx context.Context, path string, source Input, bounds [4]float
 			}
 		}
 		if included {
+			t := osmTags(r.way.Tags)
+			c := routing.WayCost{Way: id, Forward: drivingSpeed(t, "forward"), Backward: drivingSpeed(t, "backward")}
+			for _, n := range r.way.Nodes {
+				if nt, ok := speedNodes[int64(n.ID)]; ok {
+					copyTags := map[string]string{"highway": t["highway"], "service": t["service"], "surface": t["surface"], "junction": t["junction"]}
+					for k, v := range nt {
+						if k == "maxspeed" || strings.HasPrefix(k, "maxspeed:") {
+							copyTags[k] = v
+						}
+					}
+					// A point's direction/zone extent is unresolved. Cap the
+					// whole incident way in both directions, without asserting
+					// that the point establishes a legal way-wide ceiling.
+					f, b := drivingSpeed(copyTags, "forward"), drivingSpeed(copyTags, "backward")
+					cap := math.Min(f.KPH, b.KPH)
+					for _, v := range []*routing.Speed{&c.Forward, &c.Backward} {
+						v.KPH = math.Min(v.KPH, cap)
+						v.Notes = append(v.Notes, fmt.Sprintf("point speed node %d: conservative incident-way cap; zone/direction unknown", n.ID))
+					}
+				}
+			}
+			d.Costs = append(d.Costs, c)
 			d.Metadata.Counts["included_ways"]++
 			if r.way.Tags.Find("name") == "" {
 				d.Metadata.Counts["included_unnamed_ways"]++

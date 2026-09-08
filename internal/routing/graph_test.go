@@ -10,9 +10,22 @@ import (
 func fixture() Data {
 	return Data{Metadata: Metadata{Version: GraphVersion, Profile: Profile, EndpointBounds: [4]float64{-1, -1, 1, 1}}, Nodes: []Node{{ID: 1, Point: Point{0, 0}}, {ID: 2, Point: Point{.004, 0}}, {ID: 3, Point: Point{.008, 0}}, {ID: 4, Point: Point{.004, .004}}, {ID: 5, Point: Point{.008, .004}}}, Segments: []Segment{{ID: "a", Way: 1, From: 1, To: 2, Forward: true, Backward: true, Snap: true}, {ID: "b", Way: 2, From: 2, To: 3, Forward: true, Backward: true, Snap: true}, {ID: "c", Way: 3, From: 2, To: 4, Forward: true, Backward: true, Snap: true}, {ID: "d", Way: 4, From: 4, To: 5, Forward: true, Backward: true, Snap: true}, {ID: "e", Way: 5, From: 5, To: 3, Forward: true, Backward: true, Snap: true}}}
 }
+func uniformCosts(d Data) Data {
+	if d.Metadata.Version == GraphVersion && d.Metadata.CostModel == "" {
+		d.Metadata.CostModel = CostModel
+		seen := map[int64]bool{}
+		for _, seg := range d.Segments {
+			if !seen[seg.Way] {
+				d.Costs = append(d.Costs, WayCost{Way: seg.Way, Forward: Speed{KPH: 36, Notes: []string{"fixture"}}, Backward: Speed{KPH: 36, Notes: []string{"fixture"}}})
+				seen[seg.Way] = true
+			}
+		}
+	}
+	return d
+}
 func store(t *testing.T, d Data) *Store {
 	t.Helper()
-	s, e := New(d)
+	s, e := New(uniformCosts(d))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -105,12 +118,12 @@ func TestJunctionEndpointsZeroDistanceAndCancellation(t *testing.T) {
 func TestCorruptGraphReferences(t *testing.T) {
 	d := fixture()
 	d.Segments[0].From = 999
-	if _, e := New(d); e == nil {
+	if _, e := New(uniformCosts(d)); e == nil {
 		t.Fatal("accepted dangling node")
 	}
 	d = fixture()
 	d.Bans = []Ban{{Path: []EdgeRef{{Segment: "a"}, {Segment: "e"}}}}
-	if _, e := New(d); e == nil {
+	if _, e := New(uniformCosts(d)); e == nil {
 		t.Fatal("accepted disconnected restriction")
 	}
 }
@@ -195,17 +208,17 @@ func TestGraphVersionCompatibility(t *testing.T) {
 	d := fixture()
 	d.Metadata.Version = 1
 	d.Metadata.Profile = "driving-distance-v1"
-	if _, e := New(d); e != nil {
+	if _, e := New(uniformCosts(d)); e != nil {
 		t.Fatal("legacy unreadable", e)
 	}
 	for _, v := range []int{0, 3, 999} {
 		d.Metadata.Version = v
-		if _, e := New(d); e == nil {
+		if _, e := New(uniformCosts(d)); e == nil {
 			t.Fatal("unsupported version loaded", v)
 		}
 	}
 	d.Metadata.Version = 2
-	if _, e := New(d); e == nil {
+	if _, e := New(uniformCosts(d)); e == nil {
 		t.Fatal("profile/version mismatch loaded")
 	}
 }

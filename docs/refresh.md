@@ -269,30 +269,48 @@ The routing integration suite rehearses a real snapshot cycle using a temporary
 state file, leaving `data/deployment.json` untouched. Building/testing a routing
 candidate does not authorize activating the user's deployment.
 
-Graph format 2 (`driving-distance-v2`) adds the ordinary-car limits, destination
+Retained graph format 2 (`driving-distance-v2`) contains the ordinary-car limits, destination
 zones and guarded snapping documented in [routing](routing.md). Format 1 remains
 loadable with its retained profile; comparison shows each version and graph hash.
-For route-quality changes, run the 27-trip candidate suite, an old-graph observation
-run, and the snapshot cycle both from a lookup-only baseline and from the retained
-routing baseline. The latter verifies actual v1 → v2 → v1 profile responses.
+For current route-quality changes, use the v4 comparison suites below and a
+snapshot cycle from both lookup-only and retained routing baselines. Historical
+v1 → v2 → v1 profile responses were checked at the earlier milestone.
 All such cycles use `t.TempDir()` deployment state. See the
 [historical quality milestone](log/0016-newport-driving-quality.md) for the candidate,
 rebuild/comparison checksums, source findings and evaluated differences.
 
 
-Graph format **3** (`driving-distance-v3`) adds automatic address endpoint evidence
-from the same pinned PBF. Build into a new candidate using the unchanged lookup
-bundle and the existing `-routing-pbf` option. Existing Places IDs, source records
+Retained graph format **3** (`driving-distance-v3`) contains automatic address
+endpoint evidence from the same pinned PBF. New v4 builds inherit that evidence
+using the unchanged lookup bundle and existing `-routing-pbf` option. Existing Places IDs, source records
 and coordinates remain unchanged. The independently checksummed SQLite payload
 contains local access geometry and source references, while API code resolves
 address labels at request time. Formats 1 and 2 remain readable for coordinate
-routing; address requests explicitly require format 3. No migration modifies a
+routing; address requests explicitly require format 3 or later. No migration modifies a
 retained snapshot. See [routing](routing.md#automatic-address-endpoints).
 
-Run the address benchmark, existing coordinate/geocoding benchmarks, comparison,
-and an independent rebuild before review. Rehearse lookup-only → v3 → lookup-only
-and v2 → v3 → v2 using the existing integration snapshot cycle’s `t.TempDir()`
-state. Address availability, loaded profile and geocoding identities must return
+Run the address benchmark, coordinate/geocoding benchmarks, comparison and an
+independent rebuild before review. The historical lookup-only → v3 → lookup-only
+and v2 → v3 → v2 cycles used the integration snapshot cycle’s `t.TempDir()` state. Address availability, loaded profile and geocoding identities must return
 to the prior state. Never exercise switching against the active deployment merely
 to test a candidate. The [historical address milestone](log/0017-newport-address-routing.md)
 records actual before/after evaluations and reproducibility checks.
+
+
+Graph format **4** (`driving-time-v4`, cost model `estimated-driving-v1`) adds
+explicit directional effective speeds, interpreted numeric ceilings and assumption
+notes in the existing SQLite payload. Graph v1–v3 remains readable with its original
+distance objective and no duration estimates; v3 retains address orchestration.
+Unknown cost-model versions and missing/invalid costs fail loading. Comparison
+reports the cost-model version as well as the graph/profile and payload checksum.
+
+For time-model changes, run the **31-trip coordinate** and **22-case address**
+suites, including the distance-versus-time comparison under one model. Build a
+separate candidate and independent rebuild from the pinned PBF; verify identical
+logical rows and graph payloads, stable IDs, source provenance and unchanged
+restrictions. Run loading/performance checks and isolated lookup-only → v4 →
+lookup-only and v3 → v4 → v3 cycles. The integration cycle uses `t.TempDir()` and
+must never use the active deployment state. Health reports
+`routing_duration_available` alongside routing availability. See the [historical
+time-routing verification](log/0018-newport-estimated-driving-time.md) for the
+source findings, route comparisons, candidate checksums and remaining uncertainty.

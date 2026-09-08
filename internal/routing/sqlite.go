@@ -51,6 +51,11 @@ func Load(ctx context.Context, db *sql.DB) (*Store, *Summary, error) {
 		}
 		ids[source.ID] = true
 	}
+	for _, c := range d.Costs {
+		if !sources["way"][c.Way] {
+			return nil, nil, fmt.Errorf("routing cost without source way")
+		}
+	}
 	for _, segment := range d.Segments {
 		if !sources["way"][segment.Way] {
 			return nil, nil, fmt.Errorf("routing segment without source way")

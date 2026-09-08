@@ -58,7 +58,7 @@ func main() {
 		mux.Handle("/maps/api/", handler)
 		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"status": "ok", "routing_available": router != nil})
+			json.NewEncoder(w).Encode(map[string]any{"status": "ok", "routing_available": router != nil, "routing_duration_available": router.HasDuration()})
 		})
 	}
 	mux.HandleFunc("/tiles/newport.pmtiles", func(w http.ResponseWriter, r *http.Request) {

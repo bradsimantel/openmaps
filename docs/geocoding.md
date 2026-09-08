@@ -204,3 +204,8 @@ activation and rollback; each live suite requires a consistent dataset header:
 OPENMAPS_URL=http://127.0.0.1:8080 \
   go test -tags=integration ./internal/api -run 'TestLive(Geocoding|Demo)$' -count=1 -v
 ```
+
+Routing graph v4 adds estimated driving duration after the existing automatic
+address-to-road resolution. Geocoding identities, ambiguity and source coordinates
+are unchanged; unverified off-road gaps contribute neither driving distance nor
+duration. See [routing’s time model](routing.md#estimated-speed-and-elapsed-time-model).
