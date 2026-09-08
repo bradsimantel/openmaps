@@ -88,8 +88,15 @@ shape. `364 Bellevue Avenue` has number `364`, route `BELLEVUE Avenue`, state
 `RI`, country `US` and postcode `02840` on all eight points. State and country
 also carry the `political` type. English long names expand `RI` (in the US) to
 `Rhode Island` and `US` to `United States`; other values retain source spelling
-in both name fields. Locality and unit are absent in this dataset and stay absent,
-including when the request supplies Newport context. No county is inferred.
+in both name fields. The US locality slot and unit are empty in the retained
+Overture data and stay absent from responses, including when the request supplies
+Newport context. No county is inferred.
+
+562 retained records also have `postal_city=Newport East CDP`. This raw field
+is not projected into components: it agrees with the inspected NAD census-place
+field, whose separate postal-city field is unknown. A CDP label does not establish
+a verified postal city or municipal locality. See the [historical source
+comparison](log/0013-address-source-comparison.md).
 The request parameter `components` remains unsupported.
 
 The concrete adapter in `internal/importer/addressdata` supports retained Overture
@@ -153,7 +160,7 @@ Both retained snapshots have 8,545 standalone addresses, of which 8,407 satisfy
 the implemented grammar. The other 138 retain Places behavior but are excluded
 from both geocoding directions. These are mostly fractional, ranged or leading
 letter/gate labels. This exclusion is an implementation limit. Missing unit and
-locality fields, duplicate labels and uncertified positional accuracy are source
+locality slots, duplicate labels and uncertified positional accuracy are source
 limitations. No completeness or real-world accuracy percentage is claimed.
 
 ## Deterministic quality benchmark

@@ -154,8 +154,12 @@ identity anchors, independent of row IDs, import order or mutable attributes.
 
 Additional sources can supply new records or enrich existing entities through
 [explicit identity mappings](imports/identities.json), without API changes or
-renumbering existing entities. Highest source priority wins each nonempty
-attribute; ties use source key order. All contributing values remain stored.
+renumbering existing entities. Overture address IDs currently lack a stable
+upstream matcher and are not in its GERS registry; changed source values can
+require reviewed replacement mappings. See the [historical address-source
+comparison](docs/log/0013-address-source-comparison.md). Highest source priority
+wins each nonempty attribute; ties use source key order. All contributing values
+remain stored.
 There is no fuzzy identity merging or speculative provider plugin framework.
 See the [historical initial matching and conflict rules](docs/log/0002-newport-data-and-import-design.md#matching-identity-and-conflict-resolution).
 
@@ -238,8 +242,10 @@ details available. See [historical first-milestone verification results](docs/lo
   type filters, translation, typo tolerance, plus-code support or Google ranking.
 - Search uses normalized token prefixes with exact-name/name-prefix priority,
   then area/street/business/address precedence, FTS ranking and stable ID ties.
-- Source labels can be incomplete or duplicated. NAD locality and units are
-  missing here; address ranges are retained verbatim in Places. Geocoding supports
+- Source labels can be incomplete or duplicated. The retained Overture locality
+  slot and units are empty; 562 raw records have a CDP-like `postal_city` value
+  that is not returned as a locality or verified postal city. Address ranges are
+  retained verbatim in Places. Geocoding supports
   8,407 of 8,545 source labels; 138 nonstandard forms remain excluded from both
   geocoding directions. Coverage and source positional accuracy are not certified.
 - Streets are source ways, with a representative vertex. Area locations are
