@@ -69,7 +69,7 @@ func TestRoutingPerformance(t *testing.T) {
 			selected++
 		}
 	}
-	t.Logf("PREPROCESS version=%s seconds=%.3f nodes=%d edges=%d selected_junctions=%d mapped_bytes=%d", JunctionPreprocessingVersion, s.preprocessingSeconds, len(s.points), len(s.edges), selected, s.MappedBytes())
+	t.Logf("PREPROCESS version=%s seconds=%.3f nodes=%d edges=%d selected_junctions=%d mapped_bytes=%d", JunctionPreprocessingVersion, s.preprocessingSeconds, len(s.points), s.edgeCount(), selected, s.MappedBytes())
 	t.Logf("CELLS count=%d entries=%d transfers=%d paths=%d", len(s.cellBounds), len(s.cellEntries), len(s.cellTransfers), len(s.cellPaths))
 	var before, retained runtime.MemStats
 	runtime.ReadMemStats(&before)

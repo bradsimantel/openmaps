@@ -15,8 +15,8 @@ func (s *Store) validatePrepared(ctx context.Context) error {
 	if unsafe.Sizeof(spatialNode{}) != 48 || unsafe.Offsetof(spatialNode{}.left) != 32 || unsafe.Offsetof(spatialNode{}.right) != 36 || unsafe.Offsetof(spatialNode{}.start) != 40 || unsafe.Offsetof(spatialNode{}.end) != 44 {
 		return bad("spatial ABI")
 	}
-	n, m, k := len(s.points), len(s.edges), s.segmentCount()
-	if n == 0 || n > math.MaxInt32 || m == 0 || m > math.MaxInt32 || k == 0 || len(s.offsets) != n+1 || len(s.adjacency) != m || len(s.directions) != k || len(s.continuation) != m || len(s.zones) != k || len(s.components) != n || len(s.junctions) != n {
+	n, m, k := len(s.points), s.edgeCount(), s.segmentCount()
+	if n == 0 || n > math.MaxInt32 || m == 0 || m > math.MaxInt32 || k == 0 || k > math.MaxInt32 || len(s.offsets) != n+1 || len(s.adjacency) != m || len(s.directions) != k || len(s.continuation) != m || len(s.zones) != k || len(s.components) != n || len(s.junctions) != n {
 		return bad("array dimensions")
 	}
 	if e := validatePreparedMetadata(s.meta); e != nil {
@@ -83,7 +83,7 @@ func (s *Store) validatePrepared(ctx context.Context) error {
 			if id < -1 || id >= m {
 				return bad("direction reference")
 			}
-			if id >= 0 && (s.edges[id].segment != i || s.edges[id].reverse != (dir == 1)) {
+			if id >= 0 && (s.queryEdge(id).segment != i || s.queryEdge(id).reverse != (dir == 1)) {
 				return bad("direction identity")
 			}
 		}
@@ -96,6 +96,16 @@ func (s *Store) validatePrepared(ctx context.Context) error {
 		}
 		if v[0] == 0 || v[0] > math.MaxInt64 || !stringRange(v[5], v[6]) || !(Point{math.Float64frombits(v[1]), math.Float64frombits(v[2])}).Valid() || !(Point{math.Float64frombits(v[3]), math.Float64frombits(v[4])}).Valid() {
 			return bad("guard")
+		}
+	}
+	for i, e := range s.prepared.denseEdges {
+		if i%4096 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		if uint64(e.from) >= uint64(n) || uint64(e.to) >= uint64(n) {
+			return bad("dense endpoint")
 		}
 	}
 	if s.offsets[0] != 0 || int(s.offsets[n]) != m {
@@ -114,14 +124,19 @@ func (s *Store) validatePrepared(ctx context.Context) error {
 			if id < 0 || id >= m {
 				return bad("adjacency reference")
 			}
-			ordinal, ok := s.findNode(s.edges[id].from)
+			node := s.queryEdge(id).from
+			ordinal, ok := int32(node), true
+			if !s.dense() {
+				ordinal, ok = s.findNode(node)
+			}
 			if !ok || int(ordinal) != i {
 				return bad("adjacency source")
 			}
 		}
 	}
 	validEdge := func(id int32) bool { return id >= 0 && int(id) < m }
-	for i, v := range s.edges {
+	for i := 0; i < m; i++ {
+		v := s.queryEdge(i)
 		if i%4096 == 0 {
 			if e := ctx.Err(); e != nil {
 				return e
@@ -131,7 +146,7 @@ func (s *Store) validatePrepared(ctx context.Context) error {
 			return bad("edge")
 		}
 		seg := s.prepared.segments[v.segment]
-		a, b := int64(seg[1]), int64(seg[2])
+		a, b := s.searchNode(int64(seg[1])), s.searchNode(int64(seg[2]))
 		dir := 0
 		if v.reverse {
 			a, b = b, a
@@ -141,7 +156,7 @@ func (s *Store) validatePrepared(ctx context.Context) error {
 			return bad("edge endpoints")
 		}
 		next := s.continuation[i]
-		if next < -1 || int(next) >= m || next >= 0 && s.edges[next].from != v.to {
+		if next < -1 || int(next) >= m || next >= 0 && s.queryEdge(int(next)).from != v.to {
 			return bad("continuation")
 		}
 	}

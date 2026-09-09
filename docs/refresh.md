@@ -362,3 +362,11 @@ checks structure before publishing any changed handler. Selection remains atomic
 and a failed check preserves the current state and serving responses. See
 [prepared verification and residency measurement](routing-prepared.md) and the
 [historical residency investigation](log/0023-routing-residency-and-rollback.md).
+
+Prepared v2 and retained v1 publications may coexist for different snapshot
+digests in one trusted directory. New preparation writes v2 artifacts into a new
+directory when the snapshot already has a receipt. Replacement and streaming
+rollback accept both versions, preserving source identities and mapping ownership.
+The version changes the internal edge encoding only; review still binds the exact
+SQLite snapshot. See [the current format](routing-prepared.md) and the
+[historical dense-edge verification](log/0024-dense-routing-edges.md).

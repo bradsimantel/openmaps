@@ -47,7 +47,7 @@ text is released before building query data; numeric directional costs remain.
 `routing.ReadData` is an explicit offline inspection interface that retains full
 source records. It is not the runtime loading path.
 
-Runtime coordinates and adjacency use contiguous arrays with a source-ID-to-dense
+Legacy construction uses contiguous coordinate and adjacency arrays with a source-ID-to-dense
 index map and compressed sparse row offsets. Segment/source identities remain
 unchanged. Directed edges keep distance and elapsed cost; segment geometry,
 one-way/access classifications, destination zones and the restriction automaton
@@ -56,6 +56,14 @@ an extra copy, and constructs adjacency without per-node temporary slices.
 Provenance, cost notes, validation maps, decoding buffers and the original node
 record array are transient. Source strings and some maps still consume meaningful
 memory; this is not a fully memory-mappable national layout.
+
+Prepared v2 uses 32-byte directed edges with dense endpoint ordinals; v1's
+48-byte source-endpoint edges remain readable. Search and reconstruction index
+coordinates and CSR directly, while source segments, snapping, address/access
+relationships and public identities keep their source references. No hierarchy or
+cost model changes accompany this encoding. See the
+[maintained prepared layout](routing-prepared.md) and
+[historical representation experiment](log/0024-dense-routing-edges.md).
 
 Routing `way:ordinal` segment references reproduce for an identical pinned source
 build. They are source geometry references, not permanent public entity IDs

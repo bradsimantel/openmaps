@@ -272,7 +272,7 @@ func (s *Store) buildCells(ctx context.Context) error {
 }
 
 func (s *Store) cellEscapes(edge int, a, b Point) ([]cellTransfer, bool) {
-	i := s.edges[edge].cellEntry
+	i := s.queryEdge(edge).cellEntry
 	if i < 0 {
 		return nil, false
 	}

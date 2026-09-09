@@ -567,7 +567,7 @@ func (s *Store) safeStreetCandidate(a, b Snap) bool {
 			return !s.connectorCrossesRoad(a, b)
 		}
 		for _, id := range s.out(v.node) {
-			e := s.edges[id]
+			e := s.sourceEdge(id)
 			seg := s.segment(e.segment)
 			if seg.Way == x.Way && seg.Forward && seg.Backward && !seg.Elevated && s.zones[e.segment] == 0 {
 				queue = append(queue, visit{e.to, v.distance + e.length})
@@ -729,7 +729,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	}
 	cost := func(id int, length float64) float64 {
 		if !distanceOnly && s.meta.CostModel == CostModel {
-			return length * s.edges[id].seconds / s.edges[id].length
+			return length * s.queryEdge(id).seconds / s.queryEdge(id).length
 		}
 		return length
 	}
@@ -747,7 +747,18 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		snapped = true
 	}
 	result := Result{Origin: a, Destination: b}
-	targetFrom, targetTo := s.point(s.segmentFields(b.index).From), s.point(s.segmentFields(b.index).To)
+	// Source identities remain in snaps and segments. Only the search's local
+	// endpoint keys use the prepared edge representation.
+	targetFromNode := s.searchNode(s.segmentFields(b.index).From)
+	targetToNode := s.searchNode(s.segmentFields(b.index).To)
+	originNode, destinationNode := int64(-1), int64(-1)
+	if a.node != 0 {
+		originNode = s.searchNode(a.node)
+	}
+	if b.node != 0 {
+		destinationNode = s.searchNode(b.node)
+	}
+	targetFrom, targetTo := s.searchPoint(targetFromNode), s.searchPoint(targetToNode)
 	if accelerated && s.components[s.nodeOrdinal(s.segmentFields(a.index).From)] != s.components[s.nodeOrdinal(s.segmentFields(b.index).From)] {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -767,7 +778,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	// A restricted zone may only be an origin prefix or destination suffix.
 	// Once a destination zone is entered from public travel, no public exit is legal.
 	transition := func(phase, id int) (int, bool) {
-		edge := s.edges[id]
+		edge := s.queryEdge(id)
 		v := s.segmentFields(edge.segment)
 		restricted := v.DestinationForward
 		if edge.reverse {
@@ -831,8 +842,8 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	walk := func(st state, d float64) (state, float64) {
 		if accelerated {
 			for steps := 0; s.continuation[st.edge] >= 0; steps++ {
-				in := s.edges[st.edge]
-				if in.to == s.segmentFields(b.index).From || in.to == s.segmentFields(b.index).To {
+				in := s.queryEdge(st.edge)
+				if in.to == targetFromNode || in.to == targetToNode {
 					break
 				}
 				if steps%1024 == 0 && ctx.Err() != nil {
@@ -847,7 +858,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 				if metrics != nil {
 					metrics.ChainEdges++
 				}
-				d += cost(id, s.edges[id].length)
+				d += cost(id, s.queryEdge(id).length)
 				st = state{id, tr, phase}
 			}
 		}
@@ -855,14 +866,14 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		return st, d
 	}
 	enqueue := func(st state, d float64, prev state, first, via int) {
-		if accelerated && s.edges[st.edge].cellEntry == terminalCellEntry && s.edges[st.edge].to != s.segmentFields(b.index).From && s.edges[st.edge].to != s.segmentFields(b.index).To {
+		if accelerated && s.queryEdge(st.edge).cellEntry == terminalCellEntry && s.queryEdge(st.edge).to != targetFromNode && s.queryEdge(st.edge).to != targetToNode {
 			return
 		}
 		if old, ok := labels[st]; !ok || d < old.distance {
 			labels[st] = label{d, trace{prev, first, via}}
 			priority := d
 			if accelerated {
-				lower := Distance(s.point(s.edges[st.edge].to), b.Point)
+				lower := Distance(s.searchPoint(s.queryEdge(st.edge).to), b.Point)
 				if !distanceOnly && s.HasDuration() {
 					lower /= s.maxMetersPerSecond
 				}
@@ -879,7 +890,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	add := func(st state, d float64, prev state) {
 		first := st.edge
 		st, d = walk(st, d)
-		in := s.edges[st.edge]
+		in := s.queryEdge(st.edge)
 		if accelerated && (!distanceOnly || !s.HasDuration()) && st.phase != 2 {
 			if transfers, ok := s.cellEscapes(st.edge, targetFrom, targetTo); ok {
 				for _, transfer := range transfers {
@@ -892,9 +903,9 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 				return
 			}
 		}
-		if accelerated && s.junctions[s.nodeOrdinal(in.to)] == 2 && in.to != s.segmentFields(b.index).From && in.to != s.segmentFields(b.index).To {
-			for _, id := range s.out(in.to) {
-				if s.edges[id].segment == in.segment {
+		if accelerated && s.junctions[s.searchOrdinal(in.to)] == 2 && in.to != targetFromNode && in.to != targetToNode {
+			for _, id := range s.searchOut(in.to) {
+				if s.queryEdge(id).segment == in.segment {
 					continue
 				}
 				tr, ok := s.advance(st.trie, id)
@@ -902,7 +913,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 				if !ok || !allowed {
 					continue
 				}
-				next, length := walk(state{id, tr, phase}, d+cost(id, s.edges[id].length))
+				next, length := walk(state{id, tr, phase}, d+cost(id, s.queryEdge(id).length))
 				if metrics != nil {
 					metrics.JunctionShortcuts++
 				}
@@ -914,10 +925,10 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	}
 
 	if a.node != 0 {
-		for _, id := range s.out(a.node) {
+		for _, id := range s.searchOut(originNode) {
 			tr, ok := s.advance(0, id)
 			if phase, allowed := transition(root.phase, id); ok && allowed {
-				add(state{id, tr, phase}, cost(id, s.edges[id].length), root)
+				add(state{id, tr, phase}, cost(id, s.queryEdge(id).length), root)
 			}
 		}
 	} else {
@@ -925,7 +936,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 			if id < 0 {
 				continue
 			}
-			length := Distance(a.Point, s.point(s.edges[id].to))
+			length := Distance(a.Point, s.searchPoint(s.queryEdge(id).to))
 			tr, ok := s.advance(0, id)
 			if phase, allowed := transition(root.phase, id); ok && allowed {
 				add(state{id, tr, phase}, cost(id, length), root)
@@ -938,7 +949,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 	iterations := 0
 	checkEnd := func(node int64, st state, d float64) {
 		if b.node != 0 {
-			if node == b.node && d < best {
+			if node == destinationNode && d < best {
 				best = d
 				direct = false
 				endState = st
@@ -947,10 +958,10 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 			return
 		}
 		for _, id := range s.directions[b.index] {
-			if id < 0 || s.edges[id].from != node {
+			if id < 0 || s.queryEdge(id).from != node {
 				continue
 			}
-			if st.edge >= 0 && s.edges[st.edge].segment == s.edges[id].segment {
+			if st.edge >= 0 && s.queryEdge(st.edge).segment == s.queryEdge(id).segment {
 				continue
 			}
 			_, ok := s.advance(st.trie, id)
@@ -958,7 +969,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 			if !ok || !allowed {
 				continue
 			}
-			v := d + cost(id, Distance(s.point(node), b.Point))
+			v := d + cost(id, Distance(s.searchPoint(node), b.Point))
 			if v < best {
 				best = v
 				direct = false
@@ -968,7 +979,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		}
 	}
 	if a.node != 0 {
-		checkEnd(a.node, root, 0)
+		checkEnd(originNode, root, 0)
 	}
 	for q.Len() > 0 {
 		cur := q.pop()
@@ -987,7 +998,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 				return Result{}, e
 			}
 		}
-		in := s.edges[cur.state.edge]
+		in := s.queryEdge(cur.state.edge)
 		checkEnd(in.to, cur.state, cur.distance)
 		if accelerated && (!distanceOnly || !s.HasDuration()) && cur.state.phase != 2 {
 			if transfers, ok := s.cellEscapes(cur.state.edge, targetFrom, targetTo); ok {
@@ -1001,8 +1012,8 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 				continue
 			}
 		}
-		for _, id := range s.out(in.to) {
-			out := s.edges[id]
+		for _, id := range s.searchOut(in.to) {
+			out := s.queryEdge(id)
 			if out.segment == in.segment {
 				continue
 			}
@@ -1065,13 +1076,13 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		}
 		for i := len(path) - 1; i >= 0; i-- {
 			travel = append(travel, path[i])
-			v := s.edges[path[i]]
-			result.Geometry = append(result.Geometry, s.point(v.to))
+			v := s.queryEdge(path[i])
+			result.Geometry = append(result.Geometry, s.searchPoint(v.to))
 			result.Segments = append(result.Segments, s.segment(v.segment).ID)
 		}
 		if endEdge >= 0 {
 			travel = append(travel, endEdge)
-			result.Segments = append(result.Segments, s.segment(s.edges[endEdge].segment).ID)
+			result.Segments = append(result.Segments, s.segment(s.queryEdge(endEdge).segment).ID)
 		}
 	} else {
 		result.Segments = []string{a.Segment}
@@ -1088,7 +1099,7 @@ func (s *Store) routeMeasured(ctx context.Context, origin, destination Endpoint,
 		length := Distance(result.Geometry[i-1], result.Geometry[i])
 		result.Distance += length
 		if length > 0 && s.meta.CostModel == CostModel {
-			e := s.edges[travel[i-1]]
+			e := s.queryEdge(travel[i-1])
 			result.Duration += length * e.seconds / e.length
 		}
 	}

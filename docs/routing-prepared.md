@@ -54,7 +54,14 @@ legacy/offline behavior for import, inspection and compatibility tests.
 
 ## Representation and resident inventory
 
-`routing-prepared-le64-v1` uses a 4 KiB header and ordered aligned sections.
+New publications use **`routing-prepared-le64-v2`**. The reader also supports
+retained **`routing-prepared-le64-v1`** publications and explicitly checks that
+receipt and artifact versions agree. Each version has its own artifact filename;
+preparing the same SQLite snapshot again requires a new publication directory.
+One directory may contain either version for different snapshot digests, including
+rollback snapshots. Neither existing artifacts nor SQLite snapshots are migrated.
+
+Both versions use a 4 KiB header and ordered aligned sections.
 Integers have explicit little-endian widths; coordinates and costs retain their
 float64 bits. It uses the checked 64-bit little-endian Linux/macOS mapping ABI.
 Unknown versions and unsupported ABIs fail. No native Go pointer representation
@@ -63,7 +70,8 @@ are created, with overflow-safe extent checks and canonical zero padding.
 
 | Runtime structure | Prepared representation / loading |
 | --- | --- |
-| Coordinates, directed edges, CSR offsets and adjacency | Mapped numeric arrays, including source node identities and directional costs |
+| Coordinates, CSR offsets and adjacency | Mapped numeric arrays; adjacency retains directed-edge ordinals |
+| Directed edges | v2: 32-byte records with dense node endpoints; v1: original 48-byte records with source node endpoints |
 | Segment directions, destination zones, weak components | Mapped arrays |
 | Forced continuations, junction selection, recursive cells | Mapped bounds, entrance ranges, transfers and parent-before-child source-path records |
 | Segments and source references | Fixed 48-byte records; source ID text in a mapped string pool; returned strings are copied |
@@ -76,6 +84,27 @@ are created, with overflow-safe extent checks and canonical zero padding.
 | Provenance, source tags, cost assumptions | Remain authoritative in SQLite; validated during preparation, covered by whole-file runtime integrity |
 | Places/geocoding | Existing SQLite lookup and resident address-index behavior; not converted by this milestone |
 | Per-request search labels/queue and output geometry | Existing request allocations, limited in concurrency by HTTP admission |
+
+Prepared v2 changes only the directed-edge section. Its fields are two uint32
+zero-based node ordinals (offsets 0 and 4), a uint32 segment ordinal in the low
+31 bits with reverse direction in bit 31 (offset 8), an int32 cell-entry index
+(offset 12), and the original float64 metres and seconds (offsets 16 and 24).
+Node, directed-edge and segment counts are limited to `MaxInt32`; out-of-range
+references and incompatible dimensions are rejected. This encoding keeps the
+existing coordinate/CSR order and edge identities. The writer streams records
+from the canonical source-validated graph; the runtime maps them directly without
+building a translation map or reconstructing source edges.
+
+Search translates its selected endpoints once and uses dense keys for coordinate,
+adjacency and junction access, including exact geometry reconstruction. These keys
+are internal to one immutable publication. Source segment endpoints, snap node
+identities, public lookup IDs, address evidence and driveway relationships remain
+source-based. The bounded endpoint walk obtains original directed endpoints from
+source segments. Snapping and source/access membership checks still use the
+source-node hash table; it is retained unchanged. Smaller segment/adjacency records
+and eliminating remaining endpoint lookups are separate possible experiments.
+The restriction automaton, cell hierarchy, search labels, cost model, tolerances
+and endpoint policy are unchanged.
 
 Ancillary JSON contains the restriction automaton, address evidence, driveway
 adjacency and metadata. Its disk size is capped at **128 MiB**. Oversized snapshots
@@ -126,6 +155,8 @@ access geometry dimensions and finite numeric values. It does not recompute
 shortest cell paths, source tag interpretation or the complete graph. Those
 semantic obligations belong to preparation and the independently pinned digest.
 Changing an artifact and its own payload checksum cannot authorize new topology.
+Dense endpoints are checked against both their coordinate/CSR bounds and the
+source-node ordinals of the referenced segment, in the recorded direction.
 
 Artifacts and SQLite files must remain immutable while in use. Read leases cover
 search and reconstruction; HTTP deployment leases extend through encoding. Close
@@ -151,6 +182,9 @@ A controlled cold-cache host experiment remains unperformed. The subsequent
 [historical residency investigation](log/0023-routing-residency-and-rollback.md)
 distinguishes duplicate mapping aliases from clean file residency and replaces
 rollback's temporary query mapping with streaming publication verification.
+The [historical dense-edge experiment](log/0024-dense-routing-edges.md) records the
+v2 representation budgets, source checks and page/residency measurements. It
+separates record-page accesses from physical residency and normal HTTP timing.
 
 The mapped virtual size, process RSS and macOS physical footprint describe
 different resources. Mapping does not impose a hard physical-memory bound, and

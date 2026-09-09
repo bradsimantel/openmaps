@@ -15,13 +15,16 @@ import (
 )
 
 func preparedFixture(t *testing.T, d Data) (*Store, string, PreparedReceipt) {
+	return preparedFixtureVersion(t, d, PreparedVersion)
+}
+func preparedFixtureVersion(t *testing.T, d Data, version string) (*Store, string, PreparedReceipt) {
 	t.Helper()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("prepared mapping requires Linux/macOS")
 	}
 	s := store(t, d)
 	path := filepath.Join(t.TempDir(), "graph.bin")
-	h, e := s.writePrepared(context.Background(), path)
+	h, e := s.writePreparedVersion(context.Background(), path, version)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -29,9 +32,14 @@ func preparedFixture(t *testing.T, d Data) (*Store, string, PreparedReceipt) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	return s, path, PreparedReceipt{Version: PreparedVersion, ArtifactSHA256: digest, GraphSHA256: h.GraphSHA256, Summary: &Summary{Metadata: s.meta, SHA256: s.graphSHA}}
+	return s, path, PreparedReceipt{Version: version, ArtifactSHA256: digest, GraphSHA256: h.GraphSHA256, Summary: &Summary{Metadata: s.meta, SHA256: s.graphSHA}}
 }
 func TestPreparedRoutes(t *testing.T) {
+	for _, version := range []string{preparedVersionV1, PreparedVersion} {
+		t.Run(version, func(t *testing.T) { testPreparedRoutes(t, version) })
+	}
+}
+func testPreparedRoutes(t *testing.T, version string) {
 	fixtures := []Data{uniformCosts(fixture()), cellFixture()}
 	for version := 1; version <= 3; version++ {
 		d := fixture()
@@ -40,7 +48,7 @@ func TestPreparedRoutes(t *testing.T) {
 		fixtures = append(fixtures, d)
 	}
 	for _, d := range fixtures {
-		ref, path, r := preparedFixture(t, d)
+		ref, path, r := preparedFixtureVersion(t, d, version)
 		s, e := openPreparedArtifact(context.Background(), path, r)
 		if e != nil {
 			t.Fatal(e)
@@ -71,8 +79,13 @@ func TestPreparedRoutes(t *testing.T) {
 	}
 }
 func TestPreparedReproducible(t *testing.T) {
-	_, a, _ := preparedFixture(t, cellFixture())
-	_, b, _ := preparedFixture(t, cellFixture())
+	for _, version := range []string{preparedVersionV1, PreparedVersion} {
+		t.Run(version, func(t *testing.T) { testPreparedReproducible(t, version) })
+	}
+}
+func testPreparedReproducible(t *testing.T, version string) {
+	_, a, _ := preparedFixtureVersion(t, cellFixture(), version)
+	_, b, _ := preparedFixtureVersion(t, cellFixture(), version)
 	x, _ := os.ReadFile(a)
 	y, _ := os.ReadFile(b)
 	if !reflect.DeepEqual(x, y) {
@@ -80,9 +93,14 @@ func TestPreparedReproducible(t *testing.T) {
 	}
 }
 func TestPreparedRejects(t *testing.T) {
-	for _, mode := range []string{"truncate", "corrupt", "self checksum", "foreign", "version", "dimensions", "overflow", "edge reference", "recursive path", "spatial cycle", "node table", "preprocessing", "graph version", "cost model", "CSR", "padding", "cancel"} {
+	for _, version := range []string{preparedVersionV1, PreparedVersion} {
+		t.Run(version, func(t *testing.T) { testPreparedRejects(t, version) })
+	}
+}
+func testPreparedRejects(t *testing.T, version string) {
+	for _, mode := range []string{"truncate", "corrupt", "self checksum", "foreign", "version", "dimensions", "overflow", "edge reference", "recursive path", "spatial cycle", "node table", "dense endpoint", "receipt mismatch", "preprocessing", "graph version", "cost model", "CSR", "padding", "cancel"} {
 		t.Run(mode, func(t *testing.T) {
-			_, path, r := preparedFixture(t, cellFixture())
+			_, path, r := preparedFixtureVersion(t, cellFixture(), version)
 			raw, _ := os.ReadFile(path)
 			n := binary.LittleEndian.Uint32(raw)
 			var h flatHeader
@@ -119,8 +137,24 @@ func TestPreparedRejects(t *testing.T) {
 				h.Sections[0].Count++
 			case "overflow":
 				h.Sections[0].Count = math.MaxInt64
+			case "receipt mismatch":
+				if version == PreparedVersion {
+					r.Version = preparedVersionV1
+				} else {
+					r.Version = PreparedVersion
+				}
+			case "dense endpoint":
+				if version == PreparedVersion {
+					binary.LittleEndian.PutUint32(raw[h.Sections[1].Offset:], math.MaxUint32)
+				} else {
+					binary.LittleEndian.PutUint64(raw[h.Sections[1].Offset:], math.MaxUint64)
+				}
 			case "edge reference":
-				binary.LittleEndian.PutUint64(raw[h.Sections[1].Offset+16:], math.MaxInt64)
+				if version == PreparedVersion {
+					binary.LittleEndian.PutUint32(raw[h.Sections[1].Offset+8:], math.MaxInt32)
+				} else {
+					binary.LittleEndian.PutUint64(raw[h.Sections[1].Offset+16:], math.MaxInt64)
+				}
 			case "recursive path":
 				binary.LittleEndian.PutUint32(raw[h.Sections[12].Offset:], 0)
 			case "spatial cycle":
@@ -162,9 +196,14 @@ func TestPreparedRejects(t *testing.T) {
 }
 
 func TestPreparedCancellationStages(t *testing.T) {
-	for _, stage := range []string{"mapping", "artifact integrity", "ancillary decoding"} {
+	for _, version := range []string{preparedVersionV1, PreparedVersion} {
+		t.Run(version, func(t *testing.T) { testPreparedCancellationStages(t, version) })
+	}
+}
+func testPreparedCancellationStages(t *testing.T, version string) {
+	for _, stage := range []string{"mapping", "artifact integrity", "ancillary decoding", "runtime structural validation"} {
 		t.Run(stage, func(t *testing.T) {
-			_, path, r := preparedFixture(t, cellFixture())
+			_, path, r := preparedFixtureVersion(t, cellFixture(), version)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ctx = WithLoadObserver(ctx, func(p LoadPhase) {
@@ -187,8 +226,13 @@ func TestPreparedCancellationStages(t *testing.T) {
 }
 
 func TestPreparedConcurrentClose(t *testing.T) {
+	for _, version := range []string{preparedVersionV1, PreparedVersion} {
+		t.Run(version, func(t *testing.T) { testPreparedConcurrentClose(t, version) })
+	}
+}
+func testPreparedConcurrentClose(t *testing.T, version string) {
 	d := cellFixture()
-	_, path, r := preparedFixture(t, d)
+	_, path, r := preparedFixtureVersion(t, d, version)
 	s, e := openPreparedArtifact(context.Background(), path, r)
 	if e != nil {
 		t.Fatal(e)

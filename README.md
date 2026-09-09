@@ -26,7 +26,8 @@ and has no routing graph. See [the routing contract and candidate build](docs/ro
 Separate Oregon and full Oregon–Washington–Idaho coordinate-routing candidates
 cover regional scaling and boundary detours. [Storage and scaling](docs/routing-scale.md)
 describes the recursive junction-cell overlay, directly loadable prepared snapshots, concurrent
-snapshot leases, streaming rollback verification and residency measurements. Nationwide routing remains unfinished; these
+snapshot leases, compact prepared edges with dense internal endpoints, streaming
+rollback verification and residency measurements. Nationwide routing remains unfinished; these
 regional candidates have no address coverage. Nearby place search and general
 text search remain future milestones.
 

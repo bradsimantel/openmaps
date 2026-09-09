@@ -525,7 +525,9 @@ endpoint evidence retain their meanings. Spatial indexes replace regional
 endpoint/guard scans. The graph adds about 34 MiB to the Newport SQLite candidate;
 query data still consumes substantially more memory than its compressed storage.
 The prepared loader persists query structures for direct startup without full
-graph reconstruction; see [preparation and runtime validation](routing-prepared.md).
+graph reconstruction. Prepared v2 uses compact directed edges with internal dense
+node ordinals; source IDs and retained v1 publications remain supported. See
+[preparation and runtime validation](routing-prepared.md).
 The explicit legacy `-routing-cache` backend maps only numeric arrays and retains
 its full construction-memory cost. The server defaults to four
 concurrent routing requests; see [routing scale](routing-scale.md).

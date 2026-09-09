@@ -17,10 +17,12 @@ import (
 )
 
 // PreparedVersion is independent of source graph and numeric preprocessing versions.
-const PreparedVersion = "routing-prepared-le64-v1"
+const PreparedVersion = "routing-prepared-le64-v2"
+const preparedVersionV1 = "routing-prepared-le64-v1"
 
-// Prepared v1 fixes the numeric v2 prefix; a numeric migration must explicitly
-// migrate this format too, rather than silently changing its reader.
+// Both prepared versions fix the numeric v2 sections; prepared v2 substitutes
+// the explicitly encoded dense edge section. Other numeric changes still require
+// an explicit prepared migration.
 const preparedNumericVersion = "routing-hot-le64-v2"
 const preparedAuxLimit = 128 << 20
 
@@ -49,10 +51,11 @@ type preparedAux struct {
 	MaxMetersPerSecond float64
 }
 type preparedViews struct {
-	segments [][6]uint64
-	guards   [][7]uint64
-	nodes    [][2]uint64
-	strings  []byte
+	segments   [][6]uint64
+	guards     [][7]uint64
+	denseEdges []denseEdge
+	nodes      [][2]uint64
+	strings    []byte
 }
 
 func nodeHash(v uint64) uint64 {
@@ -231,11 +234,18 @@ func publishBytes(path string, raw []byte) error {
 	return d.Sync()
 }
 func (s *Store) writePrepared(ctx context.Context, path string) (flatHeader, error) {
-	h := s.flatHeader()
+	return s.writePreparedVersion(ctx, path, PreparedVersion)
+}
+func (s *Store) writePreparedVersion(ctx context.Context, path, version string) (flatHeader, error) {
+	if version != PreparedVersion && version != preparedVersionV1 {
+		return flatHeader{}, fmt.Errorf("unsupported prepared version")
+	}
+	dense := version == PreparedVersion
+	h := s.numericHeader(dense)
 	if FlatVersion != preparedNumericVersion {
 		return h, fmt.Errorf("prepared numeric format requires migration")
 	}
-	h.Version = PreparedVersion
+	h.Version = version
 	f, e := os.CreateTemp(filepath.Dir(path), ".prepared-*")
 	if e != nil {
 		return h, e
@@ -245,7 +255,7 @@ func (s *Store) writePrepared(ctx context.Context, path string) (flatHeader, err
 	if _, e = f.Write(make([]byte, flatHeaderBytes)); e != nil {
 		return h, e
 	}
-	if e = s.writeFlat(ctx, f); e != nil {
+	if e = s.writeNumeric(ctx, f, dense); e != nil {
 		return h, e
 	}
 	w := bufio.NewWriterSize(f, 1<<20)
@@ -441,7 +451,7 @@ func readPreparedReceipt(dir, digest string) (PreparedReceipt, error) {
 	if e = json.Unmarshal(raw, &r); e != nil {
 		return r, e
 	}
-	if r.Version != PreparedVersion || r.SnapshotSHA256 != digest || r.Artifact != filepath.Base(r.Artifact) || r.Artifact == "" || len(r.ArtifactSHA256) != 64 || len(r.GraphSHA256) != 64 {
+	if (r.Version != PreparedVersion && r.Version != preparedVersionV1) || r.SnapshotSHA256 != digest || r.Artifact != filepath.Base(r.Artifact) || r.Artifact == "" || len(r.ArtifactSHA256) != 64 || len(r.GraphSHA256) != 64 {
 		return r, fmt.Errorf("invalid prepared publication receipt")
 	}
 	if r.Summary == nil || r.Summary.SHA256 != r.GraphSHA256 {
@@ -567,11 +577,14 @@ func openPreparedArtifact(ctx context.Context, path string, r PreparedReceipt) (
 			return nil, fmt.Errorf("nonzero prepared padding")
 		}
 	}
-	if h.Version != PreparedVersion || h.Preprocessing != JunctionPreprocessingVersion || h.GraphSHA256 != r.GraphSHA256 {
+	if (h.Version != PreparedVersion && h.Version != preparedVersionV1) || h.Version != r.Version || h.Preprocessing != JunctionPreprocessingVersion || h.GraphSHA256 != r.GraphSHA256 {
 		return nil, fmt.Errorf("unsupported or foreign prepared graph")
 	}
 	names := []string{"points", "edges", "offsets", "adjacency", "directions", "continuation", "zones", "components", "junctions", "cell_bounds", "cell_entries", "cell_transfers", "cell_paths", "segments", "guards", "node_lookup", "strings", "spatial_0_nodes", "spatial_0_ids", "spatial_1_nodes", "spatial_1_ids", "spatial_2_nodes", "spatial_2_ids", "spatial_3_nodes", "spatial_3_ids", "ancillary"}
 	widths := []int64{16, 48, 4, 8, 16, 4, 8, 4, 1, 32, 16, 16, 12, 48, 56, 16, 1, 48, 4, 48, 4, 48, 4, 48, 4, 1}
+	if h.Version == PreparedVersion {
+		widths[1] = 32
+	}
 	if len(h.Sections) != len(names) {
 		return nil, fmt.Errorf("invalid prepared section count")
 	}
@@ -594,7 +607,11 @@ func openPreparedArtifact(ctx context.Context, path string, r PreparedReceipt) (
 	section := func(i int) []byte { v := h.Sections[i]; return mapped[v.Offset : v.Offset+v.Count*v.Width] }
 	s := &Store{graphSHA: h.GraphSHA256, prepared: &preparedViews{segments: flatSlice[[6]uint64](section(13)), guards: flatSlice[[7]uint64](section(14)), nodes: flatSlice[[2]uint64](section(15)), strings: section(16)}}
 	s.points = flatSlice[Point](section(0))
-	s.edges = flatSlice[edge](section(1))
+	if h.Version == preparedVersionV1 {
+		s.edges = flatSlice[edge](section(1))
+	} else {
+		s.prepared.denseEdges = flatSlice[denseEdge](section(1))
+	}
 	s.offsets = flatSlice[uint32](section(2))
 	s.adjacency = flatSlice[int](section(3))
 	s.directions = flatSlice[[2]int](section(4))
@@ -631,6 +648,9 @@ func openPreparedArtifact(ctx context.Context, path string, r PreparedReceipt) (
 	done = loadPhase(ctx, "runtime structural validation")
 	e = s.validatePrepared(ctx)
 	done()
+	if e == nil {
+		e = ctx.Err()
+	}
 	if e != nil {
 		return nil, e
 	}

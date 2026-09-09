@@ -217,6 +217,9 @@ func flatABI() error {
 		unsafe.Offsetof(e.length) != 32 || unsafe.Offsetof(e.seconds) != 40 || unsafe.Sizeof(Point{}) != 16 {
 		return fmt.Errorf("unsupported routing flat memory ABI")
 	}
+	if unsafe.Sizeof(denseEdge{}) != 32 || unsafe.Offsetof(denseEdge{}.from) != 0 || unsafe.Offsetof(denseEdge{}.to) != 4 || unsafe.Offsetof(denseEdge{}.segmentReverse) != 8 || unsafe.Offsetof(denseEdge{}.cellEntry) != 12 || unsafe.Offsetof(denseEdge{}.length) != 16 || unsafe.Offsetof(denseEdge{}.seconds) != 24 {
+		return fmt.Errorf("unsupported routing dense edge ABI")
+	}
 	if unsafe.Sizeof(cellBounds{}) != 32 || unsafe.Offsetof(cellBounds{}.minX) != 0 ||
 		unsafe.Offsetof(cellBounds{}.minY) != 8 || unsafe.Offsetof(cellBounds{}.maxX) != 16 || unsafe.Offsetof(cellBounds{}.maxY) != 24 ||
 		unsafe.Sizeof(cellEntry{}) != 16 || unsafe.Offsetof(cellEntry{}.edge) != 0 || unsafe.Offsetof(cellEntry{}.cell) != 4 ||
@@ -234,7 +237,8 @@ func flatSlice[T any](b []byte) []T {
 	var v T
 	return unsafe.Slice((*T)(unsafe.Pointer(&b[0])), len(b)/int(unsafe.Sizeof(v)))
 }
-func (s *Store) flatHeader() flatHeader {
+func (s *Store) flatHeader() flatHeader { return s.numericHeader(false) }
+func (s *Store) numericHeader(dense bool) flatHeader {
 	h := flatHeader{Version: FlatVersion, Preprocessing: JunctionPreprocessingVersion, GraphSHA256: s.graphSHA}
 	offset := int64(flatHeaderBytes)
 	for _, v := range []struct {
@@ -245,6 +249,9 @@ func (s *Store) flatHeader() flatHeader {
 		{"points", len(s.points), 16}, {"edges", len(s.edges), 48}, {"offsets", len(s.offsets), 4}, {"adjacency", len(s.adjacency), 8}, {"directions", len(s.directions), 16}, {"continuation", len(s.continuation), 4}, {"zones", len(s.zones), 8}, {"components", len(s.components), 4}, {"junctions", len(s.junctions), 1},
 		{"cell_bounds", len(s.cellBounds), 32}, {"cell_entries", len(s.cellEntries), 16}, {"cell_transfers", len(s.cellTransfers), 16}, {"cell_paths", len(s.cellPaths), 12},
 	} {
+		if dense && v.name == "edges" {
+			v.width = 32
+		}
 		offset = (offset + 7) &^ 7
 		h.Sections = append(h.Sections, flatSection{v.name, offset, int64(v.count), v.width})
 		offset += int64(v.count) * v.width
@@ -252,11 +259,14 @@ func (s *Store) flatHeader() flatHeader {
 	return h
 }
 func (s *Store) writeFlat(ctx context.Context, output io.Writer) error {
+	return s.writeNumeric(ctx, output, false)
+}
+func (s *Store) writeNumeric(ctx context.Context, output io.Writer, dense bool) error {
 	w := bufio.NewWriterSize(output, 64<<10)
 	var buf [48]byte
 	var count int64 = flatHeaderBytes
 	write := func(b []byte) error { _, err := w.Write(b); count += int64(len(b)); return err }
-	for i, section := range s.flatHeader().Sections {
+	for i, section := range s.numericHeader(dense).Sections {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -278,6 +288,24 @@ func (s *Store) writeFlat(ctx context.Context, output io.Writer) error {
 				put(8, math.Float64bits(s.points[j][1]))
 			case 1:
 				e := s.edges[j]
+				if dense {
+					from, fromOK := s.findNode(e.from)
+					to, toOK := s.findNode(e.to)
+					if !fromOK || !toOK || from < 0 || to < 0 || int(from) >= len(s.points) || int(to) >= len(s.points) || e.segment < 0 || e.segment > math.MaxInt32 {
+						return fmt.Errorf("dense edge overflow or missing endpoint")
+					}
+					segment := uint32(e.segment)
+					if e.reverse {
+						segment |= 1 << 31
+					}
+					binary.LittleEndian.PutUint32(buf[0:], uint32(from))
+					binary.LittleEndian.PutUint32(buf[4:], uint32(to))
+					binary.LittleEndian.PutUint32(buf[8:], segment)
+					binary.LittleEndian.PutUint32(buf[12:], uint32(e.cellEntry))
+					put(16, math.Float64bits(e.length))
+					put(24, math.Float64bits(e.seconds))
+					break
+				}
 				put(0, uint64(e.from))
 				put(8, uint64(e.to))
 				put(16, uint64(e.segment))
