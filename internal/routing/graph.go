@@ -226,27 +226,30 @@ func newStoreContext(ctx context.Context, d Data, owned bool) (*Store, error) {
 		}
 	}
 	s.edges = make([]edge, 0, edgeCount)
-	ids := make(map[string]int, len(d.Segments)+len(d.Guards))
-	lookupEdge := func(ref EdgeRef) (int, bool) {
-		i := ids[ref.Segment] - 1
-		if i < 0 || i >= len(s.directions) {
-			return 0, false
+	ids, err := newConstructionIDs(ctx, d.Segments, d.Guards)
+	if err != nil {
+		return nil, err
+	}
+	defer ids.close()
+	lookupEdge := func(ref EdgeRef) (int, bool, error) {
+		i, ok, err := ids.segment(ref.Segment)
+		if err != nil || !ok {
+			return 0, false, err
 		}
 		dir := 0
 		if ref.Reverse {
 			dir = 1
 		}
 		id := s.directions[i][dir]
-		return id, id >= 0
+		return id, id >= 0, nil
 	}
 	usedCosts := map[int64]bool{}
 	for i, v := range d.Segments {
 		a, ok := s.lookupPoint(v.From)
 		z, yes := s.lookupPoint(v.To)
-		if !ok || !yes || v.From == v.To || v.Way <= 0 || v.ID == "" || ids[v.ID] != 0 || (!v.Forward && !v.Backward) {
+		if !ok || !yes || v.From == v.To || v.Way <= 0 || (!v.Forward && !v.Backward) {
 			return nil, fmt.Errorf("invalid routing segment %s", v.ID)
 		}
-		ids[v.ID] = i + 1
 		usedCosts[v.Way] = true
 		l := Distance(a, z)
 		if l <= 0 {
@@ -293,7 +296,10 @@ func newStoreContext(ctx context.Context, d Data, owned bool) (*Store, error) {
 		t := 0
 		last := -1
 		for _, ref := range ban.Path {
-			id, ok := lookupEdge(ref)
+			id, ok, err := lookupEdge(ref)
+			if err != nil {
+				return nil, err
+			}
 			if !ok || last >= 0 && s.edges[last].to != s.edges[id].from {
 				return nil, fmt.Errorf("invalid routing ban relation %d", ban.Relation)
 			}
@@ -332,19 +338,27 @@ func newStoreContext(ctx context.Context, d Data, owned bool) (*Store, error) {
 
 	s.guards = d.Guards
 	for _, g := range d.Guards {
-		if g.Segment == "" || g.Way <= 0 || ids[g.Segment] != 0 || !g.From.Valid() || !g.To.Valid() {
+		if g.Way <= 0 || !g.From.Valid() || !g.To.Valid() {
 			return nil, fmt.Errorf("invalid snap guard")
 		}
-		ids[g.Segment] = -1
 	}
 	s.restrictedNodes = map[int64]bool{}
 	for _, ban := range d.Bans {
 		for _, ref := range ban.Path {
-			id, _ := lookupEdge(ref)
+			id, ok, err := lookupEdge(ref)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, fmt.Errorf("missing restriction edge")
+			}
 			e := s.edges[id]
 			s.restrictedNodes[e.from] = true
 			s.restrictedNodes[e.to] = true
 		}
+	}
+	if err := ids.close(); err != nil {
+		return nil, err
 	}
 	s.zones = make([]int, len(s.segments))
 	byNode := map[int64][]int{}

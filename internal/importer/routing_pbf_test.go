@@ -6,6 +6,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"sort"
 	"testing"
 
@@ -279,5 +281,50 @@ func TestImportedCarLimitsAndRestrictedEndpoints(t *testing.T) {
 		if (limit == "2 st") != (r.Distance < 900) {
 			t.Fatal("imported car threshold", limit, r)
 		}
+	}
+}
+
+// Included and excluded pieces interleave in numeric source order, which differs
+// from lexical reference order at way 2/10 and vertex 2/10. Reordered PBF objects,
+// barrier gaps, duplicate vertices and absent-profile ways must preserve the join.
+func TestRoutingGuardSourceOrderJoin(t *testing.T) {
+	nodes := []*osm.Node{}
+	for i := 1; i <= 15; i++ {
+		nodes = append(nodes, &osm.Node{ID: osm.NodeID(i), Lon: float64(i) * .001, Lat: 0})
+	}
+	nodes[4].Tags = osm.Tags{{Key: "barrier", Value: "gate"}, {Key: "access", Value: "no"}}
+	way := func(id osm.WayID, highway, access string, refs ...int) *osm.Way {
+		w := &osm.Way{ID: id, Tags: osm.Tags{{Key: "highway", Value: highway}}}
+		if access != "" {
+			w.Tags = append(w.Tags, osm.Tag{Key: "access", Value: access})
+		}
+		for _, n := range refs {
+			w.Nodes = append(w.Nodes, osm.WayNode{ID: osm.NodeID(n)})
+		}
+		return w
+	}
+	ways := []*osm.Way{way(10, "residential", "", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15), way(2, "residential", "private", 1, 2), way(3, "footway", "", 2, 3), way(1, "residential", "", 1, 1, 2)}
+	d, _ := importSourceGraph(t, nodes, ways)
+	included := []string{}
+	for _, s := range d.Segments {
+		included = append(included, s.ID)
+	}
+	want := []string{"1:1", "10:0", "10:1", "10:2", "10:5", "10:6", "10:7", "10:8", "10:9", "10:10", "10:11", "10:12", "10:13"}
+	// Source construction owns numeric order; subsequent routing.Load owns the
+	// canonical lexical order. importSourceGraph's New preserves caller ownership.
+	if !reflect.DeepEqual(included, want) {
+		t.Fatalf("included pieces: %v", included)
+	}
+	guards := []string{}
+	for _, g := range d.Guards {
+		guards = append(guards, g.Segment)
+	}
+	if !reflect.DeepEqual(guards, []string{"2:0", "10:3", "10:4"}) {
+		t.Fatalf("guards: %v", guards)
+	}
+	slices.Reverse(ways)
+	next, _ := importSourceGraph(t, nodes, ways)
+	if !reflect.DeepEqual(d, next) {
+		t.Fatal("PBF object ordering changed graph or provenance")
 	}
 }

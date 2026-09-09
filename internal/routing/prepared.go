@@ -268,14 +268,27 @@ func (s *Store) writePreparedVersion(ctx context.Context, path, version string) 
 		}
 		offset += pad
 		h.Sections = append(h.Sections, flatSection{name, offset, count, width})
-		if e := write(); e != nil {
-			return e
+		done := loadPhase(ctx, "publication "+name)
+		err := write()
+		done()
+		if err != nil {
+			return err
 		}
 		offset += count * width
 		return ctx.Err()
 	}
 	put := func(v any) error { return binary.Write(w, binary.LittleEndian, v) }
-	strings := []byte{}
+	// Offsets describe a later sequential pass over the existing source strings;
+	// do not accumulate another graph-sized string pool during publication.
+	var stringBytes int64
+	stringOffset := func(v string) (uint64, error) {
+		if int64(len(v)) > math.MaxInt64-stringBytes {
+			return 0, fmt.Errorf("prepared string pool capacity exceeded")
+		}
+		offset := stringBytes
+		stringBytes += int64(len(v))
+		return uint64(offset), nil
+	}
 	if e = add("segments", int64(len(s.segments)), 48, func() error {
 		for i, v := range s.segments {
 			if i%4096 == 0 {
@@ -289,8 +302,11 @@ func (s *Store) writePreparedVersion(ctx context.Context, path, version string) 
 					flags |= 1 << i
 				}
 			}
-			r := [6]uint64{uint64(v.Way), uint64(v.From), uint64(v.To), uint64(len(strings)), uint64(len(v.ID)), flags}
-			strings = append(strings, v.ID...)
+			offset, err := stringOffset(v.ID)
+			if err != nil {
+				return err
+			}
+			r := [6]uint64{uint64(v.Way), uint64(v.From), uint64(v.To), offset, uint64(len(v.ID)), flags}
 			if e := put(r); e != nil {
 				return e
 			}
@@ -306,8 +322,11 @@ func (s *Store) writePreparedVersion(ctx context.Context, path, version string) 
 					return e
 				}
 			}
-			r := [7]uint64{uint64(v.Way), math.Float64bits(v.From[0]), math.Float64bits(v.From[1]), math.Float64bits(v.To[0]), math.Float64bits(v.To[1]), uint64(len(strings)), uint64(len(v.Segment))}
-			strings = append(strings, v.Segment...)
+			offset, err := stringOffset(v.Segment)
+			if err != nil {
+				return err
+			}
+			r := [7]uint64{uint64(v.Way), math.Float64bits(v.From[0]), math.Float64bits(v.From[1]), math.Float64bits(v.To[0]), math.Float64bits(v.To[1]), offset, uint64(len(v.Segment))}
 			if e := put(r); e != nil {
 				return e
 			}
@@ -346,10 +365,48 @@ func (s *Store) writePreparedVersion(ctx context.Context, path, version string) 
 		}
 		slots[i] = [2]uint64{uint64(id), flags}
 	}
-	if e = add("node_lookup", int64(n), 16, func() error { return put(slots) }); e != nil {
+	if e = add("node_lookup", int64(n), 16, func() error {
+		// binary.Write on the whole slice allocates a second full node table.
+		var record [16]byte
+		for i, slot := range slots {
+			if i%4096 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			binary.LittleEndian.PutUint64(record[:], slot[0])
+			binary.LittleEndian.PutUint64(record[8:], slot[1])
+			if _, err := w.Write(record[:]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); e != nil {
 		return h, e
 	}
-	if e = add("strings", int64(len(strings)), 1, func() error { _, e := w.Write(strings); return e }); e != nil {
+	if e = add("strings", stringBytes, 1, func() error {
+		for i, v := range s.segments {
+			if i%4096 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			if _, err := w.WriteString(v.ID); err != nil {
+				return err
+			}
+		}
+		for i, v := range s.guards {
+			if i%4096 == 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
+			if _, err := w.WriteString(v.Segment); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); e != nil {
 		return h, e
 	}
 	for i, index := range []spatialIndex{s.segmentIndex, s.guardIndex, s.areaIndex, s.accessIndex} {
@@ -366,7 +423,21 @@ func (s *Store) writePreparedVersion(ctx context.Context, path, version string) 
 		}); e != nil {
 			return h, e
 		}
-		if e = add(fmt.Sprintf("spatial_%d_ids", i), int64(len(index.ids)), 4, func() error { return put(index.ids) }); e != nil {
+		if e = add(fmt.Sprintf("spatial_%d_ids", i), int64(len(index.ids)), 4, func() error {
+			var record [4]byte
+			for j, id := range index.ids {
+				if j%4096 == 0 {
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+				}
+				binary.LittleEndian.PutUint32(record[:], uint32(id))
+				if _, err := w.Write(record[:]); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); e != nil {
 			return h, e
 		}
 	}

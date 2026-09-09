@@ -517,6 +517,13 @@ runtime dependencies remain unchanged. The separate Oregon evaluation acquires
 pinned regional extracts and uses Osmium for complete-way corridor extraction
 and merging; see [its source scope and build commands](routing-scale.md).
 
+Guard construction joins the already source-ordered included segments against
+motor-way vertices without another segment-membership map. Offline graph
+validation uses a bounded sort/merge index for segment and guard identities;
+see [construction scratch limits](routing-prepared.md). Other parsing, topology
+and hierarchy structures remain graph-sized. These construction changes preserve
+the source graph and canonical prepared bytes and do not alter routing policy.
+
 New builds store a checksummed, versioned manifest in `routing_graph` and bounded
 binary record chunks in `routing_chunks`, separating query data from raw
 provenance. Runtime coordinates and adjacency use contiguous arrays; source

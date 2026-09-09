@@ -53,8 +53,12 @@ unchanged. Directed edges keep distance and elapsed cost; segment geometry,
 one-way/access classifications, destination zones and the restriction automaton
 remain query data. The loader transfers ownership of decoded segments to avoid
 an extra copy, and constructs adjacency without per-node temporary slices.
-Provenance, cost notes, validation maps, decoding buffers and the original node
-record array are transient. Source strings and some maps still consume meaningful
+Provenance, cost notes, remaining validation maps, decoding buffers and the original node
+record array are transient. Segment/guard identity validation now sorts internal
+ordinals with explicit batch and merge limits, using temporary files for large
+graphs. Restriction references resolve against that index, which is removed before
+spatial and hierarchy construction. Decoded nodes and costs no longer survive
+solely to return metadata after construction. Source strings and some maps still consume meaningful
 memory; this is not a fully memory-mappable national layout.
 
 Prepared v2 uses 32-byte directed edges with dense endpoint ordinals; v1's
@@ -370,6 +374,13 @@ only-turn restriction must prohibit. It writes chunks inside the unpublished
 transaction, releases source construction data, then validates the exact written
 graph before commit. This avoids constructing a second full graph alongside the
 importer's raw sources; rollback still protects against invalid graph data.
+Excluded-road guard generation joins the included segment subsequence against
+source-ordered motor-way vertices with a single cursor, eliminating its duplicate
+membership map. Every included segment must join. Original source IDs, vertex
+ordinals and guard order are preserved, including gaps at barriers and excluded
+ways. Parsed ways, needed-node/coordinate maps, provenance, segment/guard outputs
+and restriction enumeration still grow with the graph. Neither this join nor the
+[bounded validation index](routing-prepared.md) establishes bounded national import.
 
 The [historical junction and mapped-backend experiment](log/0020-junction-hierarchy-and-mapped-query-data.md)
 records targets, measured regional results, failed attempts and remaining gates.
@@ -446,3 +457,7 @@ HTTP lifecycle. Removing validation aliases improves process RSS accounting and
 avoids redundant address-space overlap; it does not shrink the immutable graph
 or impose a physical residency bound. The directed-edge/segment representation,
 source-node lookup and per-query labels remain concrete working-set costs.
+The [historical construction-memory evaluation](log/0025-bounded-routing-construction.md)
+measures the bounded identity index and source-ordered importer guard join.
+Full parsing, graph arrays, spatial indexes and hierarchy construction still
+require graph-sized memory; the complete offline pipeline is not bounded.

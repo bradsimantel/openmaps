@@ -31,6 +31,11 @@ rollback verification and residency measurements. Nationwide routing remains unf
 regional candidates have no address coverage. Nearby place search and general
 text search remain future milestones.
 
+Offline construction now bounds segment/guard identity-index scratch and streams
+publication encoding. The importer also avoids a duplicate segment-membership
+map. Full source parsing, graph arrays and hierarchy construction still require
+graph-sized memory; see [construction limits](docs/routing-prepared.md).
+
 ## Run the Newport demo
 
 Prerequisite: Go **1.26.1+**. Allow several minutes for first-time tool and data

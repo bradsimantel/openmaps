@@ -29,6 +29,38 @@ receipt or artifact; independent preparations use another directory. It does not
 modify SQLite or activate a deployment. Preserve receipts with the source locks,
 SQLite files and review records.
 
+Offline segment/guard identity validation uses a sorted ordinal index instead of
+a graph-sized string map. `-sort-records` sets the in-memory batch (default
+1,048,576; supported range 1–4,194,304). Each ordinal is eight bytes. Larger
+inputs use sequential merge passes with at most 16 readers and 64 KiB per stream;
+run metadata does not accumulate with the number of batches. Keys are borrowed
+from the already resident source records. Empty/duplicate IDs, missing restriction
+references, malformed run records and incomplete output fail construction.
+
+`-scratch-dir` selects an existing writable parent directory; the default is
+beside the source SQLite file. Each external sort creates a private `.routing-ids-*`
+directory and removes it on success, cancellation or ordinary failure. No retained
+file is reused as scratch. An uncaught process termination can leave this
+private directory, which is never a publication or runtime input. Choose a new
+publication directory when retrying. Changing batch size does not change graph
+ordering, public/source identities, graph digests or prepared v2 bytes.
+
+The sort batch uses at most 32 MiB, with at most 1.063 MiB of merge stream buffers
+and fixed reader metadata. Temporary run data occupies at most
+`16 × (segment count + guard count)` bytes across two merge generations, plus
+filesystem metadata/allocation rounding. Very small batches create many files
+and can incur substantial filesystem overhead. The full graph, node lookup, costs,
+spatial/hierarchy construction and publication buffers are separate memory costs.
+This bounds **identity-index scratch**, not complete preparation or physical RSS.
+There is no extra SQLite cache, mapping or external dependency for this index.
+
+Publication streams source strings in a second sequential pass and encodes node
+hash slots and spatial ordinals a record at a time through the existing 1 MiB
+writer. It avoids an accumulated string-pool copy and whole-slice binary-encoding
+buffers. Source-ordered node-table construction still retains sorted source IDs
+and the complete hash-slot array; it is not a bounded stage. Publication observers
+report the additional section-writing phases. The prepared layout is unchanged.
+
 `-routing-prepared` also works with `-deployment`. Prepare every routing-enabled
 snapshot that the deployment may select, including rollback snapshots, into that
 directory. Lookup-only snapshots retain their existing validation and remain
@@ -185,6 +217,9 @@ rollback's temporary query mapping with streaming publication verification.
 The [historical dense-edge experiment](log/0024-dense-routing-edges.md) records the
 v2 representation budgets, source checks and page/residency measurements. It
 separates record-page accesses from physical residency and normal HTTP timing.
+The [historical construction-memory evaluation](log/0025-bounded-routing-construction.md)
+records bounded identity sorting, streaming publication buffers, independent
+rebuilds and remaining import/preparation peaks, including missed budgets.
 
 The mapped virtual size, process RSS and macOS physical footprint describe
 different resources. Mapping does not impose a hard physical-memory bound, and
@@ -195,7 +230,9 @@ residency under pressure and the 128 MiB ancillary cap remain readiness gates.
 Offline preparation still constructs the full regional graph and hierarchy and
 can allocate tens of GiB cumulatively. Importing the national source graph is not
 bounded by this runtime loader. External-memory import/preprocessing remains
-separate work. No national data, new address data, cost-model correction, deeper
+unfinished. Identity-index scratch now has explicit batch and merge bounds;
+decoded node/cost data is released at its last use before later preprocessing.
+No national data, new address data, cost-model correction, deeper
 routing hierarchy or browser change is part of this milestone.
 
 The opt-in source/reference harness accepts `OPENMAPS_REFERENCE_TIMEOUT` from

@@ -69,6 +69,7 @@ func Load(ctx context.Context, db graphReader) (*Store, *Summary, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	metadata := d.Metadata
 	store, err := newStoreContext(ctx, d, true)
 	if err != nil {
 		return nil, nil, err
@@ -78,7 +79,7 @@ func Load(ctx context.Context, db graphReader) (*Store, *Summary, error) {
 	}
 	store.graphSHA = sum
 	store.sourceLayout, store.sourcePreprocessing = m.Layout, m.Preprocessing
-	return store, &Summary{Metadata: d.Metadata, SHA256: sum, Layout: m.Layout, Preprocessing: m.Preprocessing}, nil
+	return store, &Summary{Metadata: metadata, SHA256: sum, Layout: m.Layout, Preprocessing: m.Preprocessing}, nil
 }
 func Open(ctx context.Context, path string) (*Store, error) {
 	abs, err := filepath.Abs(path)

@@ -62,6 +62,10 @@ func AddRouting(ctx context.Context, dbPath, pbf string, manifest json.RawMessag
 	// multistate validation exceed the host's heap budget.
 	d = routing.Data{}
 	runtime.GC()
+	ctx, err = routing.WithConstructionScratch(ctx, filepath.Dir(dbPath), routing.DefaultConstructionSortRecords)
+	if err != nil {
+		return err
+	}
 	validated, _, err := routing.Load(ctx, tx)
 	if err != nil {
 		return err
@@ -447,10 +451,10 @@ func readRoutingScope(ctx context.Context, path string, source Input, bounds [4]
 		}
 	}
 	// Retain excluded motor-road pieces as snap guards, including barrier approaches.
-	retained := map[string]bool{}
-	for _, seg := range d.Segments {
-		retained[seg.ID] = true
-	}
+	// Both passes visit increasing source way ID, then original vertex ordinal.
+	// Join that order with the included subsequence instead of retaining another
+	// graph-sized set of segment strings. Check that every included piece joins.
+	retained := 0
 	motorIDs := make([]int64, 0, len(motorWays))
 	for id := range motorWays {
 		motorIDs = append(motorIDs, id)
@@ -460,7 +464,8 @@ func readRoutingScope(ctx context.Context, path string, source Input, bounds [4]
 		w := motorWays[id]
 		for i := 1; i < len(w.Nodes); i++ {
 			key := strconv.FormatInt(id, 10) + ":" + strconv.Itoa(i-1)
-			if retained[key] {
+			if retained < len(d.Segments) && d.Segments[retained].ID == key {
+				retained++
 				continue
 			}
 			a, aok := nodes[int64(w.Nodes[i-1].ID)]
@@ -472,6 +477,9 @@ func readRoutingScope(ctx context.Context, path string, source Input, bounds [4]
 				d.Guards = append(d.Guards, routing.Guard{Segment: key, Way: id, From: a.Point, To: b.Point})
 			}
 		}
+	}
+	if retained != len(d.Segments) {
+		return d, fmt.Errorf("included routing segment missing from source-ordered motor ways")
 	}
 	for _, r := range valid {
 		value, _ := restrictionValue(osmTags(r.Tags))
