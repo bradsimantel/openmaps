@@ -6,7 +6,7 @@ evaluations, in addition to the Newport coordinate/address candidate. **It is no
 ready.** Spatial lookup, geometry chains and a recursive junction-cell overlay address
 measured regional search bottlenecks. A complete restriction-aware hierarchy
 and a backend with bounded national construction memory remain unfinished.
-Direct prepared loading is implemented; see [representation and trust boundaries](routing-prepared.md).
+Direct prepared loading and streaming prepared rollback verification are implemented; see [representation and trust boundaries](routing-prepared.md).
 
 The [historical Oregon evaluation](log/0019-routing-scale-and-oregon.md),
 [historical junction/mapping experiment](log/0020-junction-hierarchy-and-mapped-query-data.md), and
@@ -425,4 +425,16 @@ streams only the source records needed to select independently named city/road
 endpoints; it takes `OPENMAPS_NORTHWEST_SEEDS` as a new output path.
 `TestNorthwestI90Sources` takes `OPENMAPS_I90_REPORT` as a new output path for
 source decisions and tagged nodes on the investigated corridor. These opt-in
-tests never acquire data or select a deployment.
+tests never acquire data or select a deployment. The lifetime harness defaults to its
+retained zero-distance route to isolate graph loading. To overlap real search and
+full response geometry with replacement, set `OPENMAPS_LIFETIME_CASE` to an exact
+case name in `OPENMAPS_PERF_CASES`, choosing endpoints supported by both snapshots.
+For the Oregon/multistate pair, `Portland to Ashland I-5 corridor` is such a case.
+Keep these longer-query resource results separate from the default lifecycle test.
+
+The [historical residency investigation](log/0023-routing-residency-and-rollback.md)
+measures the former rollback alias, source-node lookup page use and the complete
+HTTP lifecycle. Removing validation aliases improves process RSS accounting and
+avoids redundant address-space overlap; it does not shrink the immutable graph
+or impose a physical residency bound. The directed-edge/segment representation,
+source-node lookup and per-query labels remain concrete working-set costs.

@@ -183,18 +183,11 @@ func Rollback(ctx context.Context, path string) error { return rollback(ctx, pat
 // RollbackPrepared validates a previously published snapshot without rebuilding.
 func RollbackPrepared(ctx context.Context, path, dir string) error {
 	return rollback(ctx, path, func(ctx context.Context, f File) error {
-		if !filepath.IsAbs(f.Path) || len(f.SHA256) != 64 {
-			return fmt.Errorf("invalid snapshot reference")
-		}
-		if e := importer.Verify(f.Path, f.SHA256); e != nil {
-			return e
-		}
-		s, e := routing.OpenRuntime(ctx, f.Path, dir, false, "")
+		hasRouting, e := routing.VerifyPreparedPublication(ctx, f.Path, f.SHA256, dir)
 		if e != nil {
 			return e
 		}
-		defer s.Close()
-		if s == nil {
+		if !hasRouting {
 			_, e = importer.ReadSnapshot(ctx, f.Path)
 		}
 		return e

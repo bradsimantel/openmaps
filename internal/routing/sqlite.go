@@ -192,9 +192,25 @@ func OpenRuntime(ctx context.Context, path, preparedDir string, legacy bool, cac
 		}
 		return Open(ctx, path)
 	}
-	abs, err := filepath.Abs(path)
+	has, err := snapshotHasRouting(ctx, path)
 	if err != nil {
 		return nil, err
+	}
+	if !has {
+		return nil, nil
+	}
+	if preparedDir == "" {
+		return nil, fmt.Errorf("routing snapshot requires -routing-prepared; run cmd/routing-prepare offline or explicitly select -routing-legacy-load")
+	}
+	return OpenPrepared(ctx, path, preparedDir)
+}
+
+// A partial routing schema also requires prepared validation; it cannot be
+// mistaken for a lookup-only snapshot.
+func snapshotHasRouting(ctx context.Context, path string) (bool, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false, err
 	}
 	u := url.URL{Scheme: "file", Path: abs}
 	q := u.Query()
@@ -202,18 +218,12 @@ func OpenRuntime(ctx context.Context, path, preparedDir string, legacy bool, cac
 	u.RawQuery = q.Encode()
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	defer db.Close()
 	var count int
 	if err = db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('routing_graph','routing_chunks')").Scan(&count); err != nil {
-		return nil, err
+		return false, err
 	}
-	if count == 0 {
-		return nil, nil
-	}
-	if preparedDir == "" {
-		return nil, fmt.Errorf("routing snapshot requires -routing-prepared; run cmd/routing-prepare offline or explicitly select -routing-legacy-load")
-	}
-	return OpenPrepared(ctx, path, preparedDir)
+	return count != 0, nil
 }

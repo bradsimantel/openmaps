@@ -19,15 +19,8 @@ func (s *Store) validatePrepared(ctx context.Context) error {
 	if n == 0 || n > math.MaxInt32 || m == 0 || m > math.MaxInt32 || k == 0 || len(s.offsets) != n+1 || len(s.adjacency) != m || len(s.directions) != k || len(s.continuation) != m || len(s.zones) != k || len(s.components) != n || len(s.junctions) != n {
 		return bad("array dimensions")
 	}
-	if !((s.meta.Version == 1 && s.meta.Profile == "driving-distance-v1") || (s.meta.Version == 2 && s.meta.Profile == "driving-distance-v2") || (s.meta.Version == 3 && s.meta.Profile == "driving-distance-v3") || (s.meta.Version == GraphVersion && s.meta.Profile == Profile && s.meta.CostModel == CostModel)) {
-		return bad("graph/profile/cost version")
-	}
-	if s.meta.Version < GraphVersion && s.meta.CostModel != "" {
-		return bad("legacy cost model")
-	}
-	bounds := s.meta.EndpointBounds
-	if !(Point{bounds[0], bounds[1]}).Valid() || !(Point{bounds[2], bounds[3]}).Valid() || bounds[0] >= bounds[2] || bounds[1] >= bounds[3] {
-		return bad("endpoint bounds")
+	if e := validatePreparedMetadata(s.meta); e != nil {
+		return e
 	}
 	slots := s.prepared.nodes
 	if len(slots) == 0 || len(slots)&(len(slots)-1) != 0 || len(slots) < 2*n {
@@ -283,4 +276,18 @@ func (s *Store) validatePrepared(ctx context.Context) error {
 		return bad("heuristic speed")
 	}
 	return ctx.Err()
+}
+
+func validatePreparedMetadata(meta Metadata) error {
+	if !((meta.Version == 1 && meta.Profile == "driving-distance-v1") || (meta.Version == 2 && meta.Profile == "driving-distance-v2") || (meta.Version == 3 && meta.Profile == "driving-distance-v3") || (meta.Version == GraphVersion && meta.Profile == Profile && meta.CostModel == CostModel)) {
+		return fmt.Errorf("invalid prepared graph/profile/cost version")
+	}
+	if meta.Version < GraphVersion && meta.CostModel != "" {
+		return fmt.Errorf("invalid prepared legacy cost model")
+	}
+	bounds := meta.EndpointBounds
+	if !(Point{bounds[0], bounds[1]}).Valid() || !(Point{bounds[2], bounds[3]}).Valid() || bounds[0] >= bounds[2] || bounds[1] >= bounds[3] {
+		return fmt.Errorf("invalid prepared endpoint bounds")
+	}
+	return nil
 }

@@ -131,7 +131,14 @@ Artifacts and SQLite files must remain immutable while in use. Read leases cover
 search and reconstruction; HTTP deployment leases extend through encoding. Close
 waits for readers, unmaps once, and rejects later queries. Failed unpublished
 loads release mappings. Failed replacement preserves the prior handler and marks
-health degraded. Prepared rollback validates the receipt before changing selection.
+health degraded. Prepared rollback streams the selected SQLite file and complete artifact against
+that receipt before changing selection, using a 1 MiB buffer and no query mapping.
+It checks the selected source digest, receipt format, graph/profile/cost metadata
+and publication binding. This verifies equality to an already canonical trusted
+publication; it does not approve a new caller-supplied artifact. Deep structural
+checks remain at offline preparation and runtime loading before handler publication.
+Lookup-only rollback still performs complete lookup validation. Cancellation or a
+failed publication check leaves the selected state and serving mapping unchanged.
 
 ## Measurement and remaining gates
 
@@ -140,7 +147,10 @@ records phase measurements, predeclared budgets, all three regional workloads an
 lifecycle verification. These are desktop file-cache observations. Integrity
 validation reads every page, so subsequent first requests are not cold-disk tests.
 `MADV_DONTNEED` is only a residency hint; it does not establish a cold system cache.
-A controlled cold-cache host experiment remains unperformed.
+A controlled cold-cache host experiment remains unperformed. The subsequent
+[historical residency investigation](log/0023-routing-residency-and-rollback.md)
+distinguishes duplicate mapping aliases from clean file residency and replaces
+rollback's temporary query mapping with streaming publication verification.
 
 The mapped virtual size, process RSS and macOS physical footprint describe
 different resources. Mapping does not impose a hard physical-memory bound, and
@@ -160,3 +170,48 @@ each case. This is only an offline correctness-check budget. It does not change
 HTTP timeouts, cancellation, search results or numerical tolerance. The retained
 exhaustive multistate reference run required a larger allowance under desktop
 memory pressure; that observation is distinct from the normal HTTP workload.
+
+## Reproduce residency observations
+
+`scripts/routing-residency.py` runs one command at a time and records macOS
+`proc_pid_rusage` v2 samples: process RSS, charged footprint, pageins and storage
+read/write bytes. It also captures read-only host VM, swap and memory-pressure
+queries before and after the run. It uses Python's standard library and the local
+macOS SDK's `sys/resource.h` layout. Output must be a new directory under `data/`.
+For example, from the repository root:
+
+```sh
+go test -c -tags=integration -o data/residency-routing.test ./internal/routing
+OPENMAPS_PREPARED="$PWD/data/prepared-scale/published" \
+OPENMAPS_PERF_DB="$PWD/data/recursive-scale/northwest-candidate.sqlite" \
+OPENMAPS_PERF_CASES="$PWD/internal/routing/testdata/northwest.json" \
+OPENMAPS_RESIDENCY_OUT="$PWD/data/residency-query-snapshots" \
+OPENMAPS_RESIDENCY_VERIFY=1 GOMEMLIMIT=3GiB GOGC=50 \
+python3 scripts/routing-residency.py data/residency-query-run \
+  data/residency-routing.test -test.run '^TestPreparedResidency$' -test.v
+```
+
+The diagnostic test captures heap, cumulative allocations, Go reservations,
+faults, `ps` virtual/RSS values, `vmmap` aliases and `footprint` clean/dirty/swapped
+categories around loading, verification, first/repeated routes and retirement.
+Without `OPENMAPS_RESIDENCY_VERIFY=1`, it deliberately reproduces the former
+second validation mapping. Its query outcomes are diagnostic; the retained
+source suites separately assert route correctness. On Linux the test captures
+`smaps` and `vmstat`; the Python process sampler currently requires macOS.
+
+The same Python wrapper can run the real HTTP and temporary deployment lifetime
+tests described in [routing scale](routing-scale.md). Set
+`OPENMAPS_RESIDENCY_MAPS=1` for periodic `vmmap`/`footprint` snapshots. These probes
+perturb latency and delay the nominal 100 ms sampler; timestamps are recorded.
+Use separate runs without these probes for latency. Samples are observations,
+not guaranteed lifetime maxima or enforceable budgets.
+
+Clean mapped-file bytes reported by `footprint` help distinguish aliases from
+physical file residency. They exclude unrelated file-cache pages and are not total
+unique system memory. RSS can count the same file page more than once; charged
+footprint excludes much clean file memory. Go's much larger virtual reservation
+also differs from the explicit artifact size. Faults do not by themselves measure
+storage reads. Host swap/compression counters include unrelated applications.
+Neither `GOMEMLIMIT`, mmap nor `MADV_DONTNEED` establishes a process physical-memory
+cap or a cold system cache. No host-wide cache purge or pressure generation is
+performed by these harnesses.

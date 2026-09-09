@@ -354,3 +354,11 @@ verifies source/artifact digests against trusted offline receipts and loads pers
 query structures without reconstructing the graph. Use `refresh rollback -routing-prepared DIR` to validate prepared rollback snapshots through the same
 boundary. Missing or invalid artifacts fail without a legacy fallback. Lookup-only
 snapshots remain supported. See [prepared snapshots](routing-prepared.md).
+
+Prepared rollback now verifies the complete source/artifact publication with a
+bounded streaming buffer, without opening another mapping of a serving graph.
+The trusted offline receipt still authorizes the canonical artifact; the runtime
+checks structure before publishing any changed handler. Selection remains atomic,
+and a failed check preserves the current state and serving responses. See
+[prepared verification and residency measurement](routing-prepared.md) and the
+[historical residency investigation](log/0023-routing-residency-and-rollback.md).

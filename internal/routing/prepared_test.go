@@ -269,3 +269,104 @@ func TestPreparedSourcePublication(t *testing.T) {
 		t.Fatal("foreign snapshot accepted")
 	}
 }
+
+func TestVerifyPreparedPublication(t *testing.T) {
+	for _, mode := range []string{"valid", "cancel before", "cancel source", "cancel artifact", "corrupt", "foreign source", "foreign artifact", "missing receipt", "receipt version", "graph version", "cost version", "summary", "partial schema"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx := context.Background()
+			db := writeFixture(t, persistedFixture())
+			var seq int
+			var name, path string
+			if err := db.QueryRow("PRAGMA database_list").Scan(&seq, &name, &path); err != nil {
+				t.Fatal(err)
+			}
+			s, _, err := Load(ctx, db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			sum, err := hashFile(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			r, err := s.PublishPrepared(ctx, path, sum, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact := filepath.Join(dir, r.Artifact)
+			// Hold the exact publication live. Validation must not borrow or close it.
+			live, err := OpenPrepared(ctx, path, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer live.Close()
+			before := live.MappedBytes()
+			switch mode {
+			case "corrupt":
+				// Replace the pathname, never modify the inode held by a live map.
+				raw, _ := os.ReadFile(artifact)
+				raw[len(raw)-1] ^= 1
+				if err := os.Remove(artifact); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(artifact, raw, 0400); err != nil {
+					t.Fatal(err)
+				}
+			case "foreign source":
+				sum = Digest([]byte("foreign"))
+			case "foreign artifact":
+				r.ArtifactSHA256 = Digest([]byte("foreign"))
+			case "receipt version":
+				r.Version = "future"
+			case "graph version":
+				r.Summary.Metadata.Version = 99
+			case "cost version":
+				r.Summary.Metadata.CostModel = "future"
+			case "summary":
+				r.Summary = nil
+			case "partial schema":
+				if _, err := db.Exec("DROP TABLE routing_graph"); err != nil {
+					t.Fatal(err)
+				}
+				sum, _ = hashFile(ctx, path)
+			}
+			if mode == "missing receipt" {
+				os.Remove(filepath.Join(dir, r.SnapshotSHA256+".json"))
+			} else {
+				raw, _ := json.Marshal(r)
+				os.Chmod(filepath.Join(dir, r.SnapshotSHA256+".json"), 0600)
+				if err := os.WriteFile(filepath.Join(dir, r.SnapshotSHA256+".json"), raw, 0400); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			if mode == "cancel before" {
+				cancel()
+			}
+			ctx = WithLoadObserver(ctx, func(p LoadPhase) {
+				if p.Name == "mapping" {
+					t.Fatal("publication verifier created a mapping")
+				}
+				if mode == "cancel source" && p.Name == "publication source integrity" || mode == "cancel artifact" && p.Name == "publication artifact integrity" {
+					cancel()
+				}
+			})
+			has, err := VerifyPreparedPublication(ctx, path, sum, dir)
+			if mode == "valid" && (err != nil || !has) {
+				t.Fatalf("valid publication: %t %v", has, err)
+			}
+			if mode != "valid" && err == nil {
+				t.Fatal("accepted", mode)
+			}
+			if live.MappedBytes() != before {
+				t.Fatal("verifier changed serving mapping ownership")
+			}
+			d := persistedFixture()
+			if _, err := live.Route(context.Background(), d.Nodes[0].Point, d.Nodes[1].Point); err != nil {
+				t.Fatal("serving snapshot invalidated", err)
+			}
+		})
+	}
+}

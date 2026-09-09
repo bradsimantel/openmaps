@@ -425,19 +425,74 @@ func OpenPrepared(ctx context.Context, snapshot, dir string) (*Store, error) {
 	if e != nil {
 		return nil, e
 	}
-	raw, e := readLimited(filepath.Join(dir, digest+".json"), 1<<20)
+	r, e := readPreparedReceipt(dir, digest)
 	if e != nil {
-		return nil, fmt.Errorf("prepared receipt required (run cmd/routing-prepare offline): %w", e)
-	}
-	var r PreparedReceipt
-	if e = json.Unmarshal(raw, &r); e != nil {
 		return nil, e
-	}
-	if r.Version != PreparedVersion || r.SnapshotSHA256 != digest || r.Artifact != filepath.Base(r.Artifact) || r.Artifact == "" || len(r.ArtifactSHA256) != 64 || len(r.GraphSHA256) != 64 {
-		return nil, fmt.Errorf("invalid prepared publication receipt")
 	}
 	return openPreparedArtifact(ctx, filepath.Join(dir, r.Artifact), r)
 }
+
+func readPreparedReceipt(dir, digest string) (PreparedReceipt, error) {
+	var r PreparedReceipt
+	raw, e := readLimited(filepath.Join(dir, digest+".json"), 1<<20)
+	if e != nil {
+		return r, fmt.Errorf("prepared receipt required (run cmd/routing-prepare offline): %w", e)
+	}
+	if e = json.Unmarshal(raw, &r); e != nil {
+		return r, e
+	}
+	if r.Version != PreparedVersion || r.SnapshotSHA256 != digest || r.Artifact != filepath.Base(r.Artifact) || r.Artifact == "" || len(r.ArtifactSHA256) != 64 || len(r.GraphSHA256) != 64 {
+		return r, fmt.Errorf("invalid prepared publication receipt")
+	}
+	if r.Summary == nil || r.Summary.SHA256 != r.GraphSHA256 {
+		return r, fmt.Errorf("missing prepared source summary")
+	}
+	if e = validatePreparedMetadata(r.Summary.Metadata); e != nil {
+		return r, e
+	}
+	return r, nil
+}
+
+// VerifyPreparedPublication verifies a selection against the trusted offline
+// publication without creating query mappings or reconstructing the graph.
+// It returns false for lookup-only snapshots, whose caller must still validate
+// lookup semantics. expected is the selected whole-file source SHA-256.
+// Complete source/artifact hashes establish equality to the canonical publication;
+// query structure is checked by OpenPrepared before any runtime publication.
+// Sources, artifacts and receipts must remain immutable, as for OpenPrepared.
+func VerifyPreparedPublication(ctx context.Context, snapshot, expected, dir string) (bool, error) {
+	if !filepath.IsAbs(snapshot) || len(expected) != 64 {
+		return false, fmt.Errorf("invalid snapshot reference")
+	}
+	done := loadPhase(ctx, "publication source integrity")
+	digest, e := hashFile(ctx, snapshot)
+	done()
+	if e != nil {
+		return false, e
+	}
+	if digest != expected {
+		return false, fmt.Errorf("snapshot differs from selected digest")
+	}
+	has, e := snapshotHasRouting(ctx, snapshot)
+	if e != nil || !has {
+		return false, e
+	}
+	r, e := readPreparedReceipt(dir, digest)
+	if e != nil {
+		return false, e
+	}
+	done = loadPhase(ctx, "publication artifact integrity")
+	digest, e = hashFile(ctx, filepath.Join(dir, r.Artifact))
+	done()
+	if e != nil {
+		return false, e
+	}
+	if digest != r.ArtifactSHA256 {
+		return false, fmt.Errorf("prepared artifact differs from trusted publication digest")
+	}
+	return true, ctx.Err()
+}
+
 func readLimited(path string, limit int64) ([]byte, error) {
 	f, e := os.Open(path)
 	if e != nil {

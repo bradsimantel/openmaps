@@ -28,6 +28,13 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 		t.Skip("set lifetime snapshot paths")
 	}
 	ctx := context.Background()
+	started := time.Now()
+	phase := func(name string) {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		t.Logf("LIFECYCLE phase=%s elapsed_s=%.3f heap_bytes=%d allocated_bytes=%d go_sys_bytes=%d", name, time.Since(started).Seconds(), m.HeapAlloc, m.TotalAlloc, m.Sys)
+	}
+	phase("start")
 	bf, err := Describe(base)
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +57,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer live.Close()
+	phase("loaded")
 	old := live.router
 	oldMapped := old.MappedBytes()
 	server := httptest.NewServer(api.RoutingAdmission(live, 4))
@@ -58,8 +66,56 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if old.Metadata().EndpointBounds[0] > -100 {
 		point = routing.Point{-71.31373108, 41.49138952}
 	}
-	wp := map[string]any{"location": map[string]any{"latLng": map[string]float64{"longitude": point[0], "latitude": point[1]}}}
-	body, _ := json.Marshal(map[string]any{"origin": wp, "destination": wp, "polylineEncoding": "GEO_JSON_LINESTRING"})
+	origin, destination := point, point
+	if name := os.Getenv("OPENMAPS_LIFETIME_CASE"); name != "" {
+		raw, err := os.ReadFile(os.Getenv("OPENMAPS_PERF_CASES"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cases []struct {
+			Name                string
+			Origin, Destination routing.Point
+		}
+		if err := json.Unmarshal(raw, &cases); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, c := range cases {
+			if c.Name == name {
+				origin, destination, found = c.Origin, c.Destination, true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("lifetime case not found", name)
+		}
+		t.Logf("LIFECYCLE workload=%q complete_geometry=true", name)
+	}
+	// Prepared fixtures declare candidate coverage explicitly. The original
+	// Newport-to-Oregon diagnostic assumption does not cover same-region cycles.
+	candidateOutside := point[0] > -100
+	if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
+		raw, err := os.ReadFile(filepath.Join(dir, nf.SHA256+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var receipt routing.PreparedReceipt
+		if err := json.Unmarshal(raw, &receipt); err != nil {
+			t.Fatal(err)
+		}
+		if receipt.Summary == nil {
+			t.Fatal("missing candidate summary")
+		}
+		bounds := receipt.Summary.Metadata.EndpointBounds
+		outside := func(p routing.Point) bool {
+			return p[0] < bounds[0] || p[0] > bounds[2] || p[1] < bounds[1] || p[1] > bounds[3]
+		}
+		candidateOutside = outside(origin) || outside(destination)
+	}
+	wp := func(p routing.Point) any {
+		return map[string]any{"location": map[string]any{"latLng": map[string]float64{"longitude": p[0], "latitude": p[1]}}}
+	}
+	body, _ := json.Marshal(map[string]any{"origin": wp(origin), "destination": wp(destination), "polylineEncoding": "GEO_JSON_LINESTRING"})
 	timeout := 90 * time.Second
 	if value := os.Getenv("OPENMAPS_LIFETIME_TIMEOUT"); value != "" {
 		var err error
@@ -71,7 +127,14 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	client := &http.Client{Timeout: timeout}
 	request := func() error {
 		r, _ := http.NewRequest("POST", server.URL+"/directions/v2:computeRoutes", bytes.NewReader(body))
-		r.Header.Set("X-Goog-FieldMask", "routes.distanceMeters,routes.duration")
+		mask := "routes.distanceMeters"
+		if old.HasDuration() {
+			mask += ",routes.duration"
+		}
+		if os.Getenv("OPENMAPS_LIFETIME_CASE") != "" {
+			mask += ",routes.polyline"
+		}
+		r.Header.Set("X-Goog-FieldMask", mask)
 		res, e := client.Do(r)
 		if e != nil {
 			return e
@@ -94,7 +157,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 			return fmt.Errorf("old snapshot response mismatch: %s", raw)
 		}
 		if hash == nf.SHA256 && hash != bf.SHA256 {
-			if point[0] > -100 {
+			if candidateOutside {
 				if res.StatusCode != 400 || meta["outcome"] != "outside_coverage" {
 					return fmt.Errorf("new snapshot response mismatch: %s", raw)
 				}
@@ -107,6 +170,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := request(); err != nil {
 		t.Fatal(err)
 	}
+	phase("first_http")
 	stop := make(chan struct{})
 	errs := make(chan error, 4)
 	var workers sync.WaitGroup
@@ -201,6 +265,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := request(); err != nil {
 		t.Fatal(err)
 	}
+	phase("replacement_retired")
 	// Corrupt selection is isolated to this temporary state, never the source files.
 	badPath := filepath.Join(filepath.Dir(state), "bad.sqlite")
 	os.WriteFile(badPath, []byte("not sqlite"), 0600)
@@ -219,6 +284,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := request(); err != nil {
 		t.Fatal("failure invalidated previous snapshot", err)
 	}
+	phase("before_failed_selection_rollback")
 	if err := func() error {
 		if dir := os.Getenv("OPENMAPS_PREPARED"); dir != "" {
 			return RollbackPrepared(ctx, state, dir)
@@ -230,6 +296,7 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := request(); err != nil {
 		t.Fatal(err)
 	}
+	phase("failed_selection_rollback_complete")
 	// Restore the actual baseline too, exercising graph and address-domain rollback.
 	if err := Change(state, func(s *State) error { s.Previous = &bf; return nil }); err != nil {
 		t.Fatal(err)
@@ -245,5 +312,6 @@ func TestRegionalSnapshotLifetime(t *testing.T) {
 	if err := request(); err != nil {
 		t.Fatal(err)
 	}
+	phase("baseline_rollback_complete")
 	runtime.KeepAlive(old)
 }
