@@ -31,6 +31,7 @@ type ScoutLock struct {
 }
 type ScoutPackage struct {
 	ID     string      `json:"id"`
+	MD5    string      `json:"md5,omitempty"`
 	Bytes  int64       `json:"bytes"`
 	SHA256 string      `json:"sha256"`
 	Tiles  []ScoutTile `json:"tiles"`

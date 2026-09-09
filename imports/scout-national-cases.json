@@ -1,0 +1,1245 @@
+[
+  {
+    "name": "AL Birmingham",
+    "state": "AL",
+    "kind": "urban",
+    "from": [
+      -86.8025,
+      33.5207
+    ],
+    "to": [
+      -86.7875,
+      33.5287
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "AK Anchorage",
+    "state": "AK",
+    "kind": "urban",
+    "from": [
+      -149.9003,
+      61.2181
+    ],
+    "to": [
+      -149.8853,
+      61.2261
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "AZ Phoenix",
+    "state": "AZ",
+    "kind": "urban",
+    "from": [
+      -112.074,
+      33.4484
+    ],
+    "to": [
+      -112.059,
+      33.4564
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "AR Little Rock",
+    "state": "AR",
+    "kind": "urban",
+    "from": [
+      -92.2896,
+      34.7465
+    ],
+    "to": [
+      -92.27459999999999,
+      34.7545
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "CA Sacramento",
+    "state": "CA",
+    "kind": "urban",
+    "from": [
+      -121.4944,
+      38.5816
+    ],
+    "to": [
+      -121.4794,
+      38.589600000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "CO Denver",
+    "state": "CO",
+    "kind": "urban",
+    "from": [
+      -104.9903,
+      39.7392
+    ],
+    "to": [
+      -104.9753,
+      39.7472
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "CT Hartford",
+    "state": "CT",
+    "kind": "urban",
+    "from": [
+      -72.6851,
+      41.7637
+    ],
+    "to": [
+      -72.6701,
+      41.7717
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "DE Dover",
+    "state": "DE",
+    "kind": "urban",
+    "from": [
+      -75.5244,
+      39.1582
+    ],
+    "to": [
+      -75.5094,
+      39.1662
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "DC Washington",
+    "state": "DC",
+    "kind": "urban",
+    "from": [
+      -77.0319,
+      38.9072
+    ],
+    "to": [
+      -77.01689999999999,
+      38.915200000000006
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "FL Orlando",
+    "state": "FL",
+    "kind": "urban",
+    "from": [
+      -81.3792,
+      28.5383
+    ],
+    "to": [
+      -81.3642,
+      28.5463
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "GA Atlanta",
+    "state": "GA",
+    "kind": "urban",
+    "from": [
+      -84.388,
+      33.749
+    ],
+    "to": [
+      -84.373,
+      33.757000000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "HI Honolulu",
+    "state": "HI",
+    "kind": "urban",
+    "from": [
+      -157.85822,
+      21.305
+    ],
+    "to": [
+      -157.84330000000003,
+      21.314899999999998
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "ID Boise",
+    "state": "ID",
+    "kind": "urban",
+    "from": [
+      -116.2023,
+      43.615
+    ],
+    "to": [
+      -116.1963,
+      43.617000000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "IL Springfield",
+    "state": "IL",
+    "kind": "urban",
+    "from": [
+      -89.6501,
+      39.7817
+    ],
+    "to": [
+      -89.6351,
+      39.7897
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "IN Indianapolis",
+    "state": "IN",
+    "kind": "urban",
+    "from": [
+      -86.1581,
+      39.7684
+    ],
+    "to": [
+      -86.1431,
+      39.7764
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "IA Des Moines",
+    "state": "IA",
+    "kind": "urban",
+    "from": [
+      -93.6091,
+      41.6005
+    ],
+    "to": [
+      -93.5941,
+      41.6085
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "KS Wichita",
+    "state": "KS",
+    "kind": "urban",
+    "from": [
+      -97.3301,
+      37.6872
+    ],
+    "to": [
+      -97.3151,
+      37.6952
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "KY Lexington",
+    "state": "KY",
+    "kind": "urban",
+    "from": [
+      -84.5037,
+      38.0406
+    ],
+    "to": [
+      -84.4887,
+      38.0486
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "LA Baton Rouge",
+    "state": "LA",
+    "kind": "urban",
+    "from": [
+      -91.1871,
+      30.4515
+    ],
+    "to": [
+      -91.1721,
+      30.4595
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "ME Portland",
+    "state": "ME",
+    "kind": "urban",
+    "from": [
+      -70.2553,
+      43.6615
+    ],
+    "to": [
+      -70.2403,
+      43.6695
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "MD Baltimore",
+    "state": "MD",
+    "kind": "urban",
+    "from": [
+      -76.6122,
+      39.2904
+    ],
+    "to": [
+      -76.5972,
+      39.2984
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "MA Boston",
+    "state": "MA",
+    "kind": "urban",
+    "from": [
+      -71.0601,
+      42.3551
+    ],
+    "to": [
+      -71.119,
+      42.3736
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "MI Lansing",
+    "state": "MI",
+    "kind": "urban",
+    "from": [
+      -84.5555,
+      42.7325
+    ],
+    "to": [
+      -84.5405,
+      42.740500000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "MN Minneapolis",
+    "state": "MN",
+    "kind": "urban",
+    "from": [
+      -93.265,
+      44.9778
+    ],
+    "to": [
+      -93.25,
+      44.985800000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "MS Jackson",
+    "state": "MS",
+    "kind": "urban",
+    "from": [
+      -90.1848,
+      32.2988
+    ],
+    "to": [
+      -90.1698,
+      32.3068
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "MO Columbia",
+    "state": "MO",
+    "kind": "urban",
+    "from": [
+      -92.3341,
+      38.9517
+    ],
+    "to": [
+      -92.3191,
+      38.959700000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "MT Helena",
+    "state": "MT",
+    "kind": "urban",
+    "from": [
+      -112.0391,
+      46.5891
+    ],
+    "to": [
+      -112.0241,
+      46.597100000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "NE Lincoln",
+    "state": "NE",
+    "kind": "urban",
+    "from": [
+      -96.7026,
+      40.8136
+    ],
+    "to": [
+      -96.6876,
+      40.821600000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "NV Reno",
+    "state": "NV",
+    "kind": "urban",
+    "from": [
+      -119.8138,
+      39.5296
+    ],
+    "to": [
+      -119.7988,
+      39.537600000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "NH Concord",
+    "state": "NH",
+    "kind": "urban",
+    "from": [
+      -71.5376,
+      43.2081
+    ],
+    "to": [
+      -71.5316,
+      43.210100000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "NJ Trenton",
+    "state": "NJ",
+    "kind": "urban",
+    "from": [
+      -74.7429,
+      40.2171
+    ],
+    "to": [
+      -74.7279,
+      40.225100000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "NM Albuquerque",
+    "state": "NM",
+    "kind": "urban",
+    "from": [
+      -106.6504,
+      35.0844
+    ],
+    "to": [
+      -106.6354,
+      35.092400000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "NY Albany",
+    "state": "NY",
+    "kind": "urban",
+    "from": [
+      -73.7562,
+      42.6526
+    ],
+    "to": [
+      -73.7412,
+      42.6606
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "NC Raleigh",
+    "state": "NC",
+    "kind": "urban",
+    "from": [
+      -78.6382,
+      35.7796
+    ],
+    "to": [
+      -78.6232,
+      35.787600000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "ND Bismarck",
+    "state": "ND",
+    "kind": "urban",
+    "from": [
+      -100.7837,
+      46.8083
+    ],
+    "to": [
+      -100.7687,
+      46.816300000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "OH Columbus",
+    "state": "OH",
+    "kind": "urban",
+    "from": [
+      -82.9988,
+      39.9612
+    ],
+    "to": [
+      -82.9838,
+      39.9692
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "OK Oklahoma City",
+    "state": "OK",
+    "kind": "urban",
+    "from": [
+      -97.5164,
+      35.4676
+    ],
+    "to": [
+      -97.5014,
+      35.4756
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "OR Salem",
+    "state": "OR",
+    "kind": "urban",
+    "from": [
+      -123.0351,
+      44.9429
+    ],
+    "to": [
+      -123.0201,
+      44.950900000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "PA Harrisburg",
+    "state": "PA",
+    "kind": "urban",
+    "from": [
+      -76.8867,
+      40.2732
+    ],
+    "to": [
+      -76.8717,
+      40.281200000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "RI Newport",
+    "state": "RI",
+    "kind": "urban",
+    "from": [
+      -71.31373108,
+      41.49138952
+    ],
+    "to": [
+      -71.29873108,
+      41.49938952
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "SC Columbia",
+    "state": "SC",
+    "kind": "urban",
+    "from": [
+      -81.0348,
+      34.0007
+    ],
+    "to": [
+      -81.0198,
+      34.008700000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "SD Pierre",
+    "state": "SD",
+    "kind": "urban",
+    "from": [
+      -100.351,
+      44.3683
+    ],
+    "to": [
+      -100.345,
+      44.3703
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "TN Nashville",
+    "state": "TN",
+    "kind": "urban",
+    "from": [
+      -86.7816,
+      36.1627
+    ],
+    "to": [
+      -86.7666,
+      36.170700000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "TX Austin",
+    "state": "TX",
+    "kind": "urban",
+    "from": [
+      -97.7431,
+      30.2672
+    ],
+    "to": [
+      -97.7281,
+      30.275199999999998
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "UT Salt Lake City",
+    "state": "UT",
+    "kind": "urban",
+    "from": [
+      -111.891,
+      40.7608
+    ],
+    "to": [
+      -111.876,
+      40.768800000000006
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "VT Montpelier",
+    "state": "VT",
+    "kind": "urban",
+    "from": [
+      -72.5754,
+      44.2601
+    ],
+    "to": [
+      -72.5604,
+      44.268100000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "VA Richmond",
+    "state": "VA",
+    "kind": "urban",
+    "from": [
+      -77.436,
+      37.5407
+    ],
+    "to": [
+      -77.421,
+      37.548700000000004
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "WA Olympia",
+    "state": "WA",
+    "kind": "urban",
+    "from": [
+      -122.9007,
+      47.0379
+    ],
+    "to": [
+      -122.8857,
+      47.0459
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "WV Charleston",
+    "state": "WV",
+    "kind": "urban",
+    "from": [
+      -81.6326,
+      38.3498
+    ],
+    "to": [
+      -81.6176,
+      38.357800000000005
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "WI Madison",
+    "state": "WI",
+    "kind": "urban",
+    "from": [
+      -89.4012,
+      43.0731
+    ],
+    "to": [
+      -89.3862,
+      43.0811
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "WY Cheyenne",
+    "state": "WY",
+    "kind": "urban",
+    "from": [
+      -104.8202,
+      41.14
+    ],
+    "to": [
+      -104.8052,
+      41.148
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "NV Austin to Eureka",
+    "state": "NV",
+    "kind": "rural",
+    "from": [
+      -117.069,
+      39.493
+    ],
+    "to": [
+      -115.9606,
+      39.5127
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "MT Havre to Chinook",
+    "state": "MT",
+    "kind": "rural",
+    "from": [
+      -109.6841,
+      48.55
+    ],
+    "to": [
+      -109.2313,
+      48.59
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "ME Rangeley to Farmington",
+    "state": "ME",
+    "kind": "rural",
+    "from": [
+      -70.642,
+      44.965
+    ],
+    "to": [
+      -70.151,
+      44.67
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "ND Rugby to Bottineau",
+    "state": "ND",
+    "kind": "rural",
+    "from": [
+      -99.9962,
+      48.3689
+    ],
+    "to": [
+      -100.4458,
+      48.8272
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "TX Marfa to Alpine",
+    "state": "TX",
+    "kind": "rural",
+    "from": [
+      -104.0206,
+      30.3095
+    ],
+    "to": [
+      -103.661,
+      30.3585
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "AK Fairbanks to Delta Junction",
+    "state": "AK",
+    "kind": "rural",
+    "from": [
+      -147.7164,
+      64.8378
+    ],
+    "to": [
+      -145.7326,
+      64.0377
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "HI Hilo to Volcano",
+    "state": "HI",
+    "kind": "rural",
+    "from": [
+      -155.089,
+      19.7241
+    ],
+    "to": [
+      -155.2356,
+      19.4293
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "AK Utqiagvik local",
+    "state": "AK",
+    "kind": "high-latitude",
+    "from": [
+      -156.7886,
+      71.2906
+    ],
+    "to": [
+      -156.762,
+      71.301
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "AK Unalaska local",
+    "state": "AK",
+    "kind": "island",
+    "from": [
+      -166.5376,
+      53.872
+    ],
+    "to": [
+      -166.5359,
+      53.8898
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "AK Adak local",
+    "state": "AK",
+    "kind": "aleutian",
+    "from": [
+      -176.648373,
+      51.880077
+    ],
+    "to": [
+      -176.661584,
+      51.880675
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "Honolulu to Hilo",
+    "state": "",
+    "kind": "disconnected",
+    "from": [
+      -157.85822,
+      21.305
+    ],
+    "to": [
+      -155.089,
+      19.7241
+    ],
+    "reference": false,
+    "expect": "unreachable"
+  },
+  {
+    "name": "Utqiagvik to Anchorage",
+    "state": "",
+    "kind": "disconnected",
+    "from": [
+      -156.7886,
+      71.2906
+    ],
+    "to": [
+      -149.9003,
+      61.2181
+    ],
+    "reference": false,
+    "expect": "unreachable"
+  },
+  {
+    "name": "Portland OR to Vancouver WA",
+    "state": "",
+    "kind": "state-border",
+    "from": [
+      -122.6765,
+      45.5231
+    ],
+    "to": [
+      -122.675,
+      45.628
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "New York to Newark",
+    "state": "",
+    "kind": "state-border",
+    "from": [
+      -74.006,
+      40.7128
+    ],
+    "to": [
+      -74.1724,
+      40.7357
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "Point Roberts to Blaine through Canada",
+    "state": "",
+    "kind": "canadian-detour",
+    "from": [
+      -123.0682,
+      48.9855
+    ],
+    "to": [
+      -122.7469,
+      48.9938
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "Laredo to Brownsville",
+    "state": "",
+    "kind": "texas-border-road",
+    "from": [
+      -99.5075,
+      27.5064
+    ],
+    "to": [
+      -97.4975,
+      25.9017
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "San Diego to Tijuana",
+    "state": "",
+    "kind": "mexican-border",
+    "from": [
+      -117.1611,
+      32.7157
+    ],
+    "to": [
+      -117.0382,
+      32.5149
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "Anchorage to Seattle",
+    "state": "",
+    "kind": "long-alaska",
+    "from": [
+      -149.9003,
+      61.2181
+    ],
+    "to": [
+      -122.3331,
+      47.6062
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "Los Angeles to Boston",
+    "state": "",
+    "kind": "long-coast",
+    "from": [
+      -118.2437,
+      34.0522
+    ],
+    "to": [
+      -71.0601,
+      42.3551
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "Seattle to Miami",
+    "state": "",
+    "kind": "long-coast",
+    "from": [
+      -122.3331,
+      47.6062
+    ],
+    "to": [
+      -80.1918,
+      25.7617
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "Chicago to San Francisco (former holdout)",
+    "state": "",
+    "kind": "long-tuning",
+    "from": [
+      -87.6298,
+      41.8781
+    ],
+    "to": [
+      -122.4194,
+      37.7749
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "HI Honolulu original unsnappable request",
+    "state": "",
+    "kind": "snap-limit",
+    "from": [
+      -157.8583,
+      21.3069
+    ],
+    "to": [
+      -157.84330000000003,
+      21.314899999999998
+    ],
+    "reference": false,
+    "expect": "unsnappable"
+  },
+  {
+    "name": "ID Boise original unsnappable request",
+    "state": "",
+    "kind": "snap-limit",
+    "from": [
+      -116.2023,
+      43.615
+    ],
+    "to": [
+      -116.1873,
+      43.623000000000005
+    ],
+    "reference": false,
+    "expect": "unsnappable"
+  },
+  {
+    "name": "MA Boston original unsnappable request",
+    "state": "",
+    "kind": "snap-limit",
+    "from": [
+      -71.0601,
+      42.3551
+    ],
+    "to": [
+      -71.0451,
+      42.3631
+    ],
+    "reference": false,
+    "expect": "unsnappable"
+  },
+  {
+    "name": "NH Concord original unsnappable request",
+    "state": "",
+    "kind": "snap-limit",
+    "from": [
+      -71.5376,
+      43.2081
+    ],
+    "to": [
+      -71.5226,
+      43.216100000000004
+    ],
+    "reference": false,
+    "expect": "unsnappable"
+  },
+  {
+    "name": "SD Pierre original unsnappable request",
+    "state": "",
+    "kind": "snap-limit",
+    "from": [
+      -100.351,
+      44.3683
+    ],
+    "to": [
+      -100.336,
+      44.3763
+    ],
+    "reference": false,
+    "expect": "unsnappable"
+  },
+  {
+    "name": "Adak original off-road points",
+    "state": "",
+    "kind": "snap-limit",
+    "from": [
+      -176.6514,
+      51.88
+    ],
+    "to": [
+      -176.646,
+      51.8845
+    ],
+    "reference": false,
+    "expect": "unsnappable"
+  },
+  {
+    "name": "Tijuana to Yuma Mexican detour return leg",
+    "state": "",
+    "kind": "mexican-detour-via-tijuana",
+    "from": [
+      -117.0382,
+      32.5149
+    ],
+    "to": [
+      -114.6277,
+      32.6927
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "Reno to Cleveland held out",
+    "kind": "long-held-out",
+    "from": [
+      -119.8138,
+      39.5296
+    ],
+    "to": [
+      -81.6944,
+      41.4993
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "Dallas to Washington DC held out",
+    "kind": "long-held-out",
+    "from": [
+      -96.797,
+      32.7767
+    ],
+    "to": [
+      -77.0369,
+      38.9072
+    ],
+    "reference": false,
+    "expect": "routed"
+  },
+  {
+    "name": "Shemya eastern hemisphere source-profile roads",
+    "state": "AK",
+    "kind": "positive-aleutian",
+    "from": [
+      174.082093,
+      52.729287
+    ],
+    "to": [
+      174.150464,
+      52.710423
+    ],
+    "reference": true,
+    "expect": "routed"
+  },
+  {
+    "name": "Attu eastern hemisphere source-profile roads",
+    "state": "AK",
+    "kind": "positive-aleutian",
+    "from": [
+      173.18946499999998,
+      52.838091999999996
+    ],
+    "to": [
+      173.16963099999998,
+      52.880188
+    ],
+    "reference": true,
+    "expect": "routed"
+  }
+]

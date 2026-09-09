@@ -1,6 +1,11 @@
 package valhallatiles
 
-import "fmt"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+)
 
 type TileAudit struct {
 	Package, Version                              string
@@ -10,6 +15,9 @@ type TileAudit struct {
 	CreatedDaysSince2014                          uint32
 }
 type Audit struct {
+	Snaps                                                                                                                                         []SnapAudit
+	GeometryMismatches, AllowedGeometryMismatches                                                                                                 int
+	GeometryExamples                                                                                                                              []GeometryMismatch
 	GeometryMaxEndpointGapEdge                                                                                                                    ID
 	NodeTypes, RoadClasses, RoadUses, Surfaces, Speeds                                                                                            map[uint8]int
 	PrivateNodes, TaggedAccessNodes, AutoBlockedNodes                                                                                             int
@@ -22,6 +30,22 @@ type Audit struct {
 	GeometryMaxEndpointGapMeters                                                                                                                  float64
 }
 
+type SnapAudit struct {
+	lonDegrees        float64
+	Requested         Point
+	Indexed, FullScan *Snap
+	IndexedError      string `json:",omitempty"`
+	NearestMatches    bool
+}
+
+type GeometryMismatch struct {
+	Edge                             ID
+	Way                              uint64
+	Allowed                          bool
+	GapMeters                        float64
+	Start, End, ShapeStart, ShapeEnd Point
+}
+
 // Audit scans bounded tiles and resolves every node, edge, opposing edge and
 // transition reference. It does not establish OSM source fidelity or legality.
 func (s *Router) Audit() (Audit, error) { return s.AuditSample(false) }
@@ -30,9 +54,38 @@ func (s *Router) Audit() (Audit, error) { return s.AuditSample(false) }
 // Present records still undergo validation. MissingReferences is never a pass
 // for dataset completeness.
 func (s *Router) AuditSample(allowMissing bool) (Audit, error) {
+	return s.AuditContext(context.Background(), allowMissing)
+}
+func (s *Router) AuditContext(ctx context.Context, allowMissing bool) (Audit, error) {
+	return s.AuditWithSnaps(ctx, allowMissing, nil)
+}
+
+// AuditWithSnaps independently scans every retained shape for up to 16 probe
+// points, comparing the nearest eligible result with the provider-bin lookup.
+// An absent indexed tile remains incomplete even when the retained scan is empty.
+func (s *Router) AuditWithSnaps(ctx context.Context, allowMissing bool, probes []Point) (Audit, error) {
 	r := s.Reader
 	out := Audit{NodeTypes: map[uint8]int{}, RoadClasses: map[uint8]int{}, RoadUses: map[uint8]int{}, Surfaces: map[uint8]int{}, Speeds: map[uint8]int{}, MissingReferences: map[ID]int{}, AccessTypes: map[uint8]int{}, UniqueEdgeInfoTagTypes: map[uint8]int{}, ComplexRestrictions: s.RestrictionCount, TimedTurns: s.TimedRestrictionCount}
+	if len(probes) > 16 {
+		return out, errors.New("audit snap probe budget exceeded")
+	}
+	for _, p := range probes {
+		if !p.valid() {
+			return out, errors.New("invalid audit probe")
+		}
+		row := SnapAudit{Requested: p, lonDegrees: math.Min(180, 100/110000.0/math.Cos(p[1]*math.Pi/180))}
+		indexed, err := s.SnapContext(ctx, p)
+		if err != nil {
+			row.IndexedError = err.Error()
+		} else {
+			row.Indexed = &indexed
+		}
+		out.Snaps = append(out.Snaps, row)
+	}
 	for _, id := range r.TileIDs() {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
 		t, err := r.get(id)
 		if err != nil {
 			return out, err
@@ -73,6 +126,9 @@ func (s *Router) AuditSample(allowMissing bool) (Audit, error) {
 		out.Edges += summary.Edges
 		out.Transitions += summary.Transitions
 		for i := 0; i < summary.Nodes; i++ {
+			if err := ctx.Err(); err != nil {
+				return out, err
+			}
 			n, err := r.Node(id.WithIndex(i))
 			if err != nil {
 				return out, err
@@ -183,6 +239,47 @@ func (s *Router) AuditSample(allowMissing bool) (Audit, error) {
 				if err != nil {
 					return out, err
 				}
+				if len(out.Snaps) > 0 && e.Class >= 2 && !e.Bridge && !e.Tunnel {
+					minY, maxY := shape.Points[0][1], shape.Points[0][1]
+					anchor := shape.Points[0][0]
+					minX, maxX := 0.0, 0.0
+					for _, p := range shape.Points {
+						minY = min(minY, p[1])
+						maxY = max(maxY, p[1])
+						x := wrapLongitude(p[0] - anchor)
+						minX = min(minX, x)
+						maxX = max(maxX, x)
+					}
+					for i := range out.Snaps {
+						probe := &out.Snaps[i]
+						p := probe.Requested
+						if p[1] < minY-.001 || p[1] > maxY+.001 {
+							continue
+						}
+						x := wrapLongitude(p[0] - anchor)
+						if x < minX-probe.lonDegrees || x > maxX+probe.lonDegrees {
+							continue
+						}
+						q, gap, f := project(p, shape.Points)
+						if gap > 100 || (probe.FullScan != nil && (gap > probe.FullScan.GapMeters || gap == probe.FullScan.GapMeters && e.ID >= probe.FullScan.Edge)) {
+							continue
+						}
+						ok := allowed
+						if !ok {
+							opposite, err := s.opposite(e)
+							if err != nil {
+								return out, err
+							}
+							ok, err = s.Allowed(opposite)
+							if err != nil {
+								return out, err
+							}
+						}
+						if ok {
+							probe.FullScan = &Snap{p, q, gap, e.ID, f}
+						}
+					}
+				}
 				if !seenInfo[e.Info] {
 					seenInfo[e.Info] = true
 					for _, tag := range shape.TagTypes {
@@ -198,10 +295,28 @@ func (s *Router) AuditSample(allowMissing bool) (Audit, error) {
 					out.GeometryMaxEndpointGapEdge = e.ID
 				}
 				if gap > 1 {
-					return out, fmt.Errorf("geometry endpoint mismatch %s: %f m", e.ID, gap)
+					out.GeometryMismatches++
+					if allowed {
+						out.AllowedGeometryMismatches++
+					}
+					if len(out.GeometryExamples) < 128 {
+						out.GeometryExamples = append(out.GeometryExamples, GeometryMismatch{e.ID, shape.Way, allowed, gap, n.Point, end.Point, shape.Points[0], shape.Points[len(shape.Points)-1]})
+					}
 				}
 			}
 		}
+	}
+	for i := range out.Snaps {
+		probe := &out.Snaps[i]
+		if probe.Indexed != nil && probe.FullScan != nil {
+			probe.NearestMatches = math.Abs(probe.Indexed.GapMeters-probe.FullScan.GapMeters) < .00001 && Distance(probe.Indexed.Point, probe.FullScan.Point) < .01
+		}
+		if probe.Indexed == nil && probe.FullScan == nil && probe.IndexedError == ErrUnsnappable.Error() {
+			probe.NearestMatches = true
+		}
+	}
+	if out.GeometryMismatches != 0 {
+		return out, fmt.Errorf("%d geometry endpoint mismatches (%d on permitted edges); bounded examples retained", out.GeometryMismatches, out.AllowedGeometryMismatches)
 	}
 	return out, nil
 }

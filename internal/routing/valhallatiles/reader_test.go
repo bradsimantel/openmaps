@@ -19,11 +19,18 @@ import (
 // A--B--C--D, with a B--E--C detour, split across two real geographic tiles.
 // The opt-in integration test separately reads the downloaded provider archive.
 func fixture(t *testing.T, simple, complex bool) (*Router, []ID) {
+	return fixtureWithParallel(t, simple, complex, false)
+}
+
+func fixtureWithParallel(t *testing.T, simple, complex, parallel bool) (*Router, []ID) {
 	t.Helper()
 	points := []Point{{8.749, 53.08}, {8.7502, 53.08}, {8.751, 53.08}, {8.752, 53.08}, {8.7505, 53.081}}
 	bases := []ID{ID(824434)<<3 | 2, ID(824435)<<3 | 2}
 	nodeIDs := []ID{bases[0], bases[1], bases[1].WithIndex(1), bases[1].WithIndex(2), bases[1].WithIndex(3)}
 	pairs := [][2]int{{0, 1}, {1, 2}, {2, 3}, {1, 4}, {4, 2}}
+	if parallel {
+		pairs = append(pairs, [2]int{1, 2})
+	}
 	type fe struct {
 		from, to, pair int
 		id             ID

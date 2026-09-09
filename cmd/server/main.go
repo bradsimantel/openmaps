@@ -17,6 +17,9 @@ import (
 )
 
 func main() {
+	scoutDir := flag.String("routing-scout", "", "isolated experimental prepared Scout candidate; coordinates only")
+	scoutSelection := flag.String("scout-selection", "", "optional isolated JSON selection file for candidate replacement")
+	scoutCache := flag.Int64("scout-cache-mib", 128, "graph page payload per Scout reader, 1..128 MiB; turn/landmark caches are additional")
 	db := flag.String("db", "data/openmaps.sqlite", "SQLite database")
 	state := flag.String("deployment", "", "refresh deployment state; supersedes -db and supports live switching")
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
@@ -32,6 +35,21 @@ func main() {
 	}
 	if *routingConcurrency < 1 || *routingConcurrency > 64 {
 		log.Fatal("routing-concurrency must be 1-64")
+	}
+	if *scoutDir != "" {
+		if *state != "" || *preparedDir != "" || *legacyLoad || *routingCache != "" {
+			log.Fatal("Scout candidate cannot be combined with an existing deployment or routing backend")
+		}
+		if *scoutCache < 1 || *scoutCache > 128 {
+			log.Fatal("scout-cache-mib must be 1..128")
+		}
+		if err := serveScout(*scoutDir, *scoutSelection, *listen, *public, *routingConcurrency, *scoutCache<<20); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *scoutSelection != "" {
+		log.Fatal("-scout-selection requires -routing-scout")
 	}
 	abs, err := filepath.Abs(*db)
 	if err != nil {

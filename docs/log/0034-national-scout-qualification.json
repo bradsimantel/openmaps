@@ -1,0 +1,342 @@
+{
+  "base_revision": "d24c604d49c9b438615ce5db55ddffa99a5f5c84",
+  "cases": {
+    "ordinary_matches": 66,
+    "routed": 75,
+    "source_verified": 75,
+    "total": 83,
+    "unexpected": [],
+    "unreachable": 2,
+    "unsnappable": 6
+  },
+  "changed_code_files": {
+    "cmd/routing-valhalla/main.go": "c6b061ecfab82baa7a8a5596fb9fad01a98d82ae76f6e96a9f1f45523f6161a6",
+    "cmd/scout-landmarks/main.go": "90cc27babf22a8f796d48f6b252a6a5f9b3e02af9de21f2c03719f0d1d48e57d",
+    "cmd/scout-prepare/main.go": "147c7d720d939e3b7ec25e7e7bf41ca992e3dc97ff065f295c8f0b68110cae1b",
+    "cmd/scout-verify/main.go": "4507461ee93838e76539510d356dee8ac6f63c3ea300fd2af9a0628546b692ae",
+    "cmd/server/main.go": "8055b9eab4e4ed32256c7ce98e33bb79e4a81b98947721c636ae8c66d5a95af0",
+    "cmd/server/scout.go": "0e45098039cc79a7b3e7f70f319c20a44b886d2ed9ffc896db0c6b510f4203df",
+    "internal/api/api.go": "9a440854ae7d359e9ab43877959568f02bbbd3129677cda9b364a2471ee11a29",
+    "internal/api/routing.go": "2e335578123910bb15d0347800999ef70a93f3579e804c354828b6cffdbd1346",
+    "internal/api/routing_scout.go": "9bd95f1f8b70780879f798114143faf05a90468d1cbd238ad569317c5ad33947",
+    "internal/api/routing_scout_integration_test.go": "f3303f43b7af7c5975282d5748da7f52378118053f9c27513c60e16ae1dafa13",
+    "internal/routing/valhallatiles/audit.go": "4b6f384a47febac3c781baf6b4160bf23831ca418da4f664553dc49118d89339",
+    "internal/routing/valhallatiles/bidirectional.go": "7eeee31cf6648f33613128a4e06ac5e5d86573454e549ff18a780b4846b367a9",
+    "internal/routing/valhallatiles/bidirectional_test.go": "a2bf33bfb6819d72c0a0dc707c4698cbe3434b392f95471787b65e9a71066668",
+    "internal/routing/valhallatiles/candidate.go": "f2effbb4bfc5af6b3b131b6ae1d83bf6505388107f9e629cf411d025353caf60",
+    "internal/routing/valhallatiles/candidate_test.go": "892393dae96a88ee03c1ad3f9980058c7242f488b0c6e7cb79a9f186256a9e57",
+    "internal/routing/valhallatiles/forced.go": "d478807b018b70c084d172b8dbc65b62030482c8c8ce412ef1a0306acaca1f7d",
+    "internal/routing/valhallatiles/geography_test.go": "76647fa154e4df1a9d127559db7787d7899e9bf808d4b997651aae1f63dac4fd",
+    "internal/routing/valhallatiles/incoming.go": "8d37ac8d3f9e24baac1238edf3dcd4f0dd5ec1a75a2531981212c4514d55e13b",
+    "internal/routing/valhallatiles/incoming_test.go": "2082d3e42f99449888172eb9534e317a658c82b071e26e8f5d3cdf244fe4c37d",
+    "internal/routing/valhallatiles/landmark_extension.go": "d15931ca0ab9f2a6f7f2896c2b491d9b580ee23eb395c3c8d8fcf2dbec9870dc",
+    "internal/routing/valhallatiles/landmark_extension_test.go": "cefbd72d43c2c2f5ce8a8e43b42e76625399f2e8b34125bc7fbe76f7cd796eb7",
+    "internal/routing/valhallatiles/landmark_prefix.go": "4f9a44daf58f027370958f80c6632ada8ba1dc790a6e3f2805f23996c2247e50",
+    "internal/routing/valhallatiles/landmark_query.go": "5b0ed2f3990386a85a02225e5ced4aa3958b79eaee9d5e8ad81ccdbc1a8879f1",
+    "internal/routing/valhallatiles/landmarks.go": "c0a54524ceac81ee64b35908577a3faa04ba52eb10d8f8d13d386ac5d09dcae4",
+    "internal/routing/valhallatiles/landmarks_test.go": "02e4bb60f56daf1f7acb1606b0d57efb9477397a920b20b7bb8c4b1ee5ac009b",
+    "internal/routing/valhallatiles/pages.go": "07ecd4066652eb127a8bde05f5446e9e2f71e9ef7af0ba19beef51ceedc2ab28",
+    "internal/routing/valhallatiles/potential.go": "94497353ac1038f7baee1fd027aa25c12c91de6d275713e6de75b20c90d24f83",
+    "internal/routing/valhallatiles/prepared.go": "f265e4d6683841c7c9574b5c6c8c83de01796f9195557dc93bb3b6fbb74c2c37",
+    "internal/routing/valhallatiles/prepared_extension_test.go": "7a19c04a0ba245631fbb886e68eeee23c7d33571c5720f90c2d3686546c18ef7",
+    "internal/routing/valhallatiles/prepared_integration_test.go": "8eabde192d3b76b4c947afc73dd9fda6684c871c7647353b11ddbee604e3edd8",
+    "internal/routing/valhallatiles/prepared_test.go": "ad296204892ba3f5cd854db6eb84e1fb47b7ef50d038e00a5541038007caba2a",
+    "internal/routing/valhallatiles/prepared_turns.go": "ebf545f51f5e1f0a22213d2e87aed66379447d38435734beb56a8951e027b283",
+    "internal/routing/valhallatiles/reader.go": "1ef5baded2e6408e7e948ac043ad7481637b8c5d8d9d2395dda1f87246f29181",
+    "internal/routing/valhallatiles/reader_test.go": "07dc0f3a4d47bdbf8140ccb67e7fba24cf86aec155abf0afdc1f65939b356a5f",
+    "internal/routing/valhallatiles/reverse_support.go": "9a6a0a7aa8251cd32789100729897873e3221fd2786b739845e3866b57529e93",
+    "internal/routing/valhallatiles/reverse_support_test.go": "e9c702ed4f76f6b1a20204a068c8e4916d893685cdebe7db7427d00c6ca16b22",
+    "internal/routing/valhallatiles/route.go": "651c83378aac6de6870aa75619fa4643fcc10cf09d4f3cc9160e845141a6f776",
+    "internal/routing/valhallatiles/scout.go": "a85ec14c277db35bb10ce77fc6befc40e79952b84a2e09c2892aca456f798c77",
+    "internal/routing/valhallatiles/verify.go": "37642169ca96aaa5bf7627d76d36ed7220e2ac2aa9fd2559d49f85811c17f97f",
+    "internal/routing/valhallatiles/verify_test.go": "b39e38e1a1b08910fb6515c716e80592c36f339683d799698594375e2fc475a5",
+    "scripts/scout-acquire.py": "88fde972a127a9fae7746bbe2b3221215909ced243650495740b84cd710eacda",
+    "scripts/scout-coverage.py": "96159776256804a1c0e1b110c2cce1e7d48a36e093bc3e45668fa65b45a984ce",
+    "scripts/scout-http-verify.py": "1a80596dcaf235c424f21221ca59d69fea67b87aa6830aa039959f12b6477d51",
+    "scripts/scout-run-bounded.py": "667b00678de1d7885dcd9288934574189627483fddb24475cd2cb5a5ba19a5dd",
+    "scripts/test_scout_acquire.py": "d9cfbe65e3d697321ad07481f59801a1ce784a621daffa1810c05042b5d4be33",
+    "scripts/test_scout_coverage.py": "547d00ed54fdcbf97bdfdd69039b021779ea2d2c5a564c43676647ecdab709f1"
+  },
+  "changed_code_sha256": "43440e2ccf40e2d53d73f1ef9fe8155e46cc82533ec154adca2c75fecd3586d6",
+  "checks": {
+    "downloaded_integration": true,
+    "go_test": true,
+    "go_vet": true,
+    "gofmt": true,
+    "physical_cold_disk_measured": false,
+    "python_tests": 7,
+    "race": true
+  },
+  "date": "2026-09-09",
+  "endpoint": "http://127.0.0.1:8097/directions/v2:computeRoutes",
+  "free_disk_bytes_at_qualification": 37700730880,
+  "health": {
+    "exhaustive_source_coverage_verified": false,
+    "reload_error": "",
+    "routing_available": true,
+    "routing_candidate": {
+      "dataset_id": 183131145,
+      "directory": "/Users/bs/Projects/openmaps/data/scout-national-20260909/national-aleutian-prepared",
+      "package_timestamp": "2026-06-20_07:12",
+      "profile": "osm-scout-public-auto-v1",
+      "profile_note": "Experimental public-auto subset; provider edge speeds, no traffic or turn penalties; conditional speed payloads are not evaluated; destination access and current Open Maps snap/address policy are unsupported.",
+      "search": "astar-directed-landmarks-v2",
+      "snapshot": "453d3ad01d124f750fb80220d237c00da3ec5b0e939c64545e7c78cf09f3cc27"
+    },
+    "routing_duration_available": true,
+    "status": "ok"
+  },
+  "http": {
+    "bytes": 5197545,
+    "cases": 83,
+    "failures": [],
+    "max_seconds": 5.784031666815281,
+    "note": "Full JSON receive/parse and geometry equality; shared host OS cache, no physical-cold claim",
+    "p50_seconds": 0.07353037502616644,
+    "p95_seconds": 0.8098675841465592,
+    "passed": 83,
+    "requests": 83,
+    "seconds": 20.29264295846224,
+    "snapshots": [
+      "453d3ad01d124f750fb80220d237c00da3ec5b0e939c64545e7c78cf09f3cc27"
+    ],
+    "workers": 1
+  },
+  "pins": {
+    "data/scout-national-20260909/http-admission-complete.json": "f27e6a768745db63380ac718223e301737c9d20ec498221895e5d8c1dd70df56",
+    "data/scout-national-20260909/http-cancellation-complete.json": "3ab2e36edb29b98c3d0492e2913e891946f6989b9121b19718105dd63fe5a69a",
+    "data/scout-national-20260909/national-aleutian-audit.json": "238ce573e194d55ddcbde1e1544bac0c7f671603ef93573a61bf4ba908d1a5e5",
+    "data/scout-national-20260909/national-aleutian-prepared/landmarks/extension.json": "cfc6267c3528019bcac22f32067e76647b257d29efb41d87215899178ed3a59c",
+    "data/scout-national-20260909/national-aleutian-prepared/landmarks/landmarks.json": "e41c8a76e103ee0e586d4d7944001ef246b3d6a829d489b2d398bfcc723df8cf",
+    "data/scout-national-20260909/national-aleutian-prepared/potential.json": "f93a660cc28535ed2f3d95d0f0f72758533d7556514af9780c9ec99ba1517354",
+    "data/scout-national-20260909/national-aleutian-prepared/receipt.json": "4cb6be091e5a7751d77d45d5ae719849e29971af6d5677f63e35e71abafda2a1",
+    "data/scout-national-20260909/national-aleutian-prepared/routing.json": "d4f1df741a346d0da9d517b95c1f9981c9e84a1f42020a834c1088a7db616c4a",
+    "data/scout-national-20260909/national-complete-all.jsonl": "ba60118efbda81a29dce644de3d04c130968372e510773eabf9912e41392c803",
+    "data/scout-national-20260909/national-complete-benchmark.jsonl": "51b9cc2d9170206d846a5808490c3668b4d911d4b8bbb45a2cd49863df3fc478",
+    "data/scout-national-20260909/national-complete-errors-and-selection.json": "b876689fbd3006354552c992ca1bdfe20037f5afac6a746b8cd29d2466b65a32",
+    "data/scout-national-20260909/national-complete-http-all/summary.json": "473f6d5f8e3e9b2cbb8d5924c1a1b8a02a942a54950f0166c9ba6421b23ae497",
+    "data/scout-national-20260909/national-complete-server.resources.json": "3f35a1e90fc41ceee6da009e8c4f18d8a36ff8a3f8df9909bc492301c9f060dc",
+    "data/scout-national-20260909/national-complete-state-coverage.json": "3adffa6b46e95abdc70d5ef5bad840e53964be371bad891a1960a7d4f43d2f7f",
+    "data/scout-national-20260909/national-complete-two-snapshot-stress/summary.json": "4f48038dc3083cabe9b334862516982c75eba31398e5dd9b2dab4d0bd5461a21",
+    "data/scout-national-20260909/scout-server-qualified": "eb9902b7d8071bcaebd9d69750b64eeb3af700a8168c9b7b1167e9a529cb6d7a",
+    "imports/scout-national-cases.json": "8ace0b9b8296ae883eca3eb8ea2b0049b76414bd3ad2a47193e05886658fc1e1",
+    "imports/scout-national-landmarks-extended.json": "a083d7a21de2812f3329265eb02c6de66a951eb016feee23a2f9d08bd8090e5e",
+    "imports/scout-national-snap-probes.json": "d89d5861279637bafaa8814369ece8b1ca19b22254fbf0874c17798bbf041e9b",
+    "imports/valhalla-scout-national.lock.json": "d1a83ba39a0700886b8822573454b5619a57a0c1b957cfab27a98acbdf13e53f"
+  },
+  "replacement_stress": {
+    "bytes": 4681305276,
+    "cases": 1,
+    "failures": [],
+    "max_seconds": 0.35710749961435795,
+    "note": "Full JSON receive/parse and geometry equality; shared host OS cache, no physical-cold claim",
+    "p50_seconds": 0.07681904174387455,
+    "p95_seconds": 0.08189170807600021,
+    "passed": 6164,
+    "requests": 6164,
+    "seconds": 240.07209025043994,
+    "snapshots": [
+      "453d3ad01d124f750fb80220d237c00da3ec5b0e939c64545e7c78cf09f3cc27",
+      "7ebdd53154c25dd68439138a6991013ed9bfd8c52cdb9b48896c588397c6973a"
+    ],
+    "workers": 2
+  },
+  "resources": {
+    "national-aleutian-audit.resources.json": {
+      "abort_reason": null,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 429522944,
+      "command": [
+        "data/scout-national-20260909/routing-valhalla",
+        "-prepared",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-audit",
+        "-audit-snaps",
+        "imports/scout-national-snap-probes.json",
+        "-cache-mib",
+        "128"
+      ],
+      "free_after": 37806051328,
+      "free_before": 37868015616,
+      "note": "Sampled child RSS; not a hard RSS or total OS-cache bound",
+      "returncode": 1,
+      "sampled_peak_rss_bytes": 371539968,
+      "seconds": 270.10968362446874
+    },
+    "national-aleutian-extension.resources.json": {
+      "abort_reason": null,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 111607808,
+      "command": [
+        "data/scout-national-20260909/scout-prepare-extension",
+        "-root",
+        "data/scout-national-20260909",
+        "-plan",
+        "national-aleutian-acquisition.json",
+        "-out",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-extend",
+        "data/scout-national-20260909/national-extended-prepared",
+        "-clone-base"
+      ],
+      "free_after": 46715523072,
+      "free_before": 46776242176,
+      "note": "Sampled child RSS; not a hard RSS or total OS-cache bound",
+      "returncode": 0,
+      "sampled_peak_rss_bytes": 106610688,
+      "seconds": 34.133382458239794
+    },
+    "national-aleutian-reindex-payload-recheck.resources.json": {
+      "abort_reason": null,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 263749632,
+      "command": [
+        "data/scout-national-20260909/scout-landmarks-extension-verified",
+        "-reindex-from",
+        "data/scout-national-20260909/national-extended-prepared",
+        "-built",
+        "data/scout-national-20260909/national-extended-prepared/landmarks",
+        "-prepared",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-out",
+        "data/scout-national-20260909/national-aleutian-prepared/landmarks"
+      ],
+      "free_after": 37788098560,
+      "free_before": 37793619968,
+      "note": "Sampled child RSS; not a hard RSS or total OS-cache bound",
+      "returncode": 0,
+      "sampled_peak_rss_bytes": 263733248,
+      "seconds": 103.41977704223245
+    },
+    "national-aleutian-reindex.resources.json": {
+      "abort_reason": null,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 273088512,
+      "command": [
+        "data/scout-national-20260909/scout-landmarks-extension",
+        "-reindex-from",
+        "data/scout-national-20260909/national-extended-prepared",
+        "-built",
+        "data/scout-national-20260909/national-extended-prepared/landmarks",
+        "-prepared",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-out",
+        "data/scout-national-20260909/national-aleutian-prepared/landmarks"
+      ],
+      "free_after": 37870338048,
+      "free_before": 46707507200,
+      "note": "Sampled child RSS; not a hard RSS or total OS-cache bound",
+      "returncode": 0,
+      "sampled_peak_rss_bytes": 273088512,
+      "seconds": 83.34221558365971
+    },
+    "national-complete-all.resources.json": {
+      "abort_reason": null,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 782942208,
+      "command": [
+        "data/scout-national-20260909/scout-verify-complete",
+        "-prepared",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-landmarks",
+        "data/scout-national-20260909/national-aleutian-prepared/landmarks",
+        "-cases",
+        "imports/scout-national-cases.json"
+      ],
+      "free_after": 37811826688,
+      "free_before": 37824536576,
+      "note": "Sampled child RSS; not a hard RSS or total OS-cache bound",
+      "returncode": 0,
+      "sampled_peak_rss_bytes": 782942208,
+      "seconds": 49.196817833930254
+    },
+    "national-complete-benchmark.resources.json": {
+      "abort_reason": null,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 861749248,
+      "command": [
+        "data/scout-national-20260909/scout-verify-complete",
+        "-prepared",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-landmarks",
+        "data/scout-national-20260909/national-aleutian-prepared/landmarks",
+        "-cases",
+        "data/scout-national-20260909/national-final-benchmark-cases.json",
+        "-repeat",
+        "3"
+      ],
+      "free_after": 37734805504,
+      "free_before": 37754372096,
+      "note": "Sampled child RSS; not a hard RSS or total OS-cache bound",
+      "returncode": 0,
+      "sampled_peak_rss_bytes": 861732864,
+      "seconds": 46.37464150041342
+    },
+    "national-complete-server.resources.json": {
+      "abort_reason": null,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 1763606528,
+      "command": [
+        "data/scout-national-20260909/scout-server-complete",
+        "-routing-scout",
+        "data/scout-national-20260909/national-extended-prepared",
+        "-scout-selection",
+        "data/scout-national-20260909/national-final-selection.json",
+        "-routing-concurrency",
+        "2",
+        "-listen",
+        "127.0.0.1:8097"
+      ],
+      "free_after": 37708652544,
+      "free_before": 37654831104,
+      "note": "Sampled child RSS; not a hard RSS or total OS-cache bound",
+      "returncode": 0,
+      "sampled_peak_rss_bytes": 1761312768,
+      "seconds": 880.3870272506028
+    }
+  },
+  "schema": "openmaps-scout-national-qualification-v1",
+  "source": {
+    "compressed_bytes": 9192382849,
+    "cost": "scout-edge-speed-v1",
+    "edges": 285220167,
+    "exhaustive_road_completeness_verified": false,
+    "nodes": 122732001,
+    "packages": 647,
+    "profile": "osm-scout-public-auto-v1",
+    "tiles": 37362,
+    "upstream_osm_cutoff_verified": false
+  },
+  "source_audit": {
+    "allowed_geometry_mismatches": 11,
+    "coarse_state_intersections": 0,
+    "geometry_mismatches": 19,
+    "global_pass": false,
+    "missing_reference_tiles": 706,
+    "snap_matches": 10,
+    "snap_probes": 12,
+    "uncertified_missing_dateline_probes": 2
+  },
+  "uncommitted": true
+}

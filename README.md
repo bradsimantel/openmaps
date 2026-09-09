@@ -27,15 +27,25 @@ Separate Oregon and full Oregon–Washington–Idaho coordinate-routing candidat
 cover regional scaling and boundary detours. [Storage and scaling](docs/routing-scale.md)
 describes the recursive junction-cell overlay, directly loadable prepared snapshots, concurrent
 snapshot leases, compact prepared edges with dense internal endpoints, streaming
-rollback verification and residency measurements. Nationwide routing remains unfinished; these
-regional candidates have no address coverage. Nearby place search and general
+rollback verification and residency measurements. These regional candidates have no address coverage. Nearby place search and general
 text search remain future milestones.
 
 The [national candidate plan](docs/routing-national.md) proposes 50-state/DC
 coordinate coverage, explicit connectivity limits and construction/serving budgets.
-The current host fails national capacity preflight; no national publication has
-been built. See the [historical preflight](docs/log/0026-national-routing-preflight.md)
+The PBF/SQLite pipeline fails national capacity preflight on this host; no
+national publication has been built through that pipeline. See the [historical preflight](docs/log/0026-national-routing-preflight.md)
 for source metadata, measured regional evidence and conservative build-resource estimates.
+
+A separate [experimental Scout backend](docs/routing-scout.md) now reads pinned
+Valhalla tiles directly through bounded Go page caches, prepared turn indexes,
+and Go-owned search. Its isolated national coordinate candidate passes 83 frozen
+cases across all states/DC, including long routes, Canada/Mexico road legs,
+Alaska, Hawaii and Aleutian roads on both sides of the dateline. The
+[historical qualification report](docs/log/0034-national-scout-qualification.md)
+records source-path checks, HTTP replacement, resource measurements and known
+source limitations. It uses an explicit
+experimental profile because the tiles cannot reproduce all `driving-time-v4`
+source, access, snapping and address behavior.
 
 Offline construction now bounds segment/guard identity-index scratch and streams
 publication encoding. The importer also avoids a duplicate segment-membership

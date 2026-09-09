@@ -1,7 +1,11 @@
 # National coordinate-routing candidate plan
 
-**Status: proposed release contract; national construction is blocked by the
-available host's capacity. No national publication exists.** The supported
+**Status: the original full-PBF construction proposal fails this host's capacity
+preflight. A separate [Scout tile candidate](routing-scout.md) implements national
+coordinate routing under a distinct experimental profile. Its measured
+[historical qualification](log/0034-national-scout-qualification.md) is separate
+from this PBF construction proposal and does not establish the proposed
+`driving-time-v4` national contract below.** The supported
 regional implementation remains described in [routing](routing.md),
 [scaling](routing-scale.md) and [prepared snapshots](routing-prepared.md).
 The [historical national preflight](log/0026-national-routing-preflight.md)
@@ -28,8 +32,9 @@ An expanded graph may legitimately change the optimum by adding a detour.
 
 The proposed graph source is a **single coherent North America extract** to
 support Canadian and Mexican detours between US endpoints. This avoids a
-country/state merge and preserves source node identities across borders. **The
-foreign-detour scope is awaiting a user decision.** A US-only alternative must
+country/state merge and preserves source node identities across borders. **Canadian and Mexican road detours were authorized on 2026-09-09 for the
+separate Scout candidate, including Alaska-to-lower-48 connectivity where source
+roads permit it.** A US-only alternative must
 explicitly report missing international paths: Alaska-to-lower-48 road journeys,
 Point Roberts and other border detours cannot be promised. Incidental foreign
 roads in an extract's buffer do not establish complete foreign connectivity.

@@ -22,21 +22,41 @@ type prefix struct {
 	banned bool
 }
 type Router struct {
+	routingSHA, potentialSHA                string
 	Reader                                  *Reader
 	prefixes                                []prefix
+	turns                                   *preparedTurns
+	secondsPerMeter                         float64
+	reverseTurns                            *preparedTurns
+	landmarks                               *landmarkTables
+	reverseSupport                          *reverseSupport
 	RestrictionCount, TimedRestrictionCount int
 }
 
 func NewRouter(r *Reader) (*Router, error) {
+	return buildRouter(context.Background(), r, 4096, 65536)
+}
+func buildRouter(ctx context.Context, r *Reader, maxRules, maxPrefixes int) (*Router, error) {
+	return buildRouterOrder(ctx, r, maxRules, maxPrefixes, false)
+}
+func buildRouterOrder(ctx context.Context, r *Reader, maxRules, maxPrefixes int, reverse bool) (*Router, error) {
 	s := &Router{Reader: r, prefixes: []prefix{{next: map[ID]int{}}}}
 	for _, id := range r.TileIDs() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		rs, err := r.Restrictions(id)
 		if err != nil {
 			return nil, err
 		}
 		for _, restriction := range rs {
+			if reverse {
+				for i, j := 0, len(restriction.Path)-1; i < j; i, j = i+1, j-1 {
+					restriction.Path[i], restriction.Path[j] = restriction.Path[j], restriction.Path[i]
+				}
+			}
 			s.RestrictionCount++
-			if s.RestrictionCount > 4096 {
+			if s.RestrictionCount > maxRules {
 				return nil, errors.New("complex restriction cap exceeded")
 			}
 			if restriction.Timed {
@@ -58,7 +78,7 @@ func NewRouter(r *Reader) (*Router, error) {
 				next, ok := s.prefixes[state].next[edge]
 				if !ok {
 					next = len(s.prefixes)
-					if next >= 65536 {
+					if next >= maxPrefixes {
 						return nil, errors.New("restriction prefix cap exceeded")
 					}
 					s.prefixes = append(s.prefixes, prefix{next: map[ID]int{}})
@@ -97,6 +117,14 @@ func (s *Router) advance(state int, edge ID) (int, bool) {
 		state = next
 	}
 	return state, s.prefixes[state].banned
+}
+
+func (s *Router) advanceChecked(state int, edge ID) (int, bool, error) {
+	if s.turns != nil {
+		return s.turns.advance(state, edge)
+	}
+	next, banned := s.advance(state, edge)
+	return next, banned, nil
 }
 
 // Allowed is an intentionally narrower experimental profile: public auto roads,
@@ -172,6 +200,18 @@ func (s *Router) directions(snap Snap) ([]direction, error) {
 	}
 	return out, nil
 }
+func wrapLongitude(lon float64) float64 {
+	for lon > 180 {
+		lon -= 360
+	}
+	for lon < -180 {
+		lon += 360
+	}
+	return lon
+}
+func interpolate(a, b Point, f float64) Point {
+	return Point{wrapLongitude(a[0] + f*wrapLongitude(b[0]-a[0])), a[1] + f*(b[1]-a[1])}
+}
 func project(p Point, shape []Point) (Point, float64, float64) {
 	total := 0.0
 	for i := 1; i < len(shape); i++ {
@@ -182,12 +222,12 @@ func project(p Point, shape []Point) (Point, float64, float64) {
 	k := math.Cos(p[1] * math.Pi / 180)
 	for i := 1; i < len(shape); i++ {
 		a, b := shape[i-1], shape[i]
-		dx, dy := (b[0]-a[0])*k, b[1]-a[1]
+		dx, dy := wrapLongitude(b[0]-a[0])*k, b[1]-a[1]
 		f := 0.0
 		if dx*dx+dy*dy > 0 {
-			f = max(0, min(1, ((p[0]-a[0])*k*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy)))
+			f = max(0, min(1, (wrapLongitude(p[0]-a[0])*k*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy)))
 		}
-		q := Point{a[0] + f*(b[0]-a[0]), a[1] + f*(b[1]-a[1])}
+		q := interpolate(a, b, f)
 		gap := Distance(p, q)
 		length := Distance(a, b)
 		if gap < best {
@@ -200,13 +240,17 @@ func project(p Point, shape []Point) (Point, float64, float64) {
 	}
 	return point, best, at / total
 }
-func (s *Router) Snap(p Point) (Snap, error) {
+func (s *Router) Snap(p Point) (Snap, error) { return s.SnapContext(context.Background(), p) }
+func (s *Router) SnapContext(ctx context.Context, p Point) (Snap, error) {
 	ids, err := s.Reader.Candidates(p, 100)
 	if err != nil {
 		return Snap{}, err
 	}
 	best := Snap{Requested: p, GapMeters: math.Inf(1)}
 	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return Snap{}, err
+		}
 		e, err := s.Reader.Edge(id)
 		if err != nil {
 			return Snap{}, err
@@ -241,7 +285,7 @@ func (s *Router) Snap(p Point) (Snap, error) {
 		}
 	}
 	if math.IsInf(best.GapMeters, 1) {
-		return Snap{}, errors.New("unsnappable within 100 metres")
+		return Snap{}, ErrUnsnappable
 	}
 	return best, nil
 }
@@ -297,6 +341,7 @@ type label struct {
 	cost  float64
 	prev  int
 	step  Step
+	chain []ID
 }
 type queued struct {
 	label int
@@ -321,6 +366,7 @@ type Step struct {
 }
 type Metrics struct {
 	SnapMilliseconds, SearchMilliseconds, GeometryMilliseconds                 float64
+	LowerBoundSeconds, IncumbentSeconds                                        float64
 	Settled, Labels, QueuePeak, SimpleRejected, ComplexRejected, UTurnRejected int
 }
 type Result struct {
@@ -338,14 +384,14 @@ func (s *Router) Route(ctx context.Context, from, to Point, maxLabels int) (Resu
 		return Result{}, err
 	}
 	start := time.Now()
-	a, err := s.Snap(from)
+	a, err := s.SnapContext(ctx, from)
 	if err != nil {
 		return Result{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	b, err := s.Snap(to)
+	b, err := s.SnapContext(ctx, to)
 	if err != nil {
 		return Result{}, err
 	}
@@ -354,14 +400,42 @@ func (s *Router) Route(ctx context.Context, from, to Point, maxLabels int) (Resu
 	return out, err
 }
 func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Result, error) {
+	return s.routeSnaps(ctx, a, b, maxLabels, false)
+}
+
+// RouteAccelerated preserves all ordinary edges and history; only queue order
+// and the stopping lower bound change. No upstream hierarchy pruning is used.
+func (s *Router) RouteAccelerated(ctx context.Context, from, to Point, maxLabels int) (Result, error) {
+	start := time.Now()
+	a, err := s.SnapContext(ctx, from)
+	if err != nil {
+		return Result{}, err
+	}
+	b, err := s.SnapContext(ctx, to)
+	if err != nil {
+		return Result{}, err
+	}
+	snapMS := float64(time.Since(start).Microseconds()) / 1000
+	result, err := s.routeSnaps(ctx, a, b, maxLabels, true)
+	result.Metrics.SnapMilliseconds = snapMS
+	return result, err
+}
+func (s *Router) routeSnaps(ctx context.Context, a, b Snap, maxLabels int, accelerated bool) (Result, error) {
 	profile := Profile
 	if s.Reader.version == "3.4.0" {
 		profile = "osm-scout-3.4.0-go-feasibility-v1"
 	}
+	if s.turns != nil {
+		profile = CandidateProfile
+	}
 	out := Result{Profile: profile, ProfileNote: ProfileNote, Origin: a, Destination: b}
 	start := time.Now()
-	if maxLabels < 1 || maxLabels > 200000 {
-		return out, errors.New("label limit must be 1..200000")
+	limit := 200000
+	if s.turns != nil {
+		limit = 4000000
+	}
+	if maxLabels < 1 || maxLabels > limit {
+		return out, fmt.Errorf("label limit must be 1..%d", limit)
 	}
 	if !a.Point.valid() || !b.Point.valid() || math.IsNaN(a.Fraction) || math.IsNaN(b.Fraction) || a.Fraction < 0 || a.Fraction > 1 || b.Fraction < 0 || b.Fraction > 1 {
 		return out, errors.New("invalid snap")
@@ -381,24 +455,118 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 		out.Geometry = []Point{a.Point, b.Point}
 		return out, nil
 	}
+	// This phase reads only copied fixed records. Recycle evicted graph pages;
+	// restore ordinary ownership before shape decoding and on every error.
+	previousReuse := s.Reader.recordPageReuse
+	if s.Reader.pages != nil {
+		s.Reader.recordPageReuse = true
+	}
+	defer func() { s.Reader.recordPageReuse = previousReuse }()
+	type goalPotential struct {
+		point  Point
+		cost   float64
+		values landmarkValues
+	}
+	var potentials []goalPotential
+	if accelerated {
+		if s.secondsPerMeter <= 0 {
+			return out, errors.New("validated geographic potential unavailable")
+		}
+		for _, dst := range targets {
+			node, err := s.Reader.Start(dst.edge.ID)
+			if err != nil {
+				return out, err
+			}
+			id := node.ID
+			cost := dst.edge.Length * dst.fraction * 3.6 / float64(dst.edge.Speed)
+			if dst.fraction == 1 {
+				id = dst.edge.End
+				cost = 0
+			}
+			point, err := s.Reader.canonical(id)
+			if err != nil {
+				return out, err
+			}
+			var values landmarkValues
+			if s.landmarks != nil {
+				values, err = s.landmarks.values(id)
+				if err != nil {
+					return out, err
+				}
+			}
+			potentials = append(potentials, goalPotential{point: point, cost: cost, values: values})
+		}
+	}
+	type heuristicRecord struct {
+		id    ID
+		value float64
+		valid bool
+	}
+	var heuristicCache []heuristicRecord
+	if accelerated {
+		heuristicCache = make([]heuristicRecord, 1<<18)
+	}
+	heuristic := func(id ID) (float64, error) {
+		if !accelerated {
+			return 0, nil
+		}
+		slot := recordSlot(id, uint64(len(heuristicCache)-1))
+		if entry := heuristicCache[slot]; entry.valid && entry.id == id {
+			return entry.value, nil
+		}
+		point, err := s.Reader.canonical(id)
+		if err != nil {
+			return 0, err
+		}
+		var values landmarkValues
+		if s.landmarks != nil {
+			values, err = s.landmarks.values(id)
+			if err != nil {
+				return 0, err
+			}
+		}
+		value := math.Inf(1)
+		for _, p := range potentials {
+			lower := Distance(point, p.point) * s.secondsPerMeter
+			if s.landmarks != nil {
+				lower = math.Max(lower, s.landmarks.bound(values, p.values))
+			}
+			value = math.Min(value, lower+p.cost)
+		}
+		value *= 1 - 1e-10
+		heuristicCache[slot] = heuristicRecord{id, value, true}
+		return value, nil
+	}
 	labels := make([]label, 0, 1024)
 	best := map[state]int{}
 	q := minQueue{}
-	push := func(st state, cost float64, prev int, step Step) error {
+	goalCost := math.Inf(1)
+	push := func(st state, cost float64, prev int, step Step, chains ...[]ID) error {
 		if i, ok := best[st]; ok && labels[i].cost <= cost {
 			return nil
 		}
+		h, err := heuristic(st.node)
+		if err != nil {
+			return err
+		}
+		if cost+h >= goalCost {
+			return nil
+		}
 		if len(labels) >= maxLabels {
-			return errors.New("query label budget exhausted")
+			out.Metrics.Labels = len(labels)
+			return ErrQueryBudget
 		}
 		i := len(labels)
-		labels = append(labels, label{st, cost, prev, step})
+		var chain []ID
+		if len(chains) > 0 {
+			chain = chains[0]
+		}
+		labels = append(labels, label{state: st, cost: cost, prev: prev, step: step, chain: chain})
 		best[st] = i
-		heap.Push(&q, queued{i, cost})
+		heap.Push(&q, queued{i, cost + h})
 		out.Metrics.QueuePeak = max(out.Metrics.QueuePeak, len(q))
 		return nil
 	}
-	goalCost := math.Inf(1)
 	goalPrev := -1
 	goalStep := Step{Edge: invalid}
 	for _, src := range sources {
@@ -426,7 +594,10 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 			}
 			continue
 		}
-		next, banned := s.advance(0, src.edge.ID)
+		next, banned, err := s.advanceChecked(0, src.edge.ID)
+		if err != nil {
+			return out, err
+		}
 		if banned {
 			continue
 		}
@@ -448,6 +619,17 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 			goalNodes[n.ID] = true
 		}
 	}
+	protected := map[ID]bool{}
+	if accelerated {
+		for _, dst := range targets {
+			node, err := s.Reader.Start(dst.edge.ID)
+			if err != nil {
+				return out, err
+			}
+			protected[node.ID] = true
+			protected[dst.edge.End] = true
+		}
+	}
 	for len(q) > 0 {
 		if err := ctx.Err(); err != nil {
 			return out, err
@@ -457,7 +639,11 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 		if best[cur.state] != item.label {
 			continue
 		}
-		if cur.cost >= goalCost {
+		out.Metrics.LowerBoundSeconds = item.cost
+		if !math.IsInf(goalCost, 1) {
+			out.Metrics.IncumbentSeconds = goalCost
+		}
+		if item.cost >= goalCost {
 			break
 		}
 		out.Metrics.Settled++
@@ -495,7 +681,10 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 			if !allowed {
 				continue
 			}
-			next, banned := s.advance(cur.state.restriction, edge.ID)
+			next, banned, err := s.advanceChecked(cur.state.restriction, edge.ID)
+			if err != nil {
+				return out, err
+			}
 			if banned {
 				out.Metrics.ComplexRejected++
 				continue
@@ -512,7 +701,23 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 			if cost >= goalCost {
 				continue
 			}
-			if err = push(state{edge.End, edge.ID, next}, cost, item.label, Step{edge.ID, 0, 1}); err != nil {
+			st := state{edge.End, edge.ID, next}
+			var chain []ID
+			if accelerated {
+				end, extra, following, err := s.forcedContinuation(ctx, st, protected, goalCost-cost)
+				if err != nil {
+					return out, err
+				}
+				st = end
+				cost += extra
+				if len(following) > 0 {
+					chain = append([]ID{edge.ID}, following...)
+				}
+			}
+			if cost >= goalCost {
+				continue
+			}
+			if err = push(st, cost, item.label, Step{edge.ID, 0, 1}, chain); err != nil {
 				return out, err
 			}
 		}
@@ -520,10 +725,14 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 	out.Metrics.Labels = len(labels)
 	out.Metrics.SearchMilliseconds = float64(time.Since(start).Microseconds()) / 1000
 	if math.IsInf(goalCost, 1) {
-		return out, errors.New("unreachable in the supported sample/profile")
+		return out, ErrUnreachable
 	}
 	for i := goalPrev; i >= 0; i = labels[i].prev {
-		if labels[i].step.Edge != invalid {
+		if len(labels[i].chain) > 0 {
+			for j := len(labels[i].chain) - 1; j >= 0; j-- {
+				out.Steps = append(out.Steps, Step{labels[i].chain[j], 0, 1})
+			}
+		} else if labels[i].step.Edge != invalid {
 			out.Steps = append(out.Steps, labels[i].step)
 		}
 	}
@@ -533,8 +742,15 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 	if goalStep.Edge != invalid {
 		out.Steps = append(out.Steps, goalStep)
 	}
-	start = time.Now()
+	s.Reader.recordPageReuse = previousReuse
+	return s.finishGeometry(ctx, out)
+}
+func (s *Router) finishGeometry(ctx context.Context, out Result) (Result, error) {
+	start := time.Now()
 	for _, step := range out.Steps {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
 		e, err := s.Reader.Edge(step.Edge)
 		if err != nil {
 			return out, err
@@ -552,10 +768,13 @@ func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Resu
 			}
 			part = part[1:]
 		}
+		if len(part) > 1000000-len(out.Geometry) {
+			return out, ErrQueryBudget
+		}
 		out.Geometry = append(out.Geometry, part...)
 	}
 	if len(out.Geometry) < 2 {
-		out.Geometry = []Point{a.Point, b.Point}
+		out.Geometry = []Point{out.Origin.Point, out.Destination.Point}
 	}
 	out.Metrics.GeometryMilliseconds = float64(time.Since(start).Microseconds()) / 1000
 	return out, nil
@@ -574,8 +793,8 @@ func clip(points []Point, from, to float64) []Point {
 		if n > 0 && walk+n >= lo && walk <= hi {
 			f, g := max(0, (lo-walk)/n), min(1, (hi-walk)/n)
 			if f <= g {
-				p := Point{a[0] + f*(b[0]-a[0]), a[1] + f*(b[1]-a[1])}
-				q := Point{a[0] + g*(b[0]-a[0]), a[1] + g*(b[1]-a[1])}
+				p := interpolate(a, b, f)
+				q := interpolate(a, b, g)
 				if len(out) == 0 {
 					out = append(out, p)
 				}

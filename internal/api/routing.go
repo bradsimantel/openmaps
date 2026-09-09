@@ -157,6 +157,10 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 		routingInputFailure(w, fmt.Errorf("destination: %w", err))
 		return
 	}
+	if h.Scout != nil {
+		h.computeScoutRoute(w, r, origin, destination, paths)
+		return
+	}
 	if !h.Routing.HasDuration() {
 		for _, p := range paths {
 			if p == "routes.duration" || p == "routes.staticDuration" {

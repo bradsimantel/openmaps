@@ -7,9 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"openmaps/internal/routing/valhallatiles"
@@ -37,13 +39,19 @@ func point(value string) (valhallatiles.Point, error) {
 	return p, nil
 }
 func run() error {
+	probeFile := flag.String("audit-snaps", "", "JSON point array for full-shape scan comparisons during audit")
+	inspect := flag.Uint64("inspect-edge", 0, "emit one source edge, endpoints and geometry for diagnostics")
+	landmarks := flag.String("landmarks", "", "prepared landmark directory (requires -accelerated)")
+	bidirectional := flag.Bool("bidirectional", false, "use prepared bidirectional search")
+	accelerated := flag.Bool("accelerated", false, "use prepared validated geometric A* lower bound")
+	prepared := flag.String("prepared", "", "persistent Scout candidate directory")
 	paged := flag.Bool("page-cache", false, "use pages for the original tar backend (matched cache experiment)")
 	scout := flag.String("scout-packages", "", "directory of pinned OSM Scout packages (separate backend)")
 	scratch := flag.String("scratch", "", "existing directory for temporary Scout spool")
 	cold := flag.Bool("cold-cache", false, "clear application cache after preprocessing")
 	archive := flag.String("tiles", "data/valhalla-feasibility/bremen.tar", "pinned uncompressed tar")
 	lockPath := flag.String("lock", "imports/valhalla-bremen.lock.json", "pinned source lock")
-	cache := flag.Int64("cache-mib", 16, "retained tile/page payload budget (maximum 64 MiB)")
+	cache := flag.Int64("cache-mib", 16, "retained page payload budget (prepared: maximum 128 MiB; prototype: 64 MiB)")
 	from := flag.String("from", "8.745062,53.083827", "origin longitude,latitude")
 	to := flag.String("to", "8.765082,53.085226", "destination longitude,latitude")
 	repeat := flag.Int("repeat", 1, "route repetitions (1..100)")
@@ -51,22 +59,36 @@ func run() error {
 	audit := flag.Bool("audit", false, "scan sample references/geometry; Scout reports external dependencies")
 	timeout := flag.Duration("timeout", 30*time.Second, "per-route timeout")
 	flag.Parse()
-	if *repeat < 1 || *repeat > 100 || *cache < 1 || *cache > 64 {
+	if *repeat < 1 || *repeat > 100 || *cache < 1 || *cache > 128 || (*prepared == "" && *cache > 64) {
 		return fmt.Errorf("invalid repetition/cache budget")
 	}
-	data, err := os.ReadFile(*lockPath)
-	if err != nil {
-		return err
+	var data []byte
+	var err error
+	if *prepared == "" {
+		data, err = os.ReadFile(*lockPath)
+		if err != nil {
+			return err
+		}
 	}
 	var lock struct {
 		SHA256 string `json:"sha256"`
 	}
-	if err = json.Unmarshal(data, &lock); err != nil {
-		return err
+	if *prepared == "" {
+		if err = json.Unmarshal(data, &lock); err != nil {
+			return err
+		}
 	}
+	lifetime, cancelLifetime := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancelLifetime()
 	start := time.Now()
 	var r *valhallatiles.Reader
-	if *scout != "" {
+	var router *valhallatiles.Router
+	if *prepared != "" {
+		router, err = valhallatiles.OpenPreparedRouter(lifetime, *prepared, *cache<<20)
+		if err == nil {
+			r = router.Reader
+		}
+	} else if *scout != "" {
 		var pin valhallatiles.ScoutLock
 		if err := json.Unmarshal(data, &pin); err != nil {
 			return err
@@ -84,15 +106,76 @@ func run() error {
 			return err
 		}
 	}
-	router, err := valhallatiles.NewRouter(r)
+	if router == nil {
+		router, err = valhallatiles.NewRouter(r)
+	}
 	if err != nil {
 		return err
 	}
+	if *accelerated || *bidirectional {
+		if *prepared == "" {
+			return fmt.Errorf("acceleration requires persistent preparation")
+		}
+		if err := router.EnablePotential(*prepared); err != nil {
+			return err
+		}
+	}
+	if *bidirectional {
+		if err := router.EnableBidirectional(lifetime, *prepared); err != nil {
+			return err
+		}
+	}
+	if *landmarks != "" {
+		if !*accelerated || *bidirectional {
+			return fmt.Errorf("landmarks require one-sided -accelerated search")
+		}
+		if err := router.EnableLandmarks(lifetime, *prepared, *landmarks); err != nil {
+			return err
+		}
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	if *audit {
-		report, err := router.AuditSample(*scout != "")
+	if *inspect != 0 {
+		e, err := r.Edge(valhallatiles.ID(*inspect))
 		if err != nil {
+			return err
+		}
+		a, err := r.Start(e.ID)
+		if err != nil {
+			return err
+		}
+		b, err := r.Node(e.End)
+		var endError string
+		if err != nil {
+			endError = err.Error()
+		}
+		shape, err := r.Shape(e)
+		if err != nil {
+			return err
+		}
+		allowed, err := router.Allowed(e)
+		if err != nil {
+			return err
+		}
+		return enc.Encode(map[string]any{"edge": e, "start": a, "end": b, "end_error": endError, "shape": shape, "allowed": allowed, "package": r.Package(e.ID)})
+	}
+	if *audit {
+		var probes []valhallatiles.Point
+		if *probeFile != "" {
+			b, err := os.ReadFile(*probeFile)
+			if err != nil {
+				return err
+			}
+			if len(b) > 65536 {
+				return fmt.Errorf("audit probe file oversized")
+			}
+			if err := json.Unmarshal(b, &probes); err != nil {
+				return err
+			}
+		}
+		report, err := router.AuditWithSnaps(lifetime, *scout != "" || *prepared != "", probes)
+		if err != nil {
+			enc.Encode(map[string]any{"partial_audit": report, "error": err.Error()})
 			return err
 		}
 		return enc.Encode(report)
@@ -115,9 +198,15 @@ func run() error {
 	var route valhallatiles.Result
 	times := make([]float64, 0, *repeat)
 	for i := 0; i < *repeat; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+		ctx, cancel := context.WithTimeout(lifetime, *timeout)
 		start = time.Now()
-		route, err = router.Route(ctx, a, b, *labels)
+		if *bidirectional {
+			route, err = router.RouteBidirectional(ctx, a, b, *labels)
+		} else if *accelerated {
+			route, err = router.RouteAccelerated(ctx, a, b, *labels)
+		} else {
+			route, err = router.Route(ctx, a, b, *labels)
+		}
 		cancel()
 		if err != nil {
 			return err
@@ -133,7 +222,7 @@ func run() error {
 		LoadMilliseconds                                                     float64
 		RouteMilliseconds                                                    []float64
 		TotalAllocatedBytes, HeapBeforeGCBytes, HeapAfterGCBytes, GoSysBytes uint64
-		Cache                                                                valhallatiles.CacheStats
+		Cache                                                                valhallatiles.CacheReport
 		Route                                                                valhallatiles.Result
-	}{loadMS, times, allocation, heapBeforeGC, after.HeapAlloc, after.Sys, r.Stats, route})
+	}{loadMS, times, allocation, heapBeforeGC, after.HeapAlloc, after.Sys, r.CacheReport(), route})
 }

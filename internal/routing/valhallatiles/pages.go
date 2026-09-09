@@ -22,8 +22,49 @@ type page struct {
 	b      []byte
 }
 
+type CacheReport struct {
+	Graph                            CacheStats
+	Turns, ReverseTurns              *CacheStats  `json:",omitempty"`
+	Landmarks                        []CacheStats `json:",omitempty"`
+	RetainedBytes, PayloadLimitBytes int64
+}
+
+// CacheReport includes all persistent page caches owned by this single-reader
+// lease. Per-cache peak counters are not a simultaneous process RSS measurement.
+func (r *Reader) CacheReport() CacheReport {
+	out := CacheReport{Graph: r.Stats, RetainedBytes: r.Stats.Bytes, PayloadLimitBytes: r.limit}
+	add := func(child *Reader) { out.RetainedBytes += child.Stats.Bytes; out.PayloadLimitBytes += child.limit }
+	if r.turnsReader != nil {
+		v := r.turnsReader.Stats
+		out.Turns = &v
+		add(r.turnsReader)
+	}
+	if r.reverseTurnsReader != nil {
+		v := r.reverseTurnsReader.Stats
+		out.ReverseTurns = &v
+		add(r.reverseTurnsReader)
+	}
+	for _, child := range r.landmarkReaders {
+		out.Landmarks = append(out.Landmarks, child.Stats)
+		add(child)
+	}
+	return out
+}
+
 // ClearCache makes the next lookup application-cache cold, not OS-cache cold.
 func (r *Reader) ClearCache() {
+	if r.records != nil {
+		r.records = &recordCache{}
+	}
+	for _, reader := range r.landmarkReaders {
+		reader.ClearCache()
+	}
+	if r.reverseTurnsReader != nil {
+		r.reverseTurnsReader.ClearCache()
+	}
+	if r.turnsReader != nil {
+		r.turnsReader.ClearCache()
+	}
 	r.cache = map[ID]*list.Element{}
 	if r.pages != nil {
 		r.pages = map[int64]*list.Element{}
@@ -49,15 +90,22 @@ func (t *tile) span(offset, size int) ([]byte, error) {
 		base := absolute / pageSize * pageSize
 		el := r.pages[base]
 		if el == nil {
+			var recycled []byte
 			for r.Stats.Bytes+pageSize > r.limit {
 				last := r.lru.Back()
 				p := last.Value.(page)
+				if r.recordPageReuse {
+					recycled = p.b[:cap(p.b)]
+				}
 				delete(r.pages, p.offset)
 				r.lru.Remove(last)
 				r.Stats.Bytes -= pageSize
 				r.Stats.Evictions++
 			}
-			b := make([]byte, pageSize)
+			b := recycled
+			if b == nil {
+				b = make([]byte, pageSize)
+			}
 			n, err := r.f.ReadAt(b, base)
 			if err != nil && err != io.EOF {
 				return nil, err
@@ -81,7 +129,8 @@ func (t *tile) span(offset, size int) ([]byte, error) {
 		}
 		if n == size {
 			// Internal borrowed view. Decoders return copied domain records.
-			// Buffers are never recycled while a decoder may still hold a view.
+			// Default readers never recycle buffers. The restricted landmark
+			// loop completes each fixed-record decode before any subsequent read.
 			return b[at : at+n], nil
 		}
 		if out == nil {

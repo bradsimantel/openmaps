@@ -19,10 +19,12 @@ import (
 	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
 	"openmaps/internal/routing"
+	"openmaps/internal/routing/valhallatiles"
 )
 
 type Handler struct {
 	Routing   *routing.Store
+	Scout     *valhallatiles.Candidate
 	Places    *places.Store
 	Geocoding *geocoding.Store
 }

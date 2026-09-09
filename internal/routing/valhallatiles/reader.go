@@ -96,18 +96,29 @@ type CacheStats struct{ Bytes, PeakBytes, Loads, Hits, Evictions, ReadBytes int6
 // byte views into cached tiles. CacheBytes bounds retained tile payload; Go heap,
 // transient allocations, archive index, query labels and OS file cache are separate.
 type Reader struct {
-	closed        bool
-	version       string
-	removeOnClose bool
-	pages         map[int64]*list.Element
-	tiles         map[ID]*tile
-	packages      map[ID]string
-	f             *os.File
-	index         map[ID]entry
-	cache         map[ID]*list.Element
-	lru           list.List
-	limit         int64
-	Stats         CacheStats
+	preparedSHA, preparedTimestamp string
+	preparedDataset                uint64
+	// Fixed-record phases enable reuse after each record is decoded.
+	// Shape decoding is forbidden in that mode because it retains a record
+	// while reading names from other pages. Public/default readers never reuse.
+	recordPageReuse      bool
+	closed               bool
+	turnsReader          *Reader
+	records              *recordCache
+	reverseTurnsReader   *Reader
+	skipEmptyAccessRules bool
+	landmarkReaders      []*Reader
+	version              string
+	removeOnClose        bool
+	pages                map[int64]*list.Element
+	tiles                map[ID]*tile
+	packages             map[ID]string
+	f                    *os.File
+	index                map[ID]entry
+	cache                map[ID]*list.Element
+	lru                  list.List
+	limit                int64
+	Stats                CacheStats
 }
 
 // Open verifies a caller-pinned digest before indexing a seekable, uncompressed
@@ -206,13 +217,29 @@ func (r *Reader) Close() error {
 		return nil
 	}
 	r.closed = true
+	r.records = nil
 	r.cache = nil
 	r.pages = nil
 	r.tiles = nil
 	r.lru.Init()
 	r.Stats.Bytes = 0
-	err := r.f.Close()
-	if r.removeOnClose {
+	var err error
+	if r.f != nil {
+		err = r.f.Close()
+	}
+	for _, reader := range r.landmarkReaders {
+		err = errors.Join(err, reader.Close())
+	}
+	r.landmarkReaders = nil
+	if r.reverseTurnsReader != nil {
+		err = errors.Join(err, r.reverseTurnsReader.Close())
+		r.reverseTurnsReader = nil
+	}
+	if r.turnsReader != nil {
+		err = errors.Join(err, r.turnsReader.Close())
+		r.turnsReader = nil
+	}
+	if r.removeOnClose && r.f != nil {
 		err = errors.Join(err, os.Remove(r.f.Name()))
 	}
 	return err
@@ -329,11 +356,21 @@ func (t *tile) node(i int) (Node, error) {
 	return n, nil
 }
 func (r *Reader) Node(id ID) (Node, error) {
+	if !r.closed && r.records != nil {
+		c := r.records.nodes[recordSlot(id, 16383)]
+		if c.valid && c.id == id {
+			return c.n, nil
+		}
+	}
 	t, err := r.get(id)
 	if err != nil {
 		return Node{}, err
 	}
-	return t.node(id.Index())
+	n, err := t.node(id.Index())
+	if err == nil && r.records != nil {
+		r.records.nodes[recordSlot(id, 16383)] = nodeRecord{id, n, true}
+	}
+	return n, err
 }
 func (t *tile) edge(i int) (Edge, error) {
 	if i < 0 || i >= t.edges {
@@ -351,11 +388,21 @@ func (t *tile) edge(i int) (Edge, error) {
 	return x, nil
 }
 func (r *Reader) Edge(id ID) (Edge, error) {
+	if !r.closed && r.records != nil {
+		c := r.records.edges[recordSlot(id, 32767)]
+		if c.valid && c.id == id {
+			return c.e, nil
+		}
+	}
 	t, err := r.get(id)
 	if err != nil {
 		return Edge{}, err
 	}
-	return t.edge(id.Index())
+	e, err := t.edge(id.Index())
+	if err == nil && r.records != nil {
+		r.records.edges[recordSlot(id, 32767)] = edgeRecord{id, e, true}
+	}
+	return e, err
 }
 func (r *Reader) Start(id ID) (Node, error) {
 	t, err := r.get(id)
@@ -405,6 +452,9 @@ func (r *Reader) Transitions(n Node) ([]ID, error) {
 	return out, nil
 }
 func (r *Reader) AccessRules(e Edge) ([]AccessRestriction, error) {
+	if !r.closed && r.skipEmptyAccessRules && e.AccessRestriction == 0 {
+		return nil, nil
+	}
 	t, err := r.get(e.ID)
 	if err != nil {
 		return nil, err
@@ -478,6 +528,9 @@ func (r *Reader) Restrictions(id ID) ([]Restriction, error) {
 	return out, nil
 }
 func (r *Reader) Shape(e Edge) (Shape, error) {
+	if r.recordPageReuse {
+		return Shape{}, errors.New("shape reads are unavailable during record-only page reuse")
+	}
 	t, err := r.get(e.ID)
 	if err != nil {
 		return Shape{}, err
@@ -568,20 +621,18 @@ func (r *Reader) Shape(e Edge) (Shape, error) {
 
 // Candidates uses the provider's level-2 5x5 bins, including references to
 // roads on higher levels. Missing bins at a sample's edge are not fabricated.
-// This bounded experiment deliberately rejects polar/dateline requests.
+// Longitude bins wrap at the dateline and latitude rows clamp at the poles.
 func (r *Reader) Candidates(p Point, radius float64) ([]ID, error) {
-	if !p.valid() || math.Abs(p[1]) > 80 || radius <= 0 || radius > 1000 || math.IsNaN(radius) {
+	if !p.valid() || radius <= 0 || radius > 1000 || math.IsNaN(radius) {
 		return nil, errors.New("unsupported snap coordinates/radius")
 	}
 	dy := radius / 110000
-	dx := dy / math.Cos(p[1]*math.Pi/180)
-	if p[0]-dx < -180 || p[0]+dx > 180 {
-		return nil, errors.New("dateline snapping not implemented")
-	}
+	dx := math.Min(180, dy/math.Cos(p[1]*math.Pi/180))
 	seen := map[ID]bool{}
-	for y := int(math.Floor((p[1] - dy + 90) / .25)); y <= int(math.Floor((p[1]+dy+90)/.25)); y++ {
+	for y := max(0, int(math.Floor((p[1]-dy+90)/.25))); y <= min(719, int(math.Floor((p[1]+dy+90)/.25))); y++ {
 		for x := int(math.Floor((p[0] - dx + 180) / .25)); x <= int(math.Floor((p[0]+dx+180)/.25)); x++ {
-			id := ID(y*1440+x)<<3 | 2
+			wrappedX := ((x % 1440) + 1440) % 1440
+			id := ID(y*1440+wrappedX)<<3 | 2
 			if _, ok := r.index[id]; !ok {
 				return nil, &MissingTileError{Tile: id}
 			}
