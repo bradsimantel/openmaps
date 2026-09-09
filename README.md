@@ -31,6 +31,12 @@ rollback verification and residency measurements. Nationwide routing remains unf
 regional candidates have no address coverage. Nearby place search and general
 text search remain future milestones.
 
+The [national candidate plan](docs/routing-national.md) proposes 50-state/DC
+coordinate coverage, explicit connectivity limits and construction/serving budgets.
+The current host fails national capacity preflight; no national publication has
+been built. See the [historical preflight](docs/log/0026-national-routing-preflight.md)
+for source metadata, measured regional evidence and conservative build-resource estimates.
+
 Offline construction now bounds segment/guard identity-index scratch and streams
 publication encoding. The importer also avoids a duplicate segment-membership
 map. Full source parsing, graph arrays and hierarchy construction still require

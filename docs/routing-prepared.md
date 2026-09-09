@@ -5,6 +5,9 @@ service. The prepared loader does not decode source graph chunks, reconstruct
 adjacency, build spatial indexes, or run hierarchy preprocessing. The Google API,
 endpoint policy, graph/profile versions and `estimated-driving-v1` costs are
 unchanged. Nationwide construction and physical residency remain separate gates.
+The [national candidate plan](routing-national.md) accounts for full import,
+canonical graph construction, publication and old/new overlap; its current-host
+capacity check fails before national acquisition.
 
 ## Prepare and serve
 

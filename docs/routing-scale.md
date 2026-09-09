@@ -8,6 +8,11 @@ measured regional search bottlenecks. A complete restriction-aware hierarchy
 and a backend with bounded national construction memory remain unfinished.
 Direct prepared loading and streaming prepared rollback verification are implemented; see [representation and trust boundaries](routing-prepared.md).
 
+The [national candidate plan](routing-national.md) separates proposed geographic
+coverage, connectivity, construction capacity and runtime qualification. Its
+preflight currently blocks a national build on this host; it is not a release
+or a national performance result.
+
 The [historical Oregon evaluation](log/0019-routing-scale-and-oregon.md),
 [historical junction/mapping experiment](log/0020-junction-hierarchy-and-mapped-query-data.md), and
 [historical recursive-cell experiment](log/0021-recursive-junction-cell-overlay.md)
