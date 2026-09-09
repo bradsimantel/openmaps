@@ -1,5 +1,5 @@
 // Package valhallatiles is an isolated feasibility reader for pinned Valhalla
-// 3.6.3 little-endian road tiles. It is not used by the production router.
+// 3.6.3 and 3.4.0 little-endian road tiles. It is not used by the production router.
 // Layout references: upstream e2f017b16080f49203de245a211b09efab09cf72,
 // valhalla/baldr/{graphtileheader,nodeinfo,directededge,edgeinfo}.h.
 package valhallatiles
@@ -43,6 +43,8 @@ func Distance(a, b Point) float64 {
 }
 
 type Node struct {
+	Type                                                   uint8
+	Private, TaggedAccess                                  bool
 	ID                                                     ID
 	Point                                                  Point
 	EdgeIndex, EdgeCount, TransitionIndex, TransitionCount int
@@ -76,6 +78,9 @@ type Shape struct {
 	TagTypes   []uint8 // Presence only; tagged payloads are not interpreted.
 }
 type tile struct {
+	size                                                                                                       int
+	reader                                                                                                     *Reader
+	offset                                                                                                     int64
 	b                                                                                                          []byte
 	id                                                                                                         ID
 	nodes, edges, transitions, access, edgeStart, accessStart, binStart, forward, reverse, info, text, textEnd int
@@ -85,18 +90,24 @@ type cached struct {
 	id   ID
 	tile *tile
 }
-type CacheStats struct{ Bytes, PeakBytes, Loads, Hits, Evictions int64 }
+type CacheStats struct{ Bytes, PeakBytes, Loads, Hits, Evictions, ReadBytes int64 }
 
 // Reader is single-owner, not concurrent. Methods return copied records, never
 // byte views into cached tiles. CacheBytes bounds retained tile payload; Go heap,
 // transient allocations, archive index, query labels and OS file cache are separate.
 type Reader struct {
-	f     *os.File
-	index map[ID]entry
-	cache map[ID]*list.Element
-	lru   list.List
-	limit int64
-	Stats CacheStats
+	closed        bool
+	version       string
+	removeOnClose bool
+	pages         map[int64]*list.Element
+	tiles         map[ID]*tile
+	packages      map[ID]string
+	f             *os.File
+	index         map[ID]entry
+	cache         map[ID]*list.Element
+	lru           list.List
+	limit         int64
+	Stats         CacheStats
 }
 
 // Open verifies a caller-pinned digest before indexing a seekable, uncompressed
@@ -139,7 +150,7 @@ func Open(path, digest string, cacheBytes int64) (*Reader, error) {
 	if _, err = f.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
-	r := &Reader{f: f, index: map[ID]entry{}, cache: map[ID]*list.Element{}, limit: cacheBytes}
+	r := &Reader{version: "3.6.3", f: f, index: map[ID]entry{}, cache: map[ID]*list.Element{}, limit: cacheBytes}
 	tr := tar.NewReader(f)
 	var dataset, checksum uint64
 	for {
@@ -164,6 +175,9 @@ func Open(path, digest string, cacheBytes int64) (*Reader, error) {
 		if _, err = io.ReadFull(tr, header[:]); err != nil {
 			return nil, err
 		}
+		if string(bytes.TrimRight(header[16:32], "\x00")) != r.version {
+			return nil, errors.New("unsupported tile version: expected 3.6.3")
+		}
 		id := ID(binary.LittleEndian.Uint64(header[:]) & idMask)
 		if len(r.index) == 0 {
 			dataset, checksum = u64(header[:], 32), u64(header[:], 88)
@@ -187,7 +201,22 @@ func Open(path, digest string, cacheBytes int64) (*Reader, error) {
 	ok = true
 	return r, nil
 }
-func (r *Reader) Close() error { r.cache = nil; r.lru.Init(); r.Stats.Bytes = 0; return r.f.Close() }
+func (r *Reader) Close() error {
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+	r.cache = nil
+	r.pages = nil
+	r.tiles = nil
+	r.lru.Init()
+	r.Stats.Bytes = 0
+	err := r.f.Close()
+	if r.removeOnClose {
+		err = errors.Join(err, os.Remove(r.f.Name()))
+	}
+	return err
+}
 func (r *Reader) TileIDs() []ID {
 	ids := make([]ID, 0, len(r.index))
 	for id := range r.index {
@@ -197,7 +226,16 @@ func (r *Reader) TileIDs() []ID {
 	return ids
 }
 func (r *Reader) get(id ID) (*tile, error) {
+	if r.closed {
+		return nil, errors.New("reader closed")
+	}
 	id = id.Base()
+	if r.tiles != nil {
+		if t := r.tiles[id]; t != nil {
+			return t, nil
+		}
+		return nil, &MissingTileError{Tile: id}
+	}
 	if el := r.cache[id]; el != nil {
 		r.lru.MoveToFront(el)
 		r.Stats.Hits++
@@ -205,7 +243,7 @@ func (r *Reader) get(id ID) (*tile, error) {
 	}
 	e, ok := r.index[id]
 	if !ok {
-		return nil, fmt.Errorf("missing tile %s (incomplete dataset)", id)
+		return nil, &MissingTileError{Tile: id}
 	}
 	for r.Stats.Bytes+e.size > r.limit {
 		el := r.lru.Back()
@@ -226,6 +264,7 @@ func (r *Reader) get(id ID) (*tile, error) {
 	r.cache[id] = r.lru.PushFront(cached{id, t})
 	r.Stats.Bytes += e.size
 	r.Stats.Loads++
+	r.Stats.ReadBytes += e.size
 	r.Stats.PeakBytes = max(r.Stats.PeakBytes, r.Stats.Bytes)
 	return t, nil
 }
@@ -233,27 +272,34 @@ func u32(b []byte, o int) uint32            { return binary.LittleEndian.Uint32(
 func u64(b []byte, o int) uint64            { return binary.LittleEndian.Uint64(b[o : o+8]) }
 func field(w uint64, start, width uint) int { return int(w >> start & (1<<width - 1)) }
 func parseTile(b []byte, id ID) (*tile, error) {
+	return parseTileHeader(b, id, len(b))
+}
+func parseTileHeader(b []byte, id ID, size int) (*tile, error) {
+	if id.Index() != 0 || id.Level() > 2 {
+		return nil, errors.New("invalid road tile base")
+	}
 	if len(b) < 272 {
 		return nil, errors.New("short header")
 	}
-	if string(bytes.TrimRight(b[16:32], "\x00")) != "3.6.3" {
-		return nil, errors.New("unsupported tile version (only pinned 3.6.3 layout)")
+	version := string(bytes.TrimRight(b[16:32], "\x00"))
+	if version != "3.6.3" && version != "3.4.0" {
+		return nil, errors.New("unsupported tile version (only audited 3.4.0/3.6.3 layouts)")
 	}
-	if ID(u64(b, 0)&idMask) != id || int(u32(b, 224)) != len(b) {
+	if ID(u64(b, 0)&idMask) != id || int(u32(b, 224)) != size {
 		return nil, errors.New("tile identity/size mismatch")
 	}
 	// Transit records are deliberately unsupported, even inside a road tile.
 	if u64(b, 56) != 0 || field(u64(b, 64), 0, 24) != 0 {
 		return nil, errors.New("transit records unsupported")
 	}
-	t := &tile{b: b, id: id, nodes: field(u64(b, 40), 0, 21), edges: field(u64(b, 40), 21, 21), transitions: field(u64(b, 48), 0, 22), access: field(u64(b, 72), 0, 24), forward: int(u32(b, 96)), reverse: int(u32(b, 100)), info: int(u32(b, 104)), text: int(u32(b, 108)), textEnd: int(u32(b, 216))}
+	t := &tile{size: size, b: b, id: id, nodes: field(u64(b, 40), 0, 21), edges: field(u64(b, 40), 21, 21), transitions: field(u64(b, 48), 0, 22), access: field(u64(b, 72), 0, 24), forward: int(u32(b, 96)), reverse: int(u32(b, 100)), info: int(u32(b, 104)), text: int(u32(b, 108)), textEnd: int(u32(b, 216))}
 	t.edgeStart = 272 + t.nodes*32 + t.transitions*8
 	t.accessStart = t.edgeStart + t.edges*48
 	if u64(b, 0)>>63 != 0 {
 		t.accessStart += t.edges * 8
 	}
 	t.binStart = t.accessStart + t.access*16 + field(u64(b, 64), 24, 24)*8 + field(u64(b, 48), 32, 21)*8 + field(u64(b, 72), 24, 16)*16
-	if t.edgeStart > len(b) || t.accessStart > len(b) || t.binStart > t.forward || t.forward > t.reverse || t.reverse > t.info || t.info > t.text || t.text > t.textEnd || t.textEnd > len(b) {
+	if t.edgeStart > size || t.accessStart > size || t.binStart > t.forward || t.forward > t.reverse || t.reverse > t.info || t.info > t.text || t.text > t.textEnd || t.textEnd > size {
 		return nil, errors.New("invalid section extents")
 	}
 	prev := 0
@@ -270,9 +316,13 @@ func (t *tile) node(i int) (Node, error) {
 	if i < 0 || i >= t.nodes {
 		return Node{}, errors.New("node index out of range")
 	}
-	o := 272 + i*32
-	a, b, c := u64(t.b, o), u64(t.b, o+8), u64(t.b, o+16)
-	n := Node{ID: t.id.WithIndex(i), Point: Point{float64(math.Float32frombits(u32(t.b, 8))) + float64(field(a, 26, 22))*1e-6 + float64(field(a, 48, 4))*1e-7, float64(math.Float32frombits(u32(t.b, 12))) + float64(field(a, 0, 22))*1e-6 + float64(field(a, 22, 4))*1e-7}, Access: uint16(a >> 52), EdgeIndex: field(b, 0, 21), EdgeCount: field(b, 21, 7), TransitionIndex: field(c, 0, 21), TransitionCount: field(c, 21, 3)}
+	record, err := t.span(272+i*32, 32)
+	if err != nil {
+		return Node{}, err
+	}
+	a, b, c := u64(record, 0), u64(record, 8), u64(record, 16)
+	base := t.basePoint()
+	n := Node{Type: uint8(field(b, 53, 4)), Private: c&(1<<45) != 0, TaggedAccess: c&(1<<44) != 0, ID: t.id.WithIndex(i), Point: Point{base[0] + float64(field(a, 26, 22))*1e-6 + float64(field(a, 48, 4))*1e-7, base[1] + float64(field(a, 0, 22))*1e-6 + float64(field(a, 22, 4))*1e-7}, Access: uint16(a >> 52), EdgeIndex: field(b, 0, 21), EdgeCount: field(b, 21, 7), TransitionIndex: field(c, 0, 21), TransitionCount: field(c, 21, 3)}
 	if !n.Point.valid() || n.EdgeIndex+n.EdgeCount > t.edges || n.TransitionIndex+n.TransitionCount > t.transitions {
 		return Node{}, errors.New("invalid node fields")
 	}
@@ -289,8 +339,11 @@ func (t *tile) edge(i int) (Edge, error) {
 	if i < 0 || i >= t.edges {
 		return Edge{}, errors.New("edge index out of range")
 	}
-	o := t.edgeStart + i*48
-	a, b, c, d, e, f := u64(t.b, o), u64(t.b, o+8), u64(t.b, o+16), u64(t.b, o+24), u64(t.b, o+32), u64(t.b, o+40)
+	record, err := t.span(t.edgeStart+i*48, 48)
+	if err != nil {
+		return Edge{}, err
+	}
+	a, b, c, d, e, f := u64(record, 0), u64(record, 8), u64(record, 16), u64(record, 24), u64(record, 32), u64(record, 40)
 	x := Edge{ID: t.id.WithIndex(i), End: ID(a & idMask), Info: field(b, 0, 25), Restrictions: uint8(a >> 46), OppIndex: uint8(field(a, 54, 7)), Forward: a&(1<<61) != 0, AccessRestriction: uint16(field(b, 25, 12)), Destination: b&(1<<62) != 0, Speed: uint8(c), Use: uint8(field(c, 40, 6)), Class: uint8(field(c, 54, 3)), Surface: uint8(field(c, 57, 3)), Roundabout: c&(1<<61) != 0, Access: uint16(field(d, 0, 12)), ReverseAccess: uint16(field(d, 12, 12)), Tunnel: d&(1<<49) != 0, Bridge: d&(1<<50) != 0, Length: float64(field(e, 32, 24)), LocalIndex: uint8(field(f, 32, 7)), OppLocalIndex: uint8(field(f, 39, 7)), Shortcut: f&(1<<60) != 0}
 	if x.End.Level() > 2 || x.Info+12 > t.text-t.info {
 		return Edge{}, errors.New("invalid edge fields")
@@ -312,7 +365,18 @@ func (r *Reader) Start(id ID) (Node, error) {
 	if id.Index() >= t.edges {
 		return Node{}, errors.New("edge index out of range")
 	}
-	i := sort.Search(t.nodes, func(i int) bool { return field(u64(t.b, 272+i*32+8), 0, 21) > id.Index() }) - 1
+	var readErr error
+	i := sort.Search(t.nodes, func(i int) bool {
+		b, e := t.span(272+i*32+8, 8)
+		if e != nil {
+			readErr = e
+			return true
+		}
+		return field(u64(b, 0), 0, 21) > id.Index()
+	}) - 1
+	if readErr != nil {
+		return Node{}, readErr
+	}
 	n, err := t.node(i)
 	if err != nil {
 		return Node{}, err
@@ -330,9 +394,13 @@ func (r *Reader) Transitions(n Node) ([]ID, error) {
 	if n.TransitionIndex < 0 || n.TransitionCount < 0 || n.TransitionCount > 3 || n.TransitionIndex+n.TransitionCount > t.transitions {
 		return nil, errors.New("transition range out of bounds")
 	}
+	record, err := t.span(272+t.nodes*32+n.TransitionIndex*8, n.TransitionCount*8)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]ID, n.TransitionCount)
 	for i := range out {
-		out[i] = ID(u64(t.b, 272+t.nodes*32+(n.TransitionIndex+i)*8) & idMask)
+		out[i] = ID(u64(record, i*8) & idMask)
 	}
 	return out, nil
 }
@@ -341,15 +409,29 @@ func (r *Reader) AccessRules(e Edge) ([]AccessRestriction, error) {
 	if err != nil {
 		return nil, err
 	}
-	i := sort.Search(t.access, func(i int) bool { return field(u64(t.b, t.accessStart+i*16), 0, 22) >= e.ID.Index() })
+	var readErr error
+	i := sort.Search(t.access, func(i int) bool {
+		b, err := t.span(t.accessStart+i*16, 8)
+		if err != nil {
+			readErr = err
+			return true
+		}
+		return field(u64(b, 0), 0, 22) >= e.ID.Index()
+	})
+	if readErr != nil {
+		return nil, readErr
+	}
 	var out []AccessRestriction
 	for ; i < t.access; i++ {
-		o := t.accessStart + i*16
-		w := u64(t.b, o)
+		record, err := t.span(t.accessStart+i*16, 16)
+		if err != nil {
+			return nil, err
+		}
+		w := u64(record, 0)
 		if field(w, 0, 22) != e.ID.Index() {
 			break
 		}
-		out = append(out, AccessRestriction{Edge: e.ID.Index(), Type: uint8(field(w, 22, 6)), Modes: uint16(field(w, 28, 12)), Value: u64(t.b, o+8), ExceptDestination: w&(1<<40) != 0})
+		out = append(out, AccessRestriction{Edge: e.ID.Index(), Type: uint8(field(w, 22, 6)), Modes: uint16(field(w, 28, 12)), Value: u64(record, 8), ExceptDestination: string(bytes.TrimRight(t.b[16:32], "\x00")) == "3.6.3" && w&(1<<40) != 0})
 	}
 	return out, nil
 }
@@ -363,7 +445,11 @@ func (r *Reader) Restrictions(id ID) ([]Restriction, error) {
 		if t.reverse-o < 24 {
 			return nil, errors.New("truncated complex restriction")
 		}
-		a, b, c := u64(t.b, o), u64(t.b, o+8), u64(t.b, o+16)
+		record, err := t.span(o, 24)
+		if err != nil {
+			return nil, err
+		}
+		a, b, c := u64(record, 0), u64(record, 8), u64(record, 16)
 		n := field(c, 16, 5)
 		if o+24+n*8 > t.reverse {
 			return nil, errors.New("truncated vias")
@@ -373,9 +459,13 @@ func (r *Reader) Restrictions(id ID) ([]Restriction, error) {
 			if typ > 9 {
 				return nil, errors.New("probable/unknown turn restriction unsupported")
 			}
+			vias, err := t.span(o+24, n*8)
+			if err != nil {
+				return nil, err
+			}
 			p := []ID{ID(a & idMask)}
 			for i := n - 1; i >= 0; i-- {
-				p = append(p, ID(u64(t.b, o+24+i*8)&idMask))
+				p = append(p, ID(u64(vias, i*8)&idMask))
 			}
 			p = append(p, ID(b&idMask))
 			out = append(out, Restriction{p, typ, a&(1<<46) != 0})
@@ -396,7 +486,11 @@ func (r *Reader) Shape(e Edge) (Shape, error) {
 	if o < t.info || o+12 > t.text {
 		return Shape{}, errors.New("invalid edge info")
 	}
-	a, b := u32(t.b, o+4), u32(t.b, o+8)
+	header, err := t.span(o, 12)
+	if err != nil {
+		return Shape{}, err
+	}
+	a, b := u32(header, 4), u32(header, 8)
 	nc := int(b & 15)
 	size := int(b >> 4 & 65535)
 	extra := int(b >> 28 & 3)
@@ -405,30 +499,40 @@ func (r *Reader) Shape(e Edge) (Shape, error) {
 	if extra > 2 || end+extra > t.text {
 		return Shape{}, errors.New("invalid shape extent")
 	}
-	s := Shape{Way: uint64(u32(t.b, o)) | uint64(a>>24)<<32 | uint64(b>>20&255)<<40, SpeedLimit: uint8(a >> 16)}
+	record, err := t.span(o, end+extra-o)
+	if err != nil {
+		return Shape{}, err
+	}
+	start -= o
+	end -= o
+	s := Shape{Way: uint64(u32(record, 0)) | uint64(a>>24)<<32 | uint64(b>>20&255)<<40, SpeedLimit: uint8(a >> 16)}
 	for i := 0; i < extra; i++ {
-		s.Way |= uint64(t.b[end+i]) << uint(48+8*i)
+		s.Way |= uint64(record[end+i]) << uint(48+8*i)
 	}
 	for i := 0; i < nc; i++ {
-		w := u32(t.b, o+12+i*4)
+		w := u32(record, 12+i*4)
 		off := t.text + int(w&0xffffff)
 		if off >= t.textEnd {
 			return Shape{}, errors.New("name outside text section")
 		}
 		if w&(1<<29) != 0 {
-			s.TagTypes = append(s.TagTypes, t.b[off])
+			tag, err := t.span(off, 1)
+			if err != nil {
+				return Shape{}, err
+			}
+			s.TagTypes = append(s.TagTypes, tag[0])
 			continue
 		}
-		z := bytes.IndexByte(t.b[off:t.textEnd], 0)
-		if z < 0 {
-			return Shape{}, errors.New("unterminated name")
+		name, err := t.name(off)
+		if err != nil {
+			return Shape{}, err
 		}
-		s.Names = append(s.Names, string(t.b[off:off+z]))
+		s.Names = append(s.Names, name)
 	}
 	lat, lon := int64(0), int64(0)
 	for p := start; p < end; {
 		read := func() (int64, error) {
-			v, n := binary.Uvarint(t.b[p:end])
+			v, n := binary.Uvarint(record[p:end])
 			if n <= 0 || n > 5 || v > math.MaxUint32 {
 				return 0, errors.New("invalid shape varint")
 			}
@@ -479,7 +583,7 @@ func (r *Reader) Candidates(p Point, radius float64) ([]ID, error) {
 		for x := int(math.Floor((p[0] - dx + 180) / .25)); x <= int(math.Floor((p[0]+dx+180)/.25)); x++ {
 			id := ID(y*1440+x)<<3 | 2
 			if _, ok := r.index[id]; !ok {
-				continue
+				return nil, &MissingTileError{Tile: id}
 			}
 			t, err := r.get(id)
 			if err != nil {
@@ -498,7 +602,11 @@ func (r *Reader) Candidates(p Point, radius float64) ([]ID, error) {
 					}
 					hi := int(u32(t.b, 116+bin*4))
 					for i := lo; i < hi; i++ {
-						edge := ID(u64(t.b, t.binStart+i*8))
+						record, err := t.span(t.binStart+i*8, 8)
+						if err != nil {
+							return nil, err
+						}
+						edge := ID(u64(record, 0))
 						if uint64(edge) > idMask {
 							return nil, errors.New("invalid bin graph ID")
 						}

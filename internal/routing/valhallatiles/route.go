@@ -44,9 +44,17 @@ func NewRouter(r *Reader) (*Router, error) {
 			}
 			state := 0
 			for _, edge := range restriction.Path {
-				if _, err := r.Edge(edge); err != nil {
-					return nil, fmt.Errorf("restriction reference: %w", err)
+				if uint64(edge) > idMask || edge.Level() > 2 {
+					return nil, errors.New("invalid restriction graph ID")
 				}
+				if _, exists := r.index[edge.Base()]; exists || r.version != "3.4.0" {
+					if _, err := r.Edge(edge); err != nil {
+						return nil, fmt.Errorf("restriction reference: %w", err)
+					}
+				}
+				// Scout upper tiles extend outside this bounded sample. Keep
+				// every restriction alphabet/path, including absent references.
+				// Traversal into an absent tile still fails explicitly.
 				next, ok := s.prefixes[state].next[edge]
 				if !ok {
 					next = len(s.prefixes)
@@ -346,7 +354,11 @@ func (s *Router) Route(ctx context.Context, from, to Point, maxLabels int) (Resu
 	return out, err
 }
 func (s *Router) RouteSnaps(ctx context.Context, a, b Snap, maxLabels int) (Result, error) {
-	out := Result{Profile: Profile, ProfileNote: ProfileNote, Origin: a, Destination: b}
+	profile := Profile
+	if s.Reader.version == "3.4.0" {
+		profile = "osm-scout-3.4.0-go-feasibility-v1"
+	}
+	out := Result{Profile: profile, ProfileNote: ProfileNote, Origin: a, Destination: b}
 	start := time.Now()
 	if maxLabels < 1 || maxLabels > 200000 {
 		return out, errors.New("label limit must be 1..200000")

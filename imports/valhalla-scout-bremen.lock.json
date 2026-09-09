@@ -1,0 +1,316 @@
+{
+  "schema": 1,
+  "provider": "OSM Scout Server / modRana",
+  "observed_at": "2026-09-09",
+  "scope": "Bremen catalog selection plus adjoining southern package 1983; incomplete external dependencies; experiment only",
+  "tile_version": "3.4.0",
+  "upstream_revision": "cbabe7cfbad2225090e4c006c778f1f0a7b3ec4e",
+  "provider_source_revision_observed": "aae442c5d12345366f677729a004cb00a8115530",
+  "provider_build_attestation": null,
+  "osm_snapshot_datetime": null,
+  "dataset_id": 183131145,
+  "timestamp": "2026-06-20_07:12",
+  "package_schema": "2",
+  "catalog": {
+    "url": "https://data.modrana.org/osm_scout_server/countries_provided.json",
+    "sha256": "770e6c599cfb42d4f35cbe8b7b5be0295dae45d2d25ebe93ce3ccc9c23eca362",
+    "bytes": 1117239,
+    "regional_entries": 439,
+    "package_union_count": 2896,
+    "rechecked_after_download": true
+  },
+  "directory": {
+    "url": "https://data.modrana.org/osm_scout_server/valhalla-34/valhalla/packages/",
+    "sha256": "326a60201d6a62eee4c829c23db3976c0d4b3af3fba729f7cf6c5a197342d63c",
+    "bytes": 3127794,
+    "package_count": 2930,
+    "omitted_from_regional_union": [
+      "1",
+      "2",
+      "67",
+      "244",
+      "247",
+      "248",
+      "249",
+      "250",
+      "251",
+      "252",
+      "253",
+      "345",
+      "397",
+      "398",
+      "425",
+      "444",
+      "523",
+      "560",
+      "621",
+      "623",
+      "624",
+      "626",
+      "853",
+      "854",
+      "855",
+      "1033",
+      "1047",
+      "1230",
+      "1558",
+      "1559",
+      "1560",
+      "1657",
+      "1666",
+      "2579"
+    ]
+  },
+  "attribution": "\u00a9 OpenStreetMap contributors",
+  "license_url": "https://www.openstreetmap.org/copyright",
+  "packages": [
+    {
+      "id": "144",
+      "url": "https://data.modrana.org/osm_scout_server/valhalla-34/valhalla/packages/144.tar.bz2",
+      "bytes": 14663220,
+      "sha256": "10998c12a8f0e956f3baebd2aa0ccdbd030879cad66e6f8327eb4ae0a12e4f4b",
+      "tiles": [
+        {
+          "name": "valhalla/tiles/0/003/197.gph.gz",
+          "bytes": 36976088,
+          "sha256": "ec9b44896d94abbcb6aeb4cd153f9d1896b64ab2caba357ba680b58594cdf006"
+        }
+      ],
+      "provider_md5": "b02229d3962d54336af739cf768b34a0"
+    },
+    {
+      "id": "1985",
+      "url": "https://data.modrana.org/osm_scout_server/valhalla-34/valhalla/packages/1985.tar.bz2",
+      "bytes": 28831448,
+      "sha256": "bb4e2d47f1ab40e2f26660b959319f27ee21a2bf2b49785d3db32cfd0e80388e",
+      "tiles": [
+        {
+          "name": "valhalla/tiles/1/051/668.gph.gz",
+          "bytes": 7718088,
+          "sha256": "2853a78501224faf3054c4eb8d46469e53664423d6a4418cb5807c32e6258f7e"
+        },
+        {
+          "name": "valhalla/tiles/2/000/824/432.gph.gz",
+          "bytes": 11155808,
+          "sha256": "cfed6997fff68545fb85e3db3c19d56525fb68b7fffce4788ee3b28ecbda302b"
+        },
+        {
+          "name": "valhalla/tiles/2/000/824/433.gph.gz",
+          "bytes": 5869760,
+          "sha256": "c5867d60bfcc65c9fcf0b5cc00ef47d587e46a7491dc7f4e82babafeb9d78eb4"
+        },
+        {
+          "name": "valhalla/tiles/2/000/824/434.gph.gz",
+          "bytes": 9879304,
+          "sha256": "0f2a640bb2d694b13bc13e83ea6a11f6737a601175b696746bfb6b4938ded2a3"
+        },
+        {
+          "name": "valhalla/tiles/2/000/824/435.gph.gz",
+          "bytes": 16093288,
+          "sha256": "fe303f21c93a29cb519f77336bbba1462e6f3e4aed4daf0e8ca1dfe91e987dce"
+        },
+        {
+          "name": "valhalla/tiles/2/000/825/872.gph.gz",
+          "bytes": 2897720,
+          "sha256": "f74672dd7fa84b069e8acfa6b2ffd2a0b5c410848d2b2d45f735126892dccffd"
+        },
+        {
+          "name": "valhalla/tiles/2/000/825/873.gph.gz",
+          "bytes": 2954552,
+          "sha256": "e02af3e4bf507c051180040fd029e6ce8b6af093aeac9292f7f20aa9503d3ebe"
+        },
+        {
+          "name": "valhalla/tiles/2/000/825/874.gph.gz",
+          "bytes": 2042056,
+          "sha256": "f92add81e0a0b8022c48b5a5c74b3c41a684ccacb9993e5a673fea58e8a1809c"
+        },
+        {
+          "name": "valhalla/tiles/2/000/825/875.gph.gz",
+          "bytes": 1494896,
+          "sha256": "bf7369c2a8fbb9aa89a1913b9ee0185d70bf45744647de8d229acdec2fff02b5"
+        },
+        {
+          "name": "valhalla/tiles/2/000/827/312.gph.gz",
+          "bytes": 3936424,
+          "sha256": "07ad4561b1be23b65de7c24d868bca92569e2e18ac9a0b2bd745360760cdbb54"
+        },
+        {
+          "name": "valhalla/tiles/2/000/827/313.gph.gz",
+          "bytes": 1394840,
+          "sha256": "c3d39d8fe534dc1739e0355b24ce7b881527e3cfdeeb5efac6815042c62bfccc"
+        },
+        {
+          "name": "valhalla/tiles/2/000/827/314.gph.gz",
+          "bytes": 5166176,
+          "sha256": "c2026a390dc575beda0c55e7c5828ef959c419ecb2e55870031d91ca2f0c07ba"
+        },
+        {
+          "name": "valhalla/tiles/2/000/827/315.gph.gz",
+          "bytes": 1607272,
+          "sha256": "be68d1111ddca68efb56aaa652b5c456c178007f08ec994b8410caf414b04c92"
+        },
+        {
+          "name": "valhalla/tiles/2/000/828/752.gph.gz",
+          "bytes": 3504,
+          "sha256": "28e42e34e52856368a23527ca79d5c273685a43711555b3a9d2497817d438d1f"
+        },
+        {
+          "name": "valhalla/tiles/2/000/828/753.gph.gz",
+          "bytes": 22608,
+          "sha256": "a1473f2c0324d7bd73210e28440ddb821e1da2687b58cc11baa249b6e7e219fa"
+        },
+        {
+          "name": "valhalla/tiles/2/000/828/754.gph.gz",
+          "bytes": 3267560,
+          "sha256": "7b219d58edc3cade35a4ffedb77d5991586a6b8bf5c45c47001df89217466130"
+        },
+        {
+          "name": "valhalla/tiles/2/000/828/755.gph.gz",
+          "bytes": 1415400,
+          "sha256": "333c00d33b022c8a9b621f3f0e33a5858b80352f519e5dbbab8efe32a410a055"
+        }
+      ],
+      "provider_md5": "0fa72d21328bcc76be75ec75462f1c16"
+    },
+    {
+      "id": "1983",
+      "url": "https://data.modrana.org/osm_scout_server/valhalla-34/valhalla/packages/1983.tar.bz2",
+      "bytes": 39034262,
+      "sha256": "1947a7ddf2e83601c10ce8e2ad9892496d97834fecb5f0c465e05c7988ae8a3c",
+      "tiles": [
+        {
+          "name": "valhalla/tiles/1/051/308.gph.gz",
+          "bytes": 11200856,
+          "sha256": "2d17e7cf63552d3c35063da6c2f0ef6ec9ff81a72d02818c8964832daad66f67"
+        },
+        {
+          "name": "valhalla/tiles/2/000/818/672.gph.gz",
+          "bytes": 5879008,
+          "sha256": "dad00e7b603d31f1d5d4b21c1337bbdd353f0fde9ec6c24351a3dfc7176e78ea"
+        },
+        {
+          "name": "valhalla/tiles/2/000/818/673.gph.gz",
+          "bytes": 7303136,
+          "sha256": "018063a9fd19893e79a1d00c81cdd97fc5cb296cffd4f4ebc1e7c3557449e7a9"
+        },
+        {
+          "name": "valhalla/tiles/2/000/818/674.gph.gz",
+          "bytes": 17429912,
+          "sha256": "4454f33162bc0e9e6218bd927e2c7e0a6c6be663bef61ab82042afb4adf68085"
+        },
+        {
+          "name": "valhalla/tiles/2/000/818/675.gph.gz",
+          "bytes": 9025464,
+          "sha256": "d874dc895ac8aa0553e1352f9faf63d9d49ac2376c4151cd2bdeff572875fd8b"
+        },
+        {
+          "name": "valhalla/tiles/2/000/820/112.gph.gz",
+          "bytes": 8597936,
+          "sha256": "183121d80d1aede6f3eefb92c44ce704ff3658aac7d64a38d2740c59f15b82c2"
+        },
+        {
+          "name": "valhalla/tiles/2/000/820/113.gph.gz",
+          "bytes": 3035552,
+          "sha256": "2ca4da8b6c006629df3c09cb9c06cd10edb0e97a9f416ac6fe1b3aa98652214f"
+        },
+        {
+          "name": "valhalla/tiles/2/000/820/114.gph.gz",
+          "bytes": 4623360,
+          "sha256": "1e85b14a53ec562a05d88209e3b9e4372d93f46a940b5fcf1c983a69d9b27ac6"
+        },
+        {
+          "name": "valhalla/tiles/2/000/820/115.gph.gz",
+          "bytes": 5035136,
+          "sha256": "9b727f0451edb227aee9461b7b7cc365acdc7e5fa5722efd309afd04b418ff05"
+        },
+        {
+          "name": "valhalla/tiles/2/000/821/552.gph.gz",
+          "bytes": 4257184,
+          "sha256": "d9587f560087611b478813b6081294c826942dfe1b9de61561f7bed8e628dafa"
+        },
+        {
+          "name": "valhalla/tiles/2/000/821/553.gph.gz",
+          "bytes": 3818136,
+          "sha256": "21f26264913cebfd6e29a707560e7704bc44f10665273ad801a83ca692e6b703"
+        },
+        {
+          "name": "valhalla/tiles/2/000/821/554.gph.gz",
+          "bytes": 1783624,
+          "sha256": "0a1db90730f0395fa88d3680b588914fd1d0cb3fa535da736c53570b75325198"
+        },
+        {
+          "name": "valhalla/tiles/2/000/821/555.gph.gz",
+          "bytes": 2125152,
+          "sha256": "ee72050a3d53156deea51b04b496fa0b155fddddea8c2c192f269128a69636b0"
+        },
+        {
+          "name": "valhalla/tiles/2/000/822/992.gph.gz",
+          "bytes": 4401440,
+          "sha256": "bf31a006af456969eed2c4fa9fa555a366530238c62d92533d5a9782578ee784"
+        },
+        {
+          "name": "valhalla/tiles/2/000/822/993.gph.gz",
+          "bytes": 5007808,
+          "sha256": "108c2e6da6afabb3fa4253fb552b388745183d32d37ab1741bfa6129977bec47"
+        },
+        {
+          "name": "valhalla/tiles/2/000/822/994.gph.gz",
+          "bytes": 3479792,
+          "sha256": "c6cbd991ac355bc660e8671377f1585036cd08afe60bd318b9cb47f4cc4abe1d"
+        },
+        {
+          "name": "valhalla/tiles/2/000/822/995.gph.gz",
+          "bytes": 3937472,
+          "sha256": "23314032e896e48d2e172a9567986bfa8becbcb5e792238a92c3015723e1ef5d"
+        }
+      ],
+      "provider_md5": "e986cc4665deacb3f92736042e5fc4b3"
+    }
+  ],
+  "range_probe": {
+    "package_id": "1984",
+    "url": "https://data.modrana.org/osm_scout_server/valhalla-34/valhalla/packages/1984.tar.bz2",
+    "range": "bytes=0-1048575",
+    "bytes": 1048576,
+    "sha256": "4d6ad3b047aea4a589ddb8e3dd36ae9f89f6fd1f35584fc175832342baefafe0",
+    "purpose": "Inspected first tile path; not selected or routable"
+  },
+  "provider_june_source_revision_observed": "4ec7940c448777a125354bc8323e27adba1d1d4e",
+  "evidence_files": [
+    {
+      "name": "june-scripts_import_.env.template",
+      "sha256": "e775e761459b6f072f02baa49be64dadb026b2e16cd3693c60a019b213908203",
+      "bytes": 1493
+    },
+    {
+      "name": "june-scripts_import_docker-compose.yaml",
+      "sha256": "24588cbff0faa6887d2b13762a411c18dcd7272654a59deebd5fd1bf941d1b8e",
+      "bytes": 4813
+    },
+    {
+      "name": "june-scripts_import_valhalla_make_packs.py",
+      "sha256": "711684db5a1073221991d090dab33fe2e892f9b6bda6c1232b5578cb0c62ca80",
+      "bytes": 3127
+    },
+    {
+      "name": "june-scripts_import_valhalla_tiles2packs_run_tiles2packs.sh",
+      "sha256": "f9e1f7c75b7fe9da5731af9ba988793e189dc4d83ab209a120ef3db6cc361388",
+      "bytes": 229
+    }
+  ],
+  "provider_md5_manifest": {
+    "url": "https://data.modrana.org/osm_scout_server/digest.md5.bz2",
+    "sha256": "9019d68065ea30241a71112c51b2c2c11b5d2ce8d30a4fe6fdb3743e859a2e6e",
+    "bytes": 890414,
+    "uncompressed_sha256": "4db4403fb64f6c681a2b53d019fb06a5f3f111f183de2140527673986f7a749c",
+    "graph_package_entries": 2930,
+    "catalog_md5_matches": true,
+    "package_ids_match_directory": true
+  },
+  "tile_creation_days_since_2014": [
+    0,
+    4539
+  ],
+  "nonzero_tile_creation_date": "2026-06-06",
+  "tile_creation_date_note": "Generator wall date in America/New_York; not an OSM replication cutoff."
+}

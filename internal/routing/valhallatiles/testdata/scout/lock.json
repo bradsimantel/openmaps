@@ -1,0 +1,33 @@
+{
+  "tile_version": "3.4.0",
+  "dataset_id": 0,
+  "timestamp": "synthetic",
+  "packages": [
+    {
+      "id": "1",
+      "bytes": 378,
+      "sha256": "dde6003ec72cea479c00d7bc339889ef12f9a614e69d8612c127b9463f520c6d",
+      "tiles": [
+        {
+          "name": "valhalla/tiles/2/000/824/434.gph.gz",
+          "bytes": 391,
+          "sha256": "456968b9e39b7554772726edea55d46c14b3de2e712ee77829c2dd88c543c7aa"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "bytes": 654,
+      "sha256": "f24bcdd7cd71126113ab32eeb1906c81930e5466e30f1abd4d0b35a68b6357ed",
+      "tiles": [
+        {
+          "name": "valhalla/tiles/2/000/824/435.gph.gz",
+          "bytes": 1155,
+          "sha256": "57b84759f8391939c15326a318f5b5ec670e03fe08399b3a7a3f3c330a941d57"
+        }
+      ]
+    }
+  ],
+  "schema": 1,
+  "package_schema": "2"
+}

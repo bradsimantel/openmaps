@@ -37,14 +37,18 @@ func point(value string) (valhallatiles.Point, error) {
 	return p, nil
 }
 func run() error {
+	paged := flag.Bool("page-cache", false, "use pages for the original tar backend (matched cache experiment)")
+	scout := flag.String("scout-packages", "", "directory of pinned OSM Scout packages (separate backend)")
+	scratch := flag.String("scratch", "", "existing directory for temporary Scout spool")
+	cold := flag.Bool("cold-cache", false, "clear application cache after preprocessing")
 	archive := flag.String("tiles", "data/valhalla-feasibility/bremen.tar", "pinned uncompressed tar")
 	lockPath := flag.String("lock", "imports/valhalla-bremen.lock.json", "pinned source lock")
-	cache := flag.Int64("cache-mib", 16, "retained tile-payload budget (maximum 64 MiB)")
+	cache := flag.Int64("cache-mib", 16, "retained tile/page payload budget (maximum 64 MiB)")
 	from := flag.String("from", "8.745062,53.083827", "origin longitude,latitude")
 	to := flag.String("to", "8.765082,53.085226", "destination longitude,latitude")
 	repeat := flag.Int("repeat", 1, "route repetitions (1..100)")
 	labels := flag.Int("max-labels", 100000, "per-route label budget")
-	audit := flag.Bool("audit", false, "scan full small sample and verify references/geometry")
+	audit := flag.Bool("audit", false, "scan sample references/geometry; Scout reports external dependencies")
 	timeout := flag.Duration("timeout", 30*time.Second, "per-route timeout")
 	flag.Parse()
 	if *repeat < 1 || *repeat > 100 || *cache < 1 || *cache > 64 {
@@ -61,11 +65,25 @@ func run() error {
 		return err
 	}
 	start := time.Now()
-	r, err := valhallatiles.Open(*archive, lock.SHA256, *cache<<20)
+	var r *valhallatiles.Reader
+	if *scout != "" {
+		var pin valhallatiles.ScoutLock
+		if err := json.Unmarshal(data, &pin); err != nil {
+			return err
+		}
+		r, err = valhallatiles.OpenScout(context.Background(), *scout, *scratch, pin, *cache<<20)
+	} else {
+		r, err = valhallatiles.Open(*archive, lock.SHA256, *cache<<20)
+	}
 	if err != nil {
 		return err
 	}
 	defer r.Close()
+	if *paged {
+		if err := r.UsePageCache(); err != nil {
+			return err
+		}
+	}
 	router, err := valhallatiles.NewRouter(r)
 	if err != nil {
 		return err
@@ -73,7 +91,7 @@ func run() error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if *audit {
-		report, err := router.Audit()
+		report, err := router.AuditSample(*scout != "")
 		if err != nil {
 			return err
 		}
@@ -87,6 +105,9 @@ func run() error {
 	b, err := point(*to)
 	if err != nil {
 		return err
+	}
+	if *cold {
+		r.ClearCache()
 	}
 	runtime.GC()
 	var before, after runtime.MemStats
