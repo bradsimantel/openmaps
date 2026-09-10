@@ -39,7 +39,7 @@ curl -fsS http://127.0.0.1:8096/healthz
 Healthy responses include lookup availability, the lookup dataset checksum,
 routing profile, snapshot identity and reload diagnostics. The established
 `routing_candidate` JSON key remains for compatibility; internal Go ownership is
-`valhallatiles.Service`.
+`routing.Service`.
 
 For a graceful planned stop, identify the server child of the supervisor PID
 shown by `launchctl print`, confirm its full command, and send **that server**

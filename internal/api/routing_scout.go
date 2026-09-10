@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 	"time"
 )
 
 func (h Handler) computeScoutRoute(w http.ResponseWriter, r *http.Request, origin, destination routeWaypoint, paths []string) {
 	if origin.address != "" || destination.address != "" {
-		write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Scout supports coordinates only; it has no address evidence"}, "openmaps": object{"outcome": "address_routing_unavailable", "profile": valhallatiles.Profile}})
+		write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Scout supports coordinates only; it has no address evidence"}, "openmaps": object{"outcome": "address_routing_unavailable", "profile": routing.Profile}})
 		return
 	}
 	lease, err := h.Routing.Acquire()
 	if err != nil {
-		if errors.Is(err, valhallatiles.ErrBusy) {
+		if errors.Is(err, routing.ErrBusy) {
 			w.Header().Set("Retry-After", "1")
 			failure(w, 429, "RESOURCE_EXHAUSTED", err.Error())
 		} else {
@@ -31,14 +31,14 @@ func (h Handler) computeScoutRoute(w http.ResponseWriter, r *http.Request, origi
 	defer cancel()
 	fail := func(err error, endpoint string) {
 		status, code, outcome := 500, "INTERNAL", "calculation_failed"
-		var missing *valhallatiles.MissingTileError
+		var missing *routing.MissingTileError
 		switch {
 		case errors.As(err, &missing):
 			status, code, outcome = 503, "UNAVAILABLE", "incomplete_data"
 			meta["missing_tile"] = missing.Tile.String()
-		case errors.Is(err, valhallatiles.ErrUnsnappable):
+		case errors.Is(err, routing.ErrUnsnappable):
 			status, code, outcome = 400, "INVALID_ARGUMENT", "unsnappable"
-		case errors.Is(err, valhallatiles.ErrQueryBudget):
+		case errors.Is(err, routing.ErrQueryBudget):
 			status, code, outcome = 503, "RESOURCE_EXHAUSTED", "query_budget_exhausted"
 		case errors.Is(err, context.DeadlineExceeded):
 			status, code, outcome = 504, "DEADLINE_EXCEEDED", "query_timeout"
@@ -51,23 +51,23 @@ func (h Handler) computeScoutRoute(w http.ResponseWriter, r *http.Request, origi
 		}
 		write(w, status, object{"error": object{"code": status, "status": code, "message": err.Error()}, "openmaps": meta})
 	}
-	a, err := lease.Router.SnapContext(ctx, valhallatiles.Point(origin.point))
+	a, err := lease.Router.SnapContext(ctx, routing.Point(origin.point))
 	if err != nil {
 		fail(err, "origin")
 		return
 	}
-	snapMetadata := func(s valhallatiles.Snap) object {
+	snapMetadata := func(s routing.Snap) object {
 		return object{"requested": s.Requested, "point": s.Point, "distance_meters": s.GapMeters, "nearest_distance_meters": s.GapMeters, "off_road_gap_meters": s.GapMeters, "selection_method": "coordinate_snap", "source_segment": lease.Metadata.Snapshot + ":" + s.Edge.String(), "uncertainty": "Nearest eligible retained shape; no excluded-road guards or verified property entrance"}
 	}
 	meta["origin"] = snapMetadata(a)
-	b, err := lease.Router.SnapContext(ctx, valhallatiles.Point(destination.point))
+	b, err := lease.Router.SnapContext(ctx, routing.Point(destination.point))
 	if err != nil {
 		fail(err, "destination")
 		return
 	}
 	meta["destination"] = snapMetadata(b)
 	result, err := lease.Router.RoutePreparedSnaps(ctx, a, b, 2000000)
-	if errors.Is(err, valhallatiles.ErrUnreachable) {
+	if errors.Is(err, routing.ErrUnreachable) {
 		meta["outcome"] = "unreachable"
 		meta["message"] = err.Error()
 		write(w, 200, object{"routes": []any{}, "openmaps": meta})

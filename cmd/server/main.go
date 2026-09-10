@@ -17,7 +17,7 @@ import (
 	"openmaps/internal/dataset"
 	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 )
 
 type configuration struct {
@@ -113,10 +113,10 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		}
 		lookup = api.Handler{Places: store, Geocoding: geocoder}
 	}
-	var router *valhallatiles.Service
+	var router *routing.Service
 	if c.routing != "" {
 		var err error
-		router, err = valhallatiles.OpenService(ctx, c.routing, c.workers, c.cache<<20)
+		router, err = routing.OpenService(ctx, c.routing, c.workers, c.cache<<20)
 		if err != nil {
 			return fail(err)
 		}

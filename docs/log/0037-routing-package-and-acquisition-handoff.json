@@ -1,0 +1,176 @@
+{
+  "schema": 1,
+  "date": "2026-09-09",
+  "base_revision": "c5601b3",
+  "scope": "Routing package move and typed acquisition handoff; evidence captured before commit",
+  "moved_files": 37,
+  "artifacts": {
+    "data/scout-package-cleanup-20260909/acquisition-integration.log": {
+      "bytes": 130,
+      "sha256": "ba6441b9d8467c11ad9f2763cf9513b64f61c52fa2a8d19d7cb407245d09650c"
+    },
+    "data/scout-package-cleanup-20260909/bin/scout-landmarks": {
+      "bytes": 3910546,
+      "sha256": "42b92f77e38b3f98b7467504a2c40744ddf26b787d131b41766fa41f41c05be7"
+    },
+    "data/scout-package-cleanup-20260909/bin/scout-prepare": {
+      "bytes": 6661746,
+      "sha256": "559425782fde03cd418cc685f7acb04f591b31658e849dc84aec55e8fd105931"
+    },
+    "data/scout-package-cleanup-20260909/bin/scout-verify": {
+      "bytes": 3929298,
+      "sha256": "efb1a5a72fff917a54b9c71019ec43736f40855b0b0b4a5d3a818b9d98e5f53c"
+    },
+    "data/scout-package-cleanup-20260909/bin/server": {
+      "bytes": 22254258,
+      "sha256": "d7e21b4ee9e75703bbf057de4d97cc3e46446100e0fef6a1170ff0713ae657e9"
+    },
+    "data/scout-package-cleanup-20260909/deployment-national-after.json": {
+      "bytes": 878,
+      "sha256": "3afcbaa9a05d97af5f71341276c1eeb324a1448ed6000ec988984b3e9524f942"
+    },
+    "data/scout-package-cleanup-20260909/deployment-national-before.json": {
+      "bytes": 878,
+      "sha256": "3afcbaa9a05d97af5f71341276c1eeb324a1448ed6000ec988984b3e9524f942"
+    },
+    "data/scout-package-cleanup-20260909/deployment-regional-after.json": {
+      "bytes": 860,
+      "sha256": "2cf018958f3608c01e2a3592c30155114db982460ad1e248fe1457ea9fffc7c0"
+    },
+    "data/scout-package-cleanup-20260909/deployment-regional-before.json": {
+      "bytes": 860,
+      "sha256": "2cf018958f3608c01e2a3592c30155114db982460ad1e248fe1457ea9fffc7c0"
+    },
+    "data/scout-package-cleanup-20260909/go-test.log": {
+      "bytes": 1021,
+      "sha256": "0fa1cce22948e115d408f2b253ed24760c82be82353a34e600f124276f9854a7"
+    },
+    "data/scout-package-cleanup-20260909/go-vet.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/scout-package-cleanup-20260909/handoff-integration.log": {
+      "bytes": 124,
+      "sha256": "81019a7738c655039ed487f9e00fdf46bd1a4f7a11e6658e637734a2e570904b"
+    },
+    "data/scout-package-cleanup-20260909/http-national-summary.json": {
+      "bytes": 363,
+      "sha256": "4516d769638723e4726483672b90d1639dbdf23ed973ee29e964ca8841412295"
+    },
+    "data/scout-package-cleanup-20260909/http-national.err": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/scout-package-cleanup-20260909/isolated-health.json": {
+      "bytes": 878,
+      "sha256": "3afcbaa9a05d97af5f71341276c1eeb324a1448ed6000ec988984b3e9524f942"
+    },
+    "data/scout-package-cleanup-20260909/isolated-startup.log": {
+      "bytes": 990,
+      "sha256": "77a13946c16e8f29b3b1669377612229ccb975b9f352764211cadfd4376d168f"
+    },
+    "data/scout-package-cleanup-20260909/national-offline.err": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/scout-package-cleanup-20260909/national-offline.jsonl": {
+      "bytes": 6877620,
+      "sha256": "edcf891dd8136557e50cb0c1ea083becf56f2a0ac393fb9be2112890f734c75a"
+    },
+    "data/scout-package-cleanup-20260909/national-offline.resources.json": {
+      "bytes": 705,
+      "sha256": "c3c6d3d1b6cf579cde2f6d2ea7209ecb6796f167519546eee56fe4eade90f9e7"
+    },
+    "data/scout-package-cleanup-20260909/race.log": {
+      "bytes": 242,
+      "sha256": "4acedbf8e9fbde92e7b6b4807646646107b25021157937e0bb392de3cf33d07f"
+    },
+    "data/scout-package-cleanup-20260909/regional-integration.log": {
+      "bytes": 2754,
+      "sha256": "5d85c8c5aa3fd7114df965729619f006ab7e164acbce2c2bb8aa9b3acf1061ac"
+    },
+    "data/scout-package-cleanup-20260909/regional-landmarks.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/scout-package-cleanup-20260909/regional-landmarks.resources.json": {
+      "bytes": 722,
+      "sha256": "1dacafe5bd6f62b8869ee1062ad11bd324cab3591476b410061d86f66de90f47"
+    },
+    "data/scout-package-cleanup-20260909/regional-potential.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/scout-package-cleanup-20260909/regional-potential.resources.json": {
+      "bytes": 626,
+      "sha256": "e4771680cd37707384e700605cf65792a7c7e648c9816765c281040af9801a08"
+    },
+    "data/scout-package-cleanup-20260909/regional-prepare.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/scout-package-cleanup-20260909/regional-prepare.resources.json": {
+      "bytes": 709,
+      "sha256": "59abd54a968064a8b064390e22a82f4b5115f4620cecfcc1775a8266666ca81d"
+    },
+    "data/scout-package-cleanup-20260909/regional-reverse-support.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/scout-package-cleanup-20260909/regional-reverse-support.resources.json": {
+      "bytes": 633,
+      "sha256": "f2f60470e371a3d4dcd0a2994f4013b75fffcb66a57fff715840c16efe6752d5"
+    },
+    "data/scout-package-cleanup-20260909/regional-turns.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "data/scout-package-cleanup-20260909/regional-turns.resources.json": {
+      "bytes": 621,
+      "sha256": "171ee2924286f37f4ed5a534361930698f909303b1e41fedbfda6eaa137f502b"
+    },
+    "data/scout-package-cleanup-20260909/server.log": {
+      "bytes": 53,
+      "sha256": "9ba5444f9475188ea12132864ad37d23b29ef031db15f88bccafc8734e8aa0ba"
+    },
+    "data/scout-package-cleanup-20260909/server.resources.json": {
+      "bytes": 685,
+      "sha256": "f743985fc6099672ece60779dee71fd8261ac526859509e5b697b08422423083"
+    },
+    "data/scout-package-cleanup-20260909/source-integration.log": {
+      "bytes": 2056,
+      "sha256": "48760d7b20d5743fb9b3b746c4c312b1a7c3be92ace881ab059e7dede4d8281d"
+    }
+  },
+  "national_offline": {
+    "cases": 83,
+    "verified": 75,
+    "reference_matches": 66,
+    "unreachable": 2,
+    "unsnappable": 6
+  },
+  "national_http": {
+    "bytes": 5198292,
+    "cases": 83,
+    "failures": [],
+    "max_seconds": 3.572802208,
+    "note": "Full JSON receive/parse and geometry equality; shared host OS cache, no physical-cold claim",
+    "p50_seconds": 0.071416125,
+    "p95_seconds": 0.79316375,
+    "passed": 83,
+    "requests": 83,
+    "seconds": 17.656475875,
+    "snapshots": [
+      "453d3ad01d124f750fb80220d237c00da3ec5b0e939c64545e7c78cf09f3cc27"
+    ],
+    "workers": 1
+  },
+  "regional_graph": {
+    "sha256": "0f6ba41f692cb2bff2c222e015690f6fe714bbc28993903bfa786d3756c0fb96",
+    "bytes": 1157890048,
+    "tile_version": "3.4.0",
+    "dataset_id": 183131145,
+    "timestamp": "2026-06-20_07:12"
+  },
+  "deployment": "Original services on 8096/8097 retained; final health matches pre-work copies"
+}

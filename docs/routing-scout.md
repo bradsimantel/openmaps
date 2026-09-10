@@ -6,6 +6,9 @@ HTTP translation and snapshot lifetime. It does not execute Valhalla's routing
 engine. Places, geocoding, basemap serving and Scout share `cmd/server`.
 Lookup SQLite and routing pages have independent snapshot selections. The retired
 SQLite/PBF graph engines and transient provider backends are no longer built.
+The engine lives directly in `internal/routing`. The separate
+`internal/routing/qualification` package supports offline coverage checks and
+HTTP verification; it is not imported by the production server.
 
 The national snapshot uses nine directed landmark pairs for long routes. Its
 frozen qualification includes every state/DC, rural roads, international road
@@ -73,6 +76,14 @@ Acquisition checks the complete digest and catalog before and after each run,
 checks size sidecars before downloading, streams one package at a time, and
 refuses changed bytes or receipts. Failed transfers remain partial; rerunning
 reuses verified packages and retries only the incomplete package.
+
+Preparation reads the acquisition plan once through `importer/scout.ReadAcquiredPlan`,
+which checks the complete local manifest, generation, budgets and package receipts.
+The command explicitly converts this typed result into routing inputs. Optional
+dataset and tile pins survive the handoff, including pins supplied only in the
+plan; conflicting plan/receipt tile lists are rejected. Package and tile bytes
+are still verified by graph preparation before publication. Acquisition metadata
+validation alone does not certify those bytes or source-road completeness.
 
 To reproduce the pinned snapshot from its retained acquisition directory, copy
 the repository lock into that directory under a new plan name, then prepare into
@@ -336,7 +347,7 @@ go test -race ./cmd/server ./internal/api ./internal/dataset \
 OPENMAPS_SCOUT_DIR="$PWD/data/valhalla-scout" \
 OPENMAPS_SCOUT_PREPARED="$PWD/data/scout-national-20260909/regional-indexed" \
 OPENMAPS_SCOUT_LANDMARKS="$PWD/data/scout-national-20260909/regional-landmarks-v2" \
-  go test -tags integration ./internal/routing/valhallatiles ./internal/api \
+  go test -tags integration ./internal/routing ./internal/api \
   -run 'TestScout|TestPreparedScoutRegional' -count=1
 ```
 
@@ -347,7 +358,9 @@ publication remain immutable. Failed output directories must not be selected.
 
 Historical milestone commands may reference deleted Python or SQLite tools; use
 this page for the supported workflow. The [historical Go migration record](log/0035-scout-go-migration.md)
-records deleted components, updated verification and remaining limitations.
+records deleted components, updated verification and remaining limitations. The
+[historical package cleanup](log/0037-routing-package-and-acquisition-handoff.md)
+records the routing package move and typed acquisition handoff.
 
 The optional service integration test requires an explicitly isolated service,
 selection file and alternate graph. It changes only that supplied selection,

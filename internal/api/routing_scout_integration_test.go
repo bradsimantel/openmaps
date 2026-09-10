@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 	"os"
 	"testing"
 )
@@ -19,7 +19,7 @@ func TestScoutHTTP(t *testing.T) {
 	if dir == "" {
 		t.Skip("set OPENMAPS_SCOUT_PREPARED; no downloads")
 	}
-	c, err := valhallatiles.OpenService(context.Background(), dir, 1, 64<<20)
+	c, err := routing.OpenService(context.Background(), dir, 1, 64<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestScoutHTTP(t *testing.T) {
 			}
 			if tc.outcome == "routed" {
 				meta := body["openmaps"].(map[string]any)
-				if meta["profile"] != valhallatiles.Profile || meta["snapshot"] == "" {
+				if meta["profile"] != routing.Profile || meta["snapshot"] == "" {
 					t.Fatal("missing candidate identity")
 				}
 				route := body["routes"].([]any)[0].(map[string]any)

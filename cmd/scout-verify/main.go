@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 	"os"
 	"os/signal"
 	"runtime"
@@ -19,13 +19,13 @@ import (
 )
 
 type routeCase struct {
-	Name      string              `json:"name"`
-	State     string              `json:"state,omitempty"`
-	Kind      string              `json:"kind"`
-	From      valhallatiles.Point `json:"from"`
-	To        valhallatiles.Point `json:"to"`
-	Reference bool                `json:"reference"`
-	Expect    string              `json:"expect"`
+	Name      string        `json:"name"`
+	State     string        `json:"state,omitempty"`
+	Kind      string        `json:"kind"`
+	From      routing.Point `json:"from"`
+	To        routing.Point `json:"to"`
+	Reference bool          `json:"reference"`
+	Expect    string        `json:"expect"`
 }
 
 func main() {
@@ -69,7 +69,7 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	start := time.Now()
-	s, err := valhallatiles.OpenPreparedRouter(ctx, *dir, 128<<20)
+	s, err := routing.OpenPreparedRouter(ctx, *dir, 128<<20)
 	if err != nil {
 		return err
 	}
@@ -82,9 +82,9 @@ func run() error {
 			return err
 		}
 	}
-	var verifier *valhallatiles.PathVerifier
+	var verifier *routing.PathVerifier
 	if !*snaps {
-		verifier, err = valhallatiles.NewPathVerifier(ctx, s.Reader)
+		verifier, err = routing.NewPathVerifier(ctx, s.Reader)
 		if err != nil {
 			return err
 		}
@@ -111,7 +111,7 @@ func run() error {
 		a, ae := s.SnapContext(query, c.From)
 		b, be := s.SnapContext(query, c.To)
 		row := map[string]any{"case": c, "origin": a, "destination": b, "repeat": run % (*repeat), "cache_condition": condition, "cache_before": cacheBefore}
-		var got valhallatiles.Result
+		var got routing.Result
 		err = errors.Join(ae, be)
 		if err == nil && !*snaps {
 			got, err = s.RoutePreparedSnaps(query, a, b, *labels)
@@ -148,15 +148,15 @@ func run() error {
 		if err != nil {
 			outcome = "error"
 			row["error"] = err.Error()
-			var missing *valhallatiles.MissingTileError
+			var missing *routing.MissingTileError
 			switch {
-			case errors.Is(err, valhallatiles.ErrUnreachable):
+			case errors.Is(err, routing.ErrUnreachable):
 				outcome = "unreachable"
-			case errors.Is(err, valhallatiles.ErrUnsnappable):
+			case errors.Is(err, routing.ErrUnsnappable):
 				outcome = "unsnappable"
 			case errors.As(err, &missing):
 				outcome = "incomplete_data"
-			case errors.Is(err, valhallatiles.ErrQueryBudget):
+			case errors.Is(err, routing.ErrQueryBudget):
 				outcome = "query_budget_exhausted"
 			case errors.Is(err, context.DeadlineExceeded):
 				outcome = "timeout"

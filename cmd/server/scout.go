@@ -6,13 +6,13 @@ import (
 	"errors"
 	"io"
 	"log"
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 	"os"
 	"path/filepath"
 	"time"
 )
 
-func watchScoutSelection(ctx context.Context, c *valhallatiles.Service, path string) {
+func watchScoutSelection(ctx context.Context, c *routing.Service, path string) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var last string

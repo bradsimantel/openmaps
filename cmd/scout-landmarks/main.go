@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -38,13 +38,13 @@ func run() error {
 		if *built == "" || *seeds != "" || *prefix != 0 {
 			return fmt.Errorf("reindex requires built and no seeds/prefix")
 		}
-		return valhallatiles.ReindexLandmarks(ctx, *reindex, *built, *prepared, *out)
+		return routing.ReindexLandmarks(ctx, *reindex, *built, *prepared, *out)
 	}
 	if *prefix != 0 {
 		if *built == "" || *seeds != "" {
 			return fmt.Errorf("prefix publication requires built and no seeds")
 		}
-		return valhallatiles.PublishLandmarkPrefix(ctx, *prepared, *built, *out, *prefix)
+		return routing.PublishLandmarkPrefix(ctx, *prepared, *built, *out, *prefix)
 	}
 	if *seeds == "" || *built != "" {
 		return fmt.Errorf("construction requires seeds and no built")
@@ -61,9 +61,9 @@ func run() error {
 	if len(b) > 65536 {
 		return fmt.Errorf("seed file oversized")
 	}
-	var points []valhallatiles.LandmarkSeed
+	var points []routing.LandmarkSeed
 	if err := json.Unmarshal(b, &points); err != nil {
 		return err
 	}
-	return valhallatiles.PrepareLandmarks(ctx, *prepared, *out, points)
+	return routing.PrepareLandmarks(ctx, *prepared, *out, points)
 }

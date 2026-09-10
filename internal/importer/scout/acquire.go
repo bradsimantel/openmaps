@@ -36,11 +36,20 @@ var packagePath = regexp.MustCompile(`^` + regexp.QuoteMeta(Prefix) + `([0-9]+)\
 var listingLink = regexp.MustCompile(`href="([0-9]+)\.tar\.bz2"`)
 
 type Package struct {
-	ID     string `json:"id"`
+	ID     string    `json:"id"`
+	Bytes  int64     `json:"bytes"`
+	MD5    string    `json:"md5"`
+	SHA256 string    `json:"sha256,omitempty"`
+	URL    string    `json:"url"`
+	Tiles  []TilePin `json:"tiles,omitempty"`
+}
+
+// TilePin retains optional member constraints for graph preparation. Acquisition
+// carries these pins without interpreting the provider's road records.
+type TilePin struct {
+	Name   string `json:"name"`
 	Bytes  int64  `json:"bytes"`
-	MD5    string `json:"md5"`
-	SHA256 string `json:"sha256,omitempty"`
-	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
 }
 type Budgets struct {
 	Download int64 `json:"download_bytes"`
@@ -50,6 +59,7 @@ type Plan struct {
 	Schema               int               `json:"schema"`
 	PackageSchema        string            `json:"package_schema"`
 	Version              string            `json:"tile_version"`
+	Dataset              uint64            `json:"dataset_id,omitempty"`
 	Timestamp            string            `json:"timestamp"`
 	Packages             []Package         `json:"packages"`
 	MetadataSHA256       map[string]string `json:"metadata_sha256"`
@@ -471,30 +481,39 @@ func VerifyRetained(root string, p Plan, ceiling Budgets) error {
 			return e
 		}
 		pin.SHA256 = sum
-		if e = receipt(root, pin, p.MetadataSHA256, false); e != nil {
+		if _, e = receipt(root, pin, p.MetadataSHA256, false); e != nil {
 			return e
 		}
 	}
 	return nil
 }
-func receipt(root string, p Package, generation map[string]string, create bool) error {
+func receipt(root string, p Package, generation map[string]string, create bool) (Package, error) {
 	path := filepath.Join(root, "receipts", p.ID+".json")
 	want := Receipt{p, generation}
 	b, e := Read(path, 65536)
 	if os.IsNotExist(e) && create {
-		return WriteJSON(path, want)
+		return p, WriteJSON(path, want)
 	}
 	if e != nil {
-		return e
+		return Package{}, e
 	}
 	var got Receipt
 	if e = json.Unmarshal(b, &got); e != nil {
-		return e
+		return Package{}, e
 	}
-	if !reflect.DeepEqual(got, want) {
-		return errors.New("existing receipt conflicts with pinned generation")
+	if got.ID != p.ID || got.Bytes != p.Bytes || got.MD5 != p.MD5 || got.URL != p.URL ||
+		!digest(got.SHA256, 32) || p.SHA256 != "" && p.SHA256 != got.SHA256 ||
+		!reflect.DeepEqual(got.Generation, generation) {
+		return Package{}, errors.New("existing receipt conflicts with pinned generation")
 	}
-	return nil
+	if len(p.Tiles) > 0 && len(got.Tiles) > 0 && !reflect.DeepEqual(p.Tiles, got.Tiles) {
+		return Package{}, errors.New("receipt conflicts with explicit tile pins")
+	}
+	p.SHA256 = got.SHA256
+	if len(p.Tiles) == 0 {
+		p.Tiles = got.Tiles
+	}
+	return p, nil
 }
 func (c *Client) Fetch(ctx context.Context, root string, p Plan, ceiling Budgets, progress io.Writer) error {
 	if e := ValidatePlan(root, p, ceiling); e != nil {
@@ -525,7 +544,7 @@ func (c *Client) Fetch(ctx context.Context, root string, p Plan, ceiling Budgets
 			return e
 		}
 		pin.SHA256 = sum
-		if e = receipt(root, pin, p.MetadataSHA256, true); e != nil {
+		if _, e = receipt(root, pin, p.MetadataSHA256, true); e != nil {
 			return e
 		}
 		if progress != nil {

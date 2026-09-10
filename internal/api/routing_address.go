@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	routing "openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 )
 
 type routeWaypoint struct {

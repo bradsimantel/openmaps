@@ -3,18 +3,13 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"openmaps/internal/importer/scout"
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"syscall"
 )
 
@@ -54,93 +49,39 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if *support {
-		return valhallatiles.PrepareReverseSupport(ctx, *out)
+		return routing.PrepareReverseSupport(ctx, *out)
 	}
 	if *potential {
-		return valhallatiles.PrepareScoutPotential(ctx, *out)
+		return routing.PrepareScoutPotential(ctx, *out)
 	}
 	if *turns {
-		return valhallatiles.PrepareScoutTurns(ctx, *out)
+		return routing.PrepareScoutTurns(ctx, *out)
 	}
-	pinned, err := scout.ReadPlan(*root, *plan)
+	pinned, err := scout.ReadAcquiredPlan(ctx, *root, *plan, scout.Budgets{Download: 16 << 30, Reserve: 32 << 30})
 	if err != nil {
 		return err
 	}
-	if err := scout.ValidatePlan(*root, pinned, scout.Budgets{Download: 16 << 30, Reserve: 32 << 30}); err != nil {
-		return err
+	if pinned.Budgets.Reserve > *reserve<<30 {
+		return fmt.Errorf("preparation reserve weaker than acquisition pin")
 	}
-	b, err := readMetadata(filepath.Join(*root, *plan), 8<<20)
-	if err != nil {
-		return err
-	}
-	var lock struct {
-		valhallatiles.ScoutLock
-		MetadataSHA256 map[string]string `json:"metadata_sha256"`
-		Budgets        struct {
-			Download int64 `json:"download_bytes"`
-			Reserve  int64 `json:"disk_reserve_bytes"`
-		} `json:"budgets"`
-	}
-	if err := json.Unmarshal(b, &lock); err != nil {
-		return err
-	}
-	if lock.Budgets.Download < 1 || lock.Budgets.Download > 16<<30 || lock.Budgets.Reserve < 32<<30 || lock.Budgets.Reserve > *reserve<<30 {
-		return fmt.Errorf("invalid acquisition budgets or reserve weaker than pin")
-	}
-	if len(lock.MetadataSHA256) != 3 || lock.MetadataSHA256["catalog.json"] == "" || lock.MetadataSHA256["digest.md5.bz2"] == "" || lock.MetadataSHA256["packages.html"] == "" {
-		return fmt.Errorf("complete provider metadata pins required")
-	}
-	for name, want := range lock.MetadataSHA256 {
-		if filepath.Base(name) != name {
-			return fmt.Errorf("invalid metadata filename")
-		}
-		b, err := readMetadata(filepath.Join(*root, name), 16<<20)
-		if err != nil {
-			return err
-		}
-		if fmt.Sprintf("%x", sha256.Sum256(b)) != want {
-			return fmt.Errorf("metadata changed: %s", name)
-		}
-	}
-	for i, p := range lock.Packages {
-		if p.ID == "" || strings.IndexFunc(p.ID, func(c rune) bool { return c < '0' || c > '9' }) >= 0 {
-			return fmt.Errorf("invalid package id")
-		}
-		b, err := readMetadata(filepath.Join(*root, "receipts", p.ID+".json"), 65536)
-		if err != nil {
-			return err
-		}
-		var receipt struct {
-			valhallatiles.ScoutPackage
-			Generation map[string]string `json:"generation"`
-		}
-		if err := json.Unmarshal(b, &receipt); err != nil {
-			return err
-		}
-		if receipt.ID != p.ID || receipt.Bytes != p.Bytes || receipt.MD5 != p.MD5 || (p.SHA256 != "" && receipt.SHA256 != p.SHA256) || !reflect.DeepEqual(receipt.Generation, lock.MetadataSHA256) {
-			return fmt.Errorf("package receipt/plan mismatch")
-		}
-		lock.Packages[i] = receipt.ScoutPackage
-	}
-	budget := valhallatiles.ScoutBudgets{CompressedBytes: lock.Budgets.Download, ExpandedBytes: *expanded << 30, ReserveBytes: *reserve << 30}
+	lock := preparationLock(pinned)
+	budget := routing.ScoutBudgets{CompressedBytes: pinned.Budgets.Download, ExpandedBytes: *expanded << 30, ReserveBytes: *reserve << 30}
 	if *base != "" {
-		return valhallatiles.ExtendScoutPackages(ctx, filepath.Join(*root, "packages"), *out, *base, *clone, lock.ScoutLock, budget)
+		return routing.ExtendScoutPackages(ctx, filepath.Join(*root, "packages"), *out, *base, *clone, lock, budget)
 	}
-	return valhallatiles.PrepareScoutPackages(ctx, filepath.Join(*root, "packages"), *out, lock.ScoutLock, budget)
+	return routing.PrepareScoutPackages(ctx, filepath.Join(*root, "packages"), *out, lock, budget)
 }
 
-func readMetadata(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+// Keep acquisition provenance/receipt handling in importer/scout and the graph
+// format in routing. Only validated graph inputs cross this explicit boundary.
+func preparationLock(p scout.Plan) routing.ScoutLock {
+	lock := routing.ScoutLock{Schema: p.Schema, PackageSchema: p.PackageSchema, Version: p.Version, Dataset: p.Dataset, Timestamp: p.Timestamp}
+	for _, pin := range p.Packages {
+		q := routing.ScoutPackage{ID: pin.ID, MD5: pin.MD5, Bytes: pin.Bytes, SHA256: pin.SHA256}
+		for _, tile := range pin.Tiles {
+			q.Tiles = append(q.Tiles, routing.ScoutTile{Name: tile.Name, Bytes: tile.Bytes, SHA256: tile.SHA256})
+		}
+		lock.Packages = append(lock.Packages, q)
 	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(b)) > limit {
-		return nil, fmt.Errorf("metadata exceeds budget")
-	}
-	return b, nil
+	return lock
 }

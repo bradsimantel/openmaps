@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"openmaps/internal/importer"
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,22 +28,22 @@ func serviceFixture(t *testing.T) (configuration, string) {
 	if e = importer.Build(context.Background(), db, bundle); e != nil {
 		t.Fatal(e)
 	}
-	raw, e = os.ReadFile("../../internal/routing/valhallatiles/testdata/scout/lock.json")
+	raw, e = os.ReadFile("../../internal/routing/testdata/scout/lock.json")
 	if e != nil {
 		t.Fatal(e)
 	}
-	var lock valhallatiles.ScoutLock
+	var lock routing.ScoutLock
 	json.Unmarshal(raw, &lock)
 	dirs := []string{filepath.Join(root, "first"), filepath.Join(root, "second")}
 	for i, out := range dirs {
-		budget := valhallatiles.ScoutBudgets{CompressedBytes: 1 << 20, ExpandedBytes: int64(i+1) << 20, ReserveBytes: 32 << 30}
-		if e = valhallatiles.PrepareScoutPackages(context.Background(), "../../internal/routing/valhallatiles/testdata/scout", out, lock, budget); e != nil {
+		budget := routing.ScoutBudgets{CompressedBytes: 1 << 20, ExpandedBytes: int64(i+1) << 20, ReserveBytes: 32 << 30}
+		if e = routing.PrepareScoutPackages(context.Background(), "../../internal/routing/testdata/scout", out, lock, budget); e != nil {
 			t.Fatal(e)
 		}
-		if e = valhallatiles.PrepareScoutTurns(context.Background(), out); e != nil {
+		if e = routing.PrepareScoutTurns(context.Background(), out); e != nil {
 			t.Fatal(e)
 		}
-		if e = valhallatiles.PrepareScoutPotential(context.Background(), out); e != nil {
+		if e = routing.PrepareScoutPotential(context.Background(), out); e != nil {
 			t.Fatal(e)
 		}
 	}

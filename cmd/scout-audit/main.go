@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 )
 
 func main() {
@@ -23,12 +23,12 @@ func main() {
 		os.Exit(1)
 	}
 }
-func point(value string) (valhallatiles.Point, error) {
+func point(value string) (routing.Point, error) {
 	v := strings.Split(value, ",")
 	if len(v) != 2 {
-		return valhallatiles.Point{}, fmt.Errorf("expected longitude,latitude")
+		return routing.Point{}, fmt.Errorf("expected longitude,latitude")
 	}
-	var p valhallatiles.Point
+	var p routing.Point
 	for i := range p {
 		x, err := strconv.ParseFloat(v[i], 64)
 		if err != nil {
@@ -59,7 +59,7 @@ func run() error {
 	lifetime, cancelLifetime := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancelLifetime()
 	start := time.Now()
-	router, err := valhallatiles.OpenPreparedRouter(lifetime, *prepared, *cache<<20)
+	router, err := routing.OpenPreparedRouter(lifetime, *prepared, *cache<<20)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func run() error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if *inspect != 0 {
-		e, err := r.Edge(valhallatiles.ID(*inspect))
+		e, err := r.Edge(routing.ID(*inspect))
 		if err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func run() error {
 		return enc.Encode(map[string]any{"edge": e, "start": a, "end": b, "end_error": endError, "shape": shape, "allowed": allowed, "package": r.Package(e.ID)})
 	}
 	if *audit {
-		var probes []valhallatiles.Point
+		var probes []routing.Point
 		if *probeFile != "" {
 			b, err := os.ReadFile(*probeFile)
 			if err != nil {
@@ -143,7 +143,7 @@ func run() error {
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	var route valhallatiles.Result
+	var route routing.Result
 	times := make([]float64, 0, *repeat)
 	for i := 0; i < *repeat; i++ {
 		ctx, cancel := context.WithTimeout(lifetime, *timeout)
@@ -168,7 +168,7 @@ func run() error {
 		LoadMilliseconds                                                     float64
 		RouteMilliseconds                                                    []float64
 		TotalAllocatedBytes, HeapBeforeGCBytes, HeapAfterGCBytes, GoSysBytes uint64
-		Cache                                                                valhallatiles.CacheReport
-		Route                                                                valhallatiles.Result
+		Cache                                                                routing.CacheReport
+		Route                                                                routing.Result
 	}{loadMS, times, allocation, heapBeforeGC, after.HeapAlloc, after.Sys, r.CacheReport(), route})
 }

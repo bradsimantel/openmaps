@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	routing "openmaps/internal/routing/valhallatiles"
+	"openmaps/internal/routing"
 )
 
 // exactObject rejects unknown keys and nulls rather than accepting Google's

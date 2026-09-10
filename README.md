@@ -210,9 +210,12 @@ cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
 cmd/refresh/        Snapshot build, comparison, review, activation and rollback
 internal/places/    Domain entities, autocomplete, details and search normalization
 internal/geocoding/ Address label matching, bounded nearest address lookup and fixtures
-internal/routing/valhallatiles/ Scout decoder, search, indexes and snapshot leases
+internal/routing/   Scout decoder, search, indexes and snapshot leases
+internal/routing/qualification/ Offline coverage and HTTP verification
 internal/api/       Google request/response translation and errors
 internal/importer/  Source adapters, schema, identity history and refresh comparison
+internal/importer/scout/ Provider acquisition, receipts and preparation handoff
+internal/importer/addressdata/ Retained provider address decoding
 internal/dataset/   Atomic deployment selection and live HTTP handler replacement
 imports/           Source locks, bundle checksum and identity mappings
 public/            Browser ES modules and styles; libraries loaded from esm.sh
