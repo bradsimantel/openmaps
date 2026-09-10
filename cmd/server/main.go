@@ -3,109 +3,170 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"openmaps/internal/api"
 	"openmaps/internal/dataset"
 	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
-	"openmaps/internal/routing"
+	"openmaps/internal/routing/valhallatiles"
 )
 
+type configuration struct {
+	routing, selection, db, deployment, listen, public, tiles string
+	workers                                                   int
+	cache                                                     int64
+}
+
 func main() {
-	scoutDir := flag.String("routing-scout", "", "isolated experimental prepared Scout candidate; coordinates only")
-	scoutSelection := flag.String("scout-selection", "", "optional isolated JSON selection file for candidate replacement")
-	scoutCache := flag.Int64("scout-cache-mib", 128, "graph page payload per Scout reader, 1..128 MiB; turn/landmark caches are additional")
-	db := flag.String("db", "data/openmaps.sqlite", "SQLite database")
-	state := flag.String("deployment", "", "refresh deployment state; supersedes -db and supports live switching")
-	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
-	public := flag.String("public", "public", "public files directory")
-	tiles := flag.String("tiles", "data/newport.pmtiles", "local Protomaps regional archive")
-	routingCache := flag.String("routing-cache", "", "optional directory for verified read-only mapped routing arrays (Linux/macOS)")
-	preparedDir := flag.String("routing-prepared", "", "trusted offline prepared routing publication directory")
-	legacyLoad := flag.Bool("routing-legacy-load", false, "explicitly allow graph-sized legacy routing reconstruction at startup")
-	routingConcurrency := flag.Int("routing-concurrency", 4, "maximum concurrent Compute Routes HTTP requests (1-64)")
+	var c configuration
+	flag.StringVar(&c.routing, "routing-scout", "", "prepared Scout routing snapshot")
+	flag.StringVar(&c.selection, "scout-selection", "", "JSON routing selection file, independent of lookup selection")
+	flag.Int64Var(&c.cache, "scout-cache-mib", 128, "graph page payload per reader, 1..128 MiB; index caches are additional")
+	flag.StringVar(&c.db, "db", "data/openmaps.sqlite", "lookup SQLite database; empty disables lookup")
+	flag.StringVar(&c.deployment, "deployment", "", "lookup refresh deployment state; supersedes -db")
+	flag.StringVar(&c.listen, "listen", "127.0.0.1:8080", "HTTP listen address")
+	flag.StringVar(&c.public, "public", "public", "public files directory")
+	flag.StringVar(&c.tiles, "tiles", "data/newport.pmtiles", "local Protomaps archive")
+	flag.IntVar(&c.workers, "routing-concurrency", 4, "maximum concurrent routing requests, 1..4")
 	flag.Parse()
-	if *legacyLoad && *preparedDir != "" || !*legacyLoad && *routingCache != "" {
-		log.Fatal("-routing-cache requires -routing-legacy-load; choose either legacy or prepared routing")
+	if c.workers < 1 || c.workers > 4 || c.cache < 1 || c.cache > 128 || c.selection != "" && c.routing == "" {
+		log.Fatal("invalid routing budgets or selection without routing snapshot")
 	}
-	if *routingConcurrency < 1 || *routingConcurrency > 64 {
-		log.Fatal("routing-concurrency must be 1-64")
-	}
-	if *scoutDir != "" {
-		if *state != "" || *preparedDir != "" || *legacyLoad || *routingCache != "" {
-			log.Fatal("Scout candidate cannot be combined with an existing deployment or routing backend")
-		}
-		if *scoutCache < 1 || *scoutCache > 128 {
-			log.Fatal("scout-cache-mib must be 1..128")
-		}
-		if err := serveScout(*scoutDir, *scoutSelection, *listen, *public, *routingConcurrency, *scoutCache<<20); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-	if *scoutSelection != "" {
-		log.Fatal("-scout-selection requires -routing-scout")
-	}
-	abs, err := filepath.Abs(*db)
-	if err != nil {
+	if err := serve(c); err != nil {
 		log.Fatal(err)
 	}
-	mux := http.NewServeMux()
-	if *state != "" {
-		var live *dataset.Live
-		if *legacyLoad {
-			live, err = dataset.OpenWithRoutingCache(context.Background(), *state, *routingCache)
-		} else {
-			live, err = dataset.OpenPrepared(context.Background(), *state, *preparedDir)
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer live.Close()
-		mux.Handle("/directions/", api.RoutingAdmission(live, *routingConcurrency))
-		mux.Handle("/v1/", live)
-		mux.Handle("/maps/api/", live)
-		mux.Handle("/healthz", live)
-	} else {
-		store, err := places.Open(abs)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer store.Close()
-		geocoder, err := geocoding.Open(context.Background(), abs)
-		if err != nil {
-			log.Fatal(err)
-		}
-		router, err := routing.OpenRuntime(context.Background(), abs, *preparedDir, *legacyLoad, *routingCache)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer router.Close()
-		handler := api.Handler{Places: store, Geocoding: geocoder, Routing: router}
-		mux.Handle("/directions/", api.RoutingAdmission(handler, *routingConcurrency))
-		mux.Handle("/v1/", handler)
-		mux.Handle("/maps/api/", handler)
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"status": "ok", "routing_available": router != nil, "routing_duration_available": router.HasDuration()})
-		})
+}
+
+func serve(c configuration) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	mux, closeHandler, err := newService(ctx, c)
+	if err != nil {
+		return err
 	}
-	mux.HandleFunc("/tiles/newport.pmtiles", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+	defer closeHandler()
+	server := &http.Server{Addr: c.listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 60 * time.Second}
+	done := make(chan error, 1)
+	go func() { done <- server.ListenAndServe() }()
+	log.Printf("Open Maps: http://%s", c.listen)
+	select {
+	case err := <-done:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdown, stop := context.WithTimeout(context.Background(), 35*time.Second)
+		defer stop()
+		err := server.Shutdown(shutdown)
+		if err != nil {
+			server.Close()
+		}
+		return err
+	}
+}
+
+// One service owns lookup and routing independently. Routing leases cover encoding;
+// lookup replacement cannot retire a routing reader or reset admission.
+func newService(parent context.Context, c configuration) (http.Handler, func(), error) {
+	ctx, cancel := context.WithCancel(parent)
+	var closers []func()
+	cleanup := func() {
+		cancel()
+		for i := len(closers) - 1; i >= 0; i-- {
+			closers[i]()
+		}
+	}
+	fail := func(err error) (http.Handler, func(), error) { cleanup(); return nil, nil, err }
+	var lookup http.Handler = api.Handler{}
+	var live *dataset.Live
+	if c.deployment != "" {
+		var err error
+		live, err = dataset.Open(ctx, c.deployment)
+		if err != nil {
+			return fail(err)
+		}
+		closers = append(closers, func() { live.Close() })
+		lookup = live
+	} else if c.db != "" {
+		dbPath, err := filepath.Abs(c.db)
+		if err != nil {
+			return fail(err)
+		}
+		store, err := places.Open(dbPath)
+		if err != nil {
+			return fail(err)
+		}
+		closers = append(closers, func() { store.Close() })
+		geocoder, err := geocoding.Open(ctx, dbPath)
+		if err != nil {
+			return fail(err)
+		}
+		lookup = api.Handler{Places: store, Geocoding: geocoder}
+	}
+	var router *valhallatiles.Candidate
+	if c.routing != "" {
+		var err error
+		router, err = valhallatiles.OpenCandidate(ctx, c.routing, c.workers, c.cache<<20)
+		if err != nil {
+			return fail(err)
+		}
+		closers = append(closers, func() { router.Close() })
+		if c.selection != "" {
+			done := make(chan struct{})
+			go func() { defer close(done); watchScoutSelection(ctx, router, c.selection) }()
+			closers = append(closers, func() { <-done })
+		}
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/directions/", api.RoutingAdmission(api.Handler{Routing: router}, c.workers))
+	mux.Handle("/v1/", lookup)
+	mux.Handle("/maps/api/", lookup)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" && r.Method != "HEAD" {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			w.WriteHeader(405)
+			return
+		}
+		health := map[string]any{"status": "ok", "routing_available": router != nil, "routing_duration_available": router != nil, "lookup_available": c.db != "" || live != nil}
+		status := 200
+		if live != nil {
+			dataset, errorText := live.Status(r.Context())
+			health["dataset"] = dataset
+			if errorText != "" {
+				health["error"] = errorText
+				health["status"] = "degraded"
+				status = 503
+			}
+		}
+		if router != nil {
+			meta, reloadError := router.Status()
+			health["routing_candidate"] = meta
+			health["reload_error"] = reloadError
+			health["exhaustive_source_coverage_verified"] = false
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(health)
+	})
+	mux.HandleFunc("/tiles/newport.pmtiles", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" && r.Method != "HEAD" {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(405)
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
-		http.ServeFile(w, r, *tiles)
+		http.ServeFile(w, r, c.tiles)
 	})
-	mux.Handle("/", http.FileServer(http.Dir(*public)))
-	server := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second}
-	log.Printf("Open Maps: http://%s", *listen)
-	log.Fatal(server.ListenAndServe())
+	mux.Handle("/", http.FileServer(http.Dir(c.public)))
+	return mux, cleanup, nil
 }

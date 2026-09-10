@@ -171,3 +171,43 @@ func TestPreparedReaderRejectsReboundIndex(t *testing.T) {
 		t.Fatal("reverse index for replaced receipt attached to old reader")
 	}
 }
+
+func TestPreparedExplicitPinsAndCompressionCorruption(t *testing.T) {
+	for _, kind := range []string{"tile-sha", "tile-size", "missing-tile", "duplicate-pin", "bzip-crc"} {
+		t.Run(kind, func(t *testing.T) {
+			lock := syntheticScoutLock(t)
+			root := t.TempDir()
+			budget := ScoutBudgets{CompressedBytes: 1 << 20, ExpandedBytes: 1 << 20, ReserveBytes: 32 << 30}
+			for i, p := range lock.Packages {
+				b, e := os.ReadFile(filepath.Join("testdata/scout", p.ID+".tar.bz2"))
+				if e != nil {
+					t.Fatal(e)
+				}
+				if kind == "bzip-crc" && i == 0 {
+					b[len(b)-2] ^= 128
+					lock.Packages[i].SHA256 = hexSum(b)
+				}
+				if e = os.WriteFile(filepath.Join(root, p.ID+".tar.bz2"), b, 0600); e != nil {
+					t.Fatal(e)
+				}
+			}
+			switch kind {
+			case "tile-sha":
+				lock.Packages[0].Tiles[0].SHA256 = hexSum([]byte("wrong"))
+			case "tile-size":
+				lock.Packages[0].Tiles[0].Bytes++
+			case "missing-tile":
+				lock.Packages[0].Tiles[0].Name = "valhalla/tiles/2/000/000.gph.gz"
+			case "duplicate-pin":
+				lock.Packages[0].Tiles = append(lock.Packages[0].Tiles, lock.Packages[0].Tiles[0])
+			}
+			out := filepath.Join(root, "prepared")
+			if e := PrepareScoutPackages(context.Background(), root, out, lock, budget); e == nil {
+				t.Fatal("invalid pins or compression accepted")
+			}
+			if _, e := os.Stat(filepath.Join(out, "receipt.json")); !os.IsNotExist(e) {
+				t.Fatal("failed preparation published")
+			}
+		})
+	}
+}

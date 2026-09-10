@@ -18,13 +18,11 @@ import (
 
 	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
-	"openmaps/internal/routing"
 	"openmaps/internal/routing/valhallatiles"
 )
 
 type Handler struct {
-	Routing   *routing.Store
-	Scout     *valhallatiles.Candidate
+	Routing   *valhallatiles.Candidate
 	Places    *places.Store
 	Geocoding *geocoding.Store
 }
@@ -188,6 +186,10 @@ func (h Handler) autocomplete(w http.ResponseWriter, r *http.Request) {
 		invalid(w, fmt.Errorf("input must contain 1–200 Unicode characters"))
 		return
 	}
+	if h.Places == nil {
+		failure(w, 503, "UNAVAILABLE", "Places data unavailable")
+		return
+	}
 	result, err := h.Places.Autocomplete(r.Context(), req.Input)
 	if err != nil {
 		log.Printf("autocomplete: %v", err)
@@ -244,6 +246,10 @@ func (h Handler) details(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/v1/places/")
 	if id == "" || strings.Contains(id, "/") {
 		failure(w, 404, "NOT_FOUND", "Place not found")
+		return
+	}
+	if h.Places == nil {
+		failure(w, 503, "UNAVAILABLE", "Places data unavailable")
 		return
 	}
 	p, err := h.Places.Details(r.Context(), id)

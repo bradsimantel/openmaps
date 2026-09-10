@@ -3,14 +3,13 @@ package api
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"strings"
 
-	"openmaps/internal/routing"
+	routing "openmaps/internal/routing/valhallatiles"
 )
 
 // exactObject rejects unknown keys and nulls rather than accepting Google's
@@ -48,7 +47,7 @@ func waypoint(raw json.RawMessage) (routing.Point, error) {
 		return fail()
 	}
 	var result routing.Point
-	if json.Unmarshal(p["longitude"], &result[0]) != nil || json.Unmarshal(p["latitude"], &result[1]) != nil || !result.Valid() {
+	if json.Unmarshal(p["longitude"], &result[0]) != nil || json.Unmarshal(p["latitude"], &result[1]) != nil || (math.IsNaN(result[0]) || math.IsNaN(result[1]) || math.IsInf(result[0], 0) || math.IsInf(result[1], 0) || result[0] < -180 || result[0] > 180 || result[1] < -90 || result[1] > 90) {
 		return fail()
 	}
 	return result, nil
@@ -157,75 +156,9 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 		routingInputFailure(w, fmt.Errorf("destination: %w", err))
 		return
 	}
-	if h.Scout != nil {
-		h.computeScoutRoute(w, r, origin, destination, paths)
+	if h.Routing == nil {
+		write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Routing snapshot unavailable"}, "openmaps": object{"outcome": "unavailable"}})
 		return
 	}
-	if !h.Routing.HasDuration() {
-		for _, p := range paths {
-			if p == "routes.duration" || p == "routes.staticDuration" {
-				write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Estimated duration requires a graph v4 candidate; retained graphs still support distance routing"}, "openmaps": object{"outcome": "time_estimate_unavailable"}})
-				return
-			}
-		}
-	}
-	a, originAddress, af, err := h.resolveRouteWaypoint(r.Context(), origin)
-	if err != nil {
-		failure(w, 500, "INTERNAL", "Address resolution failed")
-		return
-	}
-	if af != nil {
-		writeAddressFailure(w, "origin", af)
-		return
-	}
-	b, destinationAddress, af, err := h.resolveRouteWaypoint(r.Context(), destination)
-	if err != nil {
-		failure(w, 500, "INTERNAL", "Address resolution failed")
-		return
-	}
-	if af != nil {
-		writeAddressFailure(w, "destination", af)
-		return
-	}
-	result, err := h.Routing.RouteEndpoints(r.Context(), a, b)
-	originMeta := routeEndpointMetadata(result.Origin, originAddress)
-	destinationMeta := routeEndpointMetadata(result.Destination, destinationAddress)
-	if err != nil {
-		var re *routing.Error
-		if errors.As(err, &re) {
-			switch re.Outcome {
-			case "unavailable", "address_routing_unavailable":
-				write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Routing or address association data unavailable in this snapshot; address requests require graph format 3"}, "openmaps": object{"outcome": re.Outcome, "endpoint": re.Endpoint, "origin": originMeta, "destination": destinationMeta}})
-			case "unreachable":
-				write(w, 200, object{"routes": []any{}, "openmaps": object{"outcome": "unreachable", "message": "No driving route connects these bounded snaps; no safe alternative snap is available. Disconnected roads and restrictions are preserved.", "origin": originMeta, "destination": destinationMeta, "profile": h.Routing.Metadata().Profile}})
-			default:
-				message := fmt.Sprintf("No suitable driving road within 100 metres of the %s without bypassing restricted road access", re.Endpoint)
-				if re.Outcome == "endpoint_association_failed" {
-					message = "No acceptable address-to-road association within the documented bounds; access restrictions and competing roads are preserved"
-				}
-				if re.Outcome == "outside_coverage" {
-					message = fmt.Sprintf("The %s is outside the configured routing endpoint bounds", re.Endpoint)
-				}
-				write(w, 400, object{"error": object{"code": 400, "status": "INVALID_ARGUMENT", "message": message}, "openmaps": object{"outcome": re.Outcome, "endpoint": re.Endpoint, "origin": originMeta, "destination": destinationMeta}})
-			}
-			return
-		}
-		failure(w, 500, "INTERNAL", "Routing calculation failed")
-		return
-	}
-	route := object{"distanceMeters": int(math.Round(result.Distance)), "polyline": object{"geoJsonLinestring": object{"type": "LineString", "coordinates": result.Geometry}}}
-	if h.Routing.HasDuration() {
-		// Round once after accumulation, never per edge. Whole seconds avoid
-		// presenting an uncalibrated estimate with spurious fractional precision.
-		duration := fmt.Sprintf("%.0fs", math.Round(result.Duration))
-		route["duration"], route["staticDuration"] = duration, duration
-	}
-	routes := object{"routes": []any{route}}
-	response := project(routes, paths).(object)
-	response["openmaps"] = object{"outcome": "routed", "profile": h.Routing.Metadata().Profile, "snap_limit_meters": routing.SnapLimit, "address_snap_limit_meters": routing.AddressSnapLimit, "access_point_limit_meters": routing.AccessPointLimit, "origin": originMeta, "destination": destinationMeta, "attribution": "© OpenStreetMap contributors", "attribution_uri": h.Routing.Metadata().Attribution, "source_release": h.Routing.Metadata().Release}
-	if h.Routing.HasDuration() {
-		response["openmaps"].(object)["cost_model"] = h.Routing.Metadata().CostModel
-		response["openmaps"].(object)["time_estimate_note"] = "Uncalibrated estimated driving time; excludes live/historical traffic and unverified off-road gaps. Conservative speed assumptions and conditional ceilings apply."
-	}
-	write(w, 200, response)
+	h.computeScoutRoute(w, r, origin, destination, paths)
 }

@@ -152,14 +152,13 @@ SQLite connection into an immutable map for forward lookups and a slice for
 reverse scans. At this scale (~8,500 points), a scan needs no spatial index.
 It requires a valid non-dateline manifest `bbox`. There are no schema changes,
 new source imports, migrations, sidecar databases or writes to retained snapshots.
-Deployment reload opens Places, geocoding and any optional routing graph successfully
-before replacing the handler. Compute Routes can also receive address strings directly. Its API layer uses this
-geocoder, requires one source identity, and returns a structured failure for
-unresolved ambiguity without a selection exchange. It does not change this
-endpoint’s result set or geocoding preview behavior. Routing owns automatic road
-association after the API resolves the address.
-See [driving routing](routing.md). Requests carry the existing `X-OpenMaps-Dataset` fingerprint in
-deployment mode. Activation and rollback use the [refresh workflow](refresh.md).
+Deployment reload opens Places and geocoding before replacing their handler.
+Scout routing uses independently selected prepared tiles in the same service.
+It accepts coordinates from geocoding results, but has no source-backed address
+association; direct address route requests return `address_routing_unavailable`.
+Geocoding identity, ambiguity and source precision are unchanged.
+Lookup requests carry `X-OpenMaps-Dataset` in deployment mode. Activation and
+rollback use the [refresh workflow](refresh.md); see [Scout routing](routing-scout.md).
 
 Both retained snapshots have 8,545 standalone addresses, of which 8,407 satisfy
 the implemented grammar. The other 138 retain Places behavior but are excluded
@@ -205,14 +204,7 @@ OPENMAPS_URL=http://127.0.0.1:8080 \
   go test -tags=integration ./internal/api -run 'TestLive(Geocoding|Demo)$' -count=1 -v
 ```
 
-Routing graph v4 adds estimated driving duration after the existing automatic
-address-to-road resolution. Geocoding identities, ambiguity and source coordinates
-are unchanged; unverified off-road gaps contribute neither driving distance nor
-duration. See [routing’s time model](routing.md#estimated-speed-and-elapsed-time-model).
-
-
-The separate [Oregon routing evaluation](routing-scale.md) contains no geocoding
-records or address associations. It does not expand Newport address coverage.
-Routing storage/index changes preserve Newport IDs, source coordinates and the
-existing automatic address orchestration. Deployment requests share a snapshot
-lease, so each address resolution and route calculation uses the same snapshot.
+Scout route distance and duration exclude unverified off-road gaps. Its coordinate
+coverage does not expand Newport geocoding coverage or establish surveyed property
+entrances. The former automatic address routing and SQLite graph versions are
+historical implementations, removed in the Go Scout migration.

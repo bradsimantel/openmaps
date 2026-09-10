@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-const Profile = "valhalla-3.6.3-go-feasibility-v1"
-const ProfileNote = "Experimental public-auto subset; provider edge speeds, no traffic or turn penalties; conditional speed payloads are not evaluated; destination access and current Open Maps snap/address policy are unsupported."
+const ProfileNote = "Experimental public-auto subset; provider edge speeds, no traffic or turn penalties; conditional speed payloads are not evaluated; destination-only access, excluded-road guards and address association are unsupported."
 
 // The automaton is small, explicitly capped preprocessing over complex turn
 // records only. Graph topology and spatial indexes stay in tiles. Only-turn
@@ -67,7 +66,7 @@ func buildRouterOrder(ctx context.Context, r *Reader, maxRules, maxPrefixes int,
 				if uint64(edge) > idMask || edge.Level() > 2 {
 					return nil, errors.New("invalid restriction graph ID")
 				}
-				if _, exists := r.index[edge.Base()]; exists || r.version != "3.4.0" {
+				if _, exists := r.index[edge.Base()]; exists {
 					if _, err := r.Edge(edge); err != nil {
 						return nil, fmt.Errorf("restriction reference: %w", err)
 					}
@@ -421,14 +420,7 @@ func (s *Router) RouteAccelerated(ctx context.Context, from, to Point, maxLabels
 	return result, err
 }
 func (s *Router) routeSnaps(ctx context.Context, a, b Snap, maxLabels int, accelerated bool) (Result, error) {
-	profile := Profile
-	if s.Reader.version == "3.4.0" {
-		profile = "osm-scout-3.4.0-go-feasibility-v1"
-	}
-	if s.turns != nil {
-		profile = CandidateProfile
-	}
-	out := Result{Profile: profile, ProfileNote: ProfileNote, Origin: a, Destination: b}
+	out := Result{Profile: CandidateProfile, ProfileNote: ProfileNote, Origin: a, Destination: b}
 	start := time.Now()
 	limit := 200000
 	if s.turns != nil {

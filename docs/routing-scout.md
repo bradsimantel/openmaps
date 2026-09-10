@@ -1,9 +1,11 @@
-# Experimental Scout coordinate routing
+# Scout coordinate routing
 
-The separate Scout backend reads pinned OSM Scout Server Valhalla **3.4.0 tiles**
+The sole routing backend, Scout, reads pinned OSM Scout Server Valhalla **3.4.0 tiles**
 as graph records. Go owns route search, costing, snapping, restrictions, geometry,
 HTTP translation and snapshot lifetime. It does not execute Valhalla's routing
-engine. The existing SQLite routing engine and active deployment are unchanged.
+engine. Places, geocoding, basemap serving and Scout share `cmd/server`.
+Lookup SQLite and routing pages have independent snapshot selections. The retired
+SQLite/PBF graph engines and transient provider backends are no longer built.
 
 The national candidate uses nine directed landmark pairs for long routes. Its
 frozen qualification includes every state/DC, rural roads, international road
@@ -15,10 +17,10 @@ no global audit pass or exhaustive upstream OSM coverage is claimed.
 The [historical national closure and reverse-edge milestone](log/0032-national-closure-and-reverse-edge-identity.md)
 records the expanded graph, all-state checks and corrected v2 reverse enumeration.
 The [historical regional milestone](log/0030-persistent-scout-regional-candidate.md)
-records measurements and reproducible inputs. The current PBF pipeline's separate
-[national capacity preflight](routing-national.md) does not measure this backend.
+records measurements and reproducible inputs. The [historical PBF capacity preflight](log/0026-national-routing-preflight.md)
+measured the retired implementation.
 
-## Experimental profile
+## Supported profile and source limitations
 
 `osm-scout-public-auto-v1`, cost model `scout-edge-speed-v1`, uses provider integer
 metres and directional km/h: sum(edge metres × traversed fraction × 3.6 / speed).
@@ -32,7 +34,7 @@ at all times. Immediate reversals are prohibited, including at dead ends.
 This profile cannot reproduce `driving-time-v4`: normalized tiles lose raw access
 specificity, malformed/unknown tags, excluded-road guards, source node/relation
 identity, some conditions, speed provenance and property entrance evidence.
-Provider normalization can admit a gate or bollard the existing profile excludes.
+Provider normalization can admit a gate or bollard the retired profile excluded.
 No destination-zone qualification, address association or address routing is
 implemented. Neither a tile generation timestamp nor a dataset ID establishes
 an independently verified OSM snapshot cutoff or production build configuration.
@@ -55,7 +57,7 @@ established by a complete provider inventory. Missing data never becomes
 
 ## Acquisition and preparation
 
-`scripts/scout-acquire.py` uses the complete provider digest and directory inventory.
+`cmd/scout-acquire` uses the complete provider digest and directory inventory.
 Identical repeated digest entries are accepted; conflicting entries are rejected.
 Catalog selections only choose initial packages. The national selection includes
 50 states/DC, Canada, Mexico, all 34 packages absent from the regional-list
@@ -80,7 +82,7 @@ a new output directory. The root must retain the three pinned metadata files,
 ```sh
 cp imports/valhalla-scout-national.lock.json data/scout-national-20260909/locked-acquisition.json
 go build -o data/scout-prepare ./cmd/scout-prepare
-python3 scripts/scout-run-bounded.py --root data/scout-national-20260909 \
+go run ./cmd/scout-run-bounded --root data/scout-national-20260909 \
   --report data/scout-national-20260909/rebuild.resources.json \
   data/scout-prepare -root data/scout-national-20260909 \
   -plan locked-acquisition.json -out data/scout-rebuilt
@@ -93,7 +95,7 @@ data/scout-prepare -root data/scout-national-20260909 -out data/scout-rebuilt -r
 
 Apply the same supervisor to each construction phase. Rebuilds need additional
 space for the new graph and landmarks **plus** the disk reserve. To reacquire
-missing packages from this generation, `scout-acquire.py fetch --root ... --plan
+missing packages from this generation, `scout-acquire fetch --root ... --plan
 locked-acquisition.json` checks the complete pinned provider metadata and rejects
 changes. If the provider has rotated the generation, use retained verified inputs;
 do not change the lock to bypass rejection.
@@ -101,11 +103,11 @@ do not change the lock to bypass rejection.
 For a new generation, from the repository root:
 
 ```sh
-python3 scripts/scout-acquire.py snapshot --root data/scout-next
-python3 scripts/scout-acquire.py plan --root data/scout-next \
+go run ./cmd/scout-acquire snapshot --root data/scout-next
+go run ./cmd/scout-acquire plan --root data/scout-next \
   --regions north-america/us,north-america/canada,north-america/mexico \
   --extra 1,2,67,244,247,248,249,250,251,252,253,345,397,398,425,444,523,560,621,623,624,626,853,854,855,1033,1047,1230,1558,1559,1560,1657,1666,2579
-python3 scripts/scout-acquire.py fetch --root data/scout-next
+go run ./cmd/scout-acquire fetch --root data/scout-next
 
 go run ./cmd/scout-prepare -root data/scout-next -out data/scout-prepared-next
 go run ./cmd/scout-prepare -root data/scout-next -out data/scout-prepared-next -turns-only
@@ -160,7 +162,7 @@ fails this conservative proof requires full landmark recomputation. This is a
 specific extension mechanism, not a general incremental shortest-path algorithm.
 
 The page index contains tile offsets and hashes; it does not expand nodes, roads
-or shapes into the existing in-memory graph. Forward and reversed prohibition
+or shapes into graph-sized memory. Forward and reversed prohibition
 tries are prepared into flat state/transition files. Serving uses sorted binary
 lookup and a 4 MiB page cache per turn file, rather than reconstructing global
 restriction maps. Offline trie construction still uses bounded resident maps.
@@ -193,12 +195,12 @@ national case within the HTTP budget; the serving strategy uses one-sided A*.
 
 These are resource admission and payload/record limits, **not hard RSS bounds**.
 Go heap overhead, slice/map growth, output encoding, transient page buffers and OS
-file cache are separate. `scripts/scout-run-bounded.py` samples process RSS and
-free disk, terminates the job on a crossing, and records its observations. It can
+file cache are separate. `cmd/scout-run-bounded` samples process RSS and
+free disk using system `ps` and filesystem statistics, terminates the owned process group on a crossing, and records its observations. It can
 miss short peaks; `GOMEMLIMIT` is not a physical-memory limit. Use a compiled
 binary as its command so the sampled PID is the job itself.
 
-## Isolated service and lifetime
+## Unified service and snapshot lifetime
 
 The qualified local instance uses `127.0.0.1:8097` and
 `data/scout-national-20260909/national-aleutian-prepared`. The historical
@@ -210,8 +212,11 @@ go run ./cmd/server -routing-scout data/scout-prepared-next \
   -routing-concurrency 2 -listen 127.0.0.1:8096
 ```
 
-Use an unused loopback port. Scout mode cannot be combined with `-deployment`,
-legacy routing or the SQLite prepared backend. It needs no lookup database.
+Use an unused loopback port. `-db` (default `data/openmaps.sqlite`) or
+`-deployment` supplies lookup data alongside Scout; `-db ''` explicitly disables
+lookup for a routing-only service. The normal server always serves basemap files.
+`-deployment` selects only lookup SQLite; `-scout-selection` selects only routing.
+Neither selection changes the other's identity or resets routing admission.
 It implements the same explicit coordinate request subset and response masks at
 `POST /directions/v2:computeRoutes`; Google translation remains in `internal/api`.
 The current service uses one-sided A*. Bidirectional search is available in the
@@ -223,7 +228,7 @@ selecting that immutable candidate:
 
 ```sh
 go build -o data/scout-landmarks ./cmd/scout-landmarks
-python3 scripts/scout-run-bounded.py --root data/scout-next \
+go run ./cmd/scout-run-bounded --root data/scout-next \
   --report data/scout-next/landmarks.resources.json \
   data/scout-landmarks -prepared data/scout-prepared-next \
   -out data/scout-prepared-next/landmarks \
@@ -296,7 +301,7 @@ excess concurrent work returns 429 with `Retry-After: 1`.
 selection file. A new candidate is fully loaded before publication; old response
 leases finish before retirement. Replacement shares the existing admission
 budget and serializes old/new overlap. A failed load preserves the old snapshot.
-No existing deployment selection is read or written. `/healthz` includes candidate
+The routing watcher does not read or write lookup deployment state. `/healthz` includes candidate
 identity, load errors and an explicit statement that exhaustive upstream source
 coverage is unverified. Frozen route qualification is a separate measured report.
 
@@ -305,3 +310,60 @@ measurements are distinct from physical cold-disk behavior, which remains
 unmeasured on the shared desktop. The qualification report records full HTTP bodies, sustained concurrency,
 independent national path checks, startup and replacement measurements. It also
 retains the failed tuning experiments and limits the conclusions to measured cases.
+
+## Go verification workflow
+
+All supported acquisition, preparation, verification and serving commands are Go.
+No Python installation or Valhalla executable is used. The resource supervisor
+uses the host's `ps` utility; optional macOS copy-on-write extension uses `cp -c`.
+Both are OS utilities, not routing engines. Compile supervised jobs first.
+
+```sh
+go build -o data/scout-verify ./cmd/scout-verify
+go run ./cmd/scout-acquire verify -root data/scout-national-20260909 \
+  -plan national-aleutian-acquisition.json
+go run ./cmd/scout-run-bounded -root data/scout-national-20260909 \
+  -report data/scout-national-20260909/new-offline.resources.json \
+  data/scout-verify -prepared data/scout-national-20260909/national-aleutian-prepared \
+  -landmarks data/scout-national-20260909/national-aleutian-prepared/landmarks \
+  -cases imports/scout-national-cases.json > data/scout-national-20260909/new-offline.jsonl
+go run ./cmd/scout-http-verify -url http://127.0.0.1:8096 \
+  -offline data/scout-national-20260909/new-offline.jsonl \
+  -out data/scout-national-20260909/new-http
+go run ./cmd/scout-coverage \
+  -boundaries data/scout-national-20260909/cb_2025_us_state_500k.zip \
+  -audit data/scout-national-20260909/national-aleutian-audit.json \
+  -routes data/scout-national-20260909/new-offline.jsonl
+
+go test ./...
+go vet ./...
+go test -race ./cmd/server ./internal/api ./internal/dataset \
+  ./internal/importer/scout ./internal/routing/... ./internal/supervisor
+OPENMAPS_SCOUT_DIR="$PWD/data/valhalla-scout" \
+OPENMAPS_SCOUT_PREPARED="$PWD/data/scout-national-20260909/regional-indexed" \
+OPENMAPS_SCOUT_LANDMARKS="$PWD/data/scout-national-20260909/regional-landmarks-v2" \
+  go test -tags integration ./internal/routing/valhallatiles ./internal/api \
+  -run 'TestScout|TestPreparedScoutRegional' -count=1
+```
+
+`scout-acquire verify` is offline and checks every selected package and receipt.
+`fetch` additionally rechecks the live complete digest and catalog before and
+after the run; a rotated provider generation must fail. Preparation and landmark
+publication remain immutable. Failed output directories must not be selected.
+
+Historical milestone commands may reference deleted Python or SQLite tools; use
+this page for the supported workflow. The [historical Go migration record](log/0035-scout-go-migration.md)
+records deleted components, updated verification and remaining limitations.
+
+The optional service integration test requires an explicitly isolated service,
+selection file and alternate graph. It changes only that supplied selection,
+checks admission, cancellation, masks, source errors and full paths across a
+round trip, then restores the initial selection. Do not point it at a deployment:
+
+```sh
+OPENMAPS_SCOUT_TEST_URL=http://127.0.0.1:8106 \
+OPENMAPS_SCOUT_TEST_SELECTION="$PWD/data/scout-check/selection.json" \
+OPENMAPS_SCOUT_TEST_ALTERNATE="$PWD/data/scout-alternate" \
+OPENMAPS_SCOUT_TEST_OFFLINE="$PWD/data/scout-check/offline.jsonl" \
+  go test -tags integration ./cmd/server -run TestNationalServiceRoundTrip -count=1 -v
+```

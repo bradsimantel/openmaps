@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 )
 
 const pageSize = 64 << 10
@@ -65,7 +64,6 @@ func (r *Reader) ClearCache() {
 	if r.turnsReader != nil {
 		r.turnsReader.ClearCache()
 	}
-	r.cache = map[ID]*list.Element{}
 	if r.pages != nil {
 		r.pages = map[int64]*list.Element{}
 	}
@@ -161,44 +159,9 @@ func (t *tile) name(offset int) (string, error) {
 }
 
 func (t *tile) basePoint() Point {
-	if string(bytes.TrimRight(t.b[16:32], "\x00")) == "3.4.0" {
-		// 3.4.0 GraphTileHeader::base_ll derives this from the GraphId.
-		width := [...]int{90, 360, 1440}[t.id.Level()]
-		step := [...]float64{4, 1, .25}[t.id.Level()]
-		return Point{float64(t.id.Tile()%width)*step - 180, float64(t.id.Tile()/width)*step - 90}
-	}
-	return Point{float64(math.Float32frombits(u32(t.b, 8))), float64(math.Float32frombits(u32(t.b, 12)))}
+	width := [...]int{90, 360, 1440}[t.id.Level()]
+	step := [...]float64{4, 1, .25}[t.id.Level()]
+	return Point{float64(t.id.Tile()%width)*step - 180, float64(t.id.Tile()/width)*step - 90}
 }
 
 func (r *Reader) Package(id ID) string { return r.packages[id.Base()] }
-
-// UsePageCache enables a matched page-vs-tile experiment on the original
-// uncompressed archive. It neither changes the archive nor acquires any data.
-func (r *Reader) UsePageCache() error {
-	if r.closed {
-		return errors.New("reader closed")
-	}
-	if r.limit < pageSize {
-		return errors.New("page cache needs at least 64 KiB")
-	}
-	if r.tiles != nil {
-		return nil
-	}
-	tiles := map[ID]*tile{}
-	for id, e := range r.index {
-		b := make([]byte, 272)
-		if _, err := r.f.ReadAt(b, e.offset); err != nil {
-			return err
-		}
-		t, err := parseTileHeader(b, id, int(e.size))
-		if err != nil {
-			return err
-		}
-		t.reader, t.offset = r, e.offset
-		tiles[id] = t
-	}
-	r.tiles = tiles
-	r.pages = map[int64]*list.Element{}
-	r.ClearCache()
-	return nil
-}

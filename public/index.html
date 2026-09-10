@@ -28,11 +28,7 @@
    <article id="details" hidden aria-label="Selected place"></article>
    <section id="routing" aria-label="Driving route">
     <h2>Driving route</h2>
-    <p class="lookup-hint">Enter two addresses and calculate in one request. You can also use a lookup result or a map point for either endpoint.</p>
-    <label for="route-origin-address">Origin address</label>
-    <input id="route-origin-address" type="text" placeholder="26 Marlborough Street" autocomplete="off">
-    <label for="route-destination-address">Destination address</label>
-    <input id="route-destination-address" type="text" placeholder="1 Resolute Road" autocomplete="off">
+    <p class="lookup-hint">Use a selected lookup result or map point for each endpoint. Scout routes coordinates; direct address routing is unavailable.</p>
     <p id="route-origin">A · Origin not selected</p>
     <p id="route-destination">B · Destination not selected</p>
     <div class="route-actions"><button id="route-use-origin" type="button" disabled>Use selection as origin</button><button id="route-use-destination" type="button" disabled>Use selection as destination</button></div>
@@ -40,7 +36,7 @@
     <select id="map-action"><option value="address">Reverse address lookup</option><option value="origin">Set route origin</option><option value="destination">Set route destination</option></select>
     <div class="route-actions"><button id="route-submit" type="button" disabled>Calculate driving route</button><button id="route-clear" type="button">Clear route</button></div>
     <p id="route-status" role="status">Choose an origin and destination.</p>
-    <p class="lookup-hint">Estimated driving time for an ordinary passenger car on supported roads. Address routes associate endpoints automatically using retained source evidence. Ambiguous addresses fail without a selection step. Uncalibrated speed estimates exclude live traffic and off-road gaps. Retained older graphs provide distance routing without time estimates. Endpoints must be in the Newport preview and within 50 m of a suitable road or 100 m of a supported mapped access point (coordinates: 100 m). <a href="/attribution.html">© OpenStreetMap contributors</a></p>
+    <p class="lookup-hint">Estimated driving time from provider edge speeds on supported public roads. No live traffic, turn delay, ferries or destination-only access. Both coordinates must snap within 100 m of an eligible retained road shape. Off-road gaps and property entrances are unverified. <a href="/attribution.html">© OpenStreetMap contributors</a></p>
    </section>
    <footer>Lookup data: <a href="/attribution.html">Overture Maps &amp; OpenStreetMap</a><br>Newport preview · Pinned source snapshots</footer>
   </section>

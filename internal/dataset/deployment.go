@@ -15,7 +15,6 @@ import (
 	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
-	"openmaps/internal/routing"
 )
 
 type File struct {
@@ -180,19 +179,6 @@ func Activate(ctx context.Context, path, candidate, reportPath, reviewPath strin
 }
 func Rollback(ctx context.Context, path string) error { return rollback(ctx, path, Validate) }
 
-// RollbackPrepared validates a previously published snapshot without rebuilding.
-func RollbackPrepared(ctx context.Context, path, dir string) error {
-	return rollback(ctx, path, func(ctx context.Context, f File) error {
-		hasRouting, e := routing.VerifyPreparedPublication(ctx, f.Path, f.SHA256, dir)
-		if e != nil {
-			return e
-		}
-		if !hasRouting {
-			_, e = importer.ReadSnapshot(ctx, f.Path)
-		}
-		return e
-	})
-}
 func rollback(ctx context.Context, path string, validate func(context.Context, File) error) error {
 	return Change(path, func(s *State) error {
 		if s.Previous == nil {
@@ -209,43 +195,24 @@ func rollback(ctx context.Context, path string, validate func(context.Context, F
 }
 
 type Live struct {
-	mu               sync.RWMutex
-	reloadMu         sync.Mutex
-	closed           bool
-	statePath        string
-	routingCache     string
-	preparedDir      string
-	preparedRequired bool
-	current          File
-	store            *places.Store
-	geocoder         *geocoding.Store
-	router           *routing.Store
-	lastError        string
+	mu        sync.RWMutex
+	reloadMu  sync.Mutex
+	closed    bool
+	statePath string
+	current   File
+	store     *places.Store
+	geocoder  *geocoding.Store
+	lastError string
 }
 
 func Open(ctx context.Context, statePath string) (*Live, error) {
-	return OpenWithRoutingCache(ctx, statePath, "")
-}
-
-// OpenWithRoutingCache optionally maps validated numeric routing arrays in cacheDir.
-func OpenWithRoutingCache(ctx context.Context, statePath, cacheDir string) (*Live, error) {
-	l := &Live{statePath: statePath, routingCache: cacheDir}
+	l := &Live{statePath: statePath}
 	if e := l.reload(ctx); e != nil {
 		return nil, e
 	}
 	return l, nil
 }
 
-// OpenPrepared requires offline publication receipts for routing snapshots.
-// Lookup and graph semantics were validated before receipt publication; runtime
-// binds the entire immutable SQLite file and routing artifact to that receipt.
-func OpenPrepared(ctx context.Context, statePath, dir string) (*Live, error) {
-	l := &Live{statePath: statePath, preparedDir: dir, preparedRequired: true}
-	if e := l.reload(ctx); e != nil {
-		return nil, e
-	}
-	return l, nil
-}
 func (l *Live) reload(ctx context.Context) error {
 	s, e := Read(l.statePath)
 	if e != nil {
@@ -266,44 +233,24 @@ func (l *Live) reload(ctx context.Context) error {
 	if e = importer.Verify(s.Current.Path, s.Current.SHA256); e != nil {
 		return e
 	}
-	var router *routing.Store
-	if l.preparedRequired {
-		router, e = routing.OpenRuntime(ctx, s.Current.Path, l.preparedDir, false, "")
-		// Lookup-only legacy snapshots have no preparation receipt. Keep their full
-		// existing validation; this path cannot reconstruct routing data.
-		if e == nil && router == nil {
-			_, e = importer.ReadSnapshot(ctx, s.Current.Path)
-		}
-	} else {
-		_, router, e = importer.ReadSnapshotWithRouting(ctx, s.Current.Path)
-		if e == nil {
-			e = router.UseMappedQueryData(ctx, l.routingCache)
-		}
-	}
-	if e != nil {
-		router.Close()
+	if _, e = importer.ReadSnapshot(ctx, s.Current.Path); e != nil {
 		return e
 	}
 	next, e := places.Open(s.Current.Path)
 	if e != nil {
-		router.Close()
 		return e
 	}
 	geocoder, e := geocoding.Open(ctx, s.Current.Path)
 	if e != nil {
-		router.Close()
 		next.Close()
 		return e
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	old := l.store
-	oldRouter := l.router
 	l.store = next
 	l.geocoder = geocoder
-	l.router = router
 	l.current = s.Current
-	oldRouter.Close()
 	if old != nil {
 		old.Close()
 	}
@@ -318,7 +265,6 @@ func (l *Live) Close() error {
 		return nil
 	}
 	l.closed = true
-	l.router.Close()
 	if l.store != nil {
 		return l.store.Close()
 	}
@@ -364,9 +310,26 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Status            string `json:"status"`
 			Dataset           File   `json:"dataset"`
 			Error             string `json:"error,omitempty"`
-		}{l.router != nil, l.router.HasDuration(), status, l.current, l.lastError})
+		}{false, false, status, l.current, l.lastError})
 		return
 	}
 	w.Header().Set("X-OpenMaps-Dataset", l.current.SHA256)
-	api.Handler{Places: l.store, Geocoding: l.geocoder, Routing: l.router}.ServeHTTP(w, r)
+	api.Handler{Places: l.store, Geocoding: l.geocoder}.ServeHTTP(w, r)
+}
+
+// Status reports the lookup identity and the last failed selection check.
+func (l *Live) Status(ctx context.Context) (File, string) {
+	if l.reloadMu.TryLock() {
+		err := l.reload(ctx)
+		l.mu.Lock()
+		l.lastError = ""
+		if err != nil {
+			l.lastError = err.Error()
+		}
+		l.mu.Unlock()
+		l.reloadMu.Unlock()
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.current, l.lastError
 }

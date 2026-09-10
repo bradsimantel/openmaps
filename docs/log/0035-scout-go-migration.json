@@ -1,0 +1,1330 @@
+{
+  "schema": 1,
+  "date": "2026-09-09",
+  "revision": "dc20ef2859e2d3fa4410d224d0c89ddbccb06c95",
+  "scope": "Uncommitted sole Scout backend and Go acquisition/preparation/verification migration",
+  "deleted_files": [
+    "cmd/routing-prepare/main.go",
+    "cmd/routing-valhalla/main.go",
+    "imports/northwest-routing.lock.json",
+    "imports/oregon-routing.lock.json",
+    "imports/valhalla-bremen.lock.json",
+    "internal/api/routing_address_test.go",
+    "internal/api/routing_performance_integration_test.go",
+    "internal/dataset/lifetime_integration_test.go",
+    "internal/dataset/prepared_test.go",
+    "internal/importer/routing.go",
+    "internal/importer/routing_access.go",
+    "internal/importer/routing_access_test.go",
+    "internal/importer/routing_limits.go",
+    "internal/importer/routing_limits_test.go",
+    "internal/importer/routing_pbf_test.go",
+    "internal/importer/routing_speed.go",
+    "internal/importer/routing_speed_test.go",
+    "internal/importer/routing_test.go",
+    "internal/routing/acceleration.go",
+    "internal/routing/address_integration_test.go",
+    "internal/routing/cells.go",
+    "internal/routing/cells_test.go",
+    "internal/routing/chunks.go",
+    "internal/routing/construction_ids.go",
+    "internal/routing/construction_ids_test.go",
+    "internal/routing/cost.go",
+    "internal/routing/cost_test.go",
+    "internal/routing/dense.go",
+    "internal/routing/dense_test.go",
+    "internal/routing/endpoints.go",
+    "internal/routing/endpoints_test.go",
+    "internal/routing/graph.go",
+    "internal/routing/graph_test.go",
+    "internal/routing/junctions.go",
+    "internal/routing/junctions_test.go",
+    "internal/routing/loading.go",
+    "internal/routing/loading_integration_test.go",
+    "internal/routing/mapped.go",
+    "internal/routing/mapped_access_integration_test.go",
+    "internal/routing/mapped_other.go",
+    "internal/routing/mapped_test.go",
+    "internal/routing/mapped_unix.go",
+    "internal/routing/newport_integration_test.go",
+    "internal/routing/northwest_seeds_integration_test.go",
+    "internal/routing/oregon_integration_test.go",
+    "internal/routing/performance_integration_test.go",
+    "internal/routing/prepared.go",
+    "internal/routing/prepared_test.go",
+    "internal/routing/prepared_validate.go",
+    "internal/routing/residency_integration_test.go",
+    "internal/routing/scaling_test.go",
+    "internal/routing/spatial.go",
+    "internal/routing/sqlite.go",
+    "internal/routing/storage_integration_test.go",
+    "internal/routing/testdata/newport-addresses.json",
+    "internal/routing/testdata/newport.json",
+    "internal/routing/testdata/northwest.json",
+    "internal/routing/testdata/oregon.json",
+    "internal/routing/topology.go",
+    "scripts/routing-capacity.py",
+    "scripts/routing-residency.py",
+    "scripts/scout-acquire.py",
+    "scripts/scout-coverage.py",
+    "scripts/scout-http-verify.py",
+    "scripts/scout-run-bounded.py",
+    "scripts/test_routing_capacity.py",
+    "scripts/test_scout_acquire.py",
+    "scripts/test_scout_coverage.py"
+  ],
+  "retained_changed_files": [
+    {
+      "path": "README.md",
+      "bytes": 18726,
+      "sha256": "6569f8e4d7de4b5a99b454ddedb9949880da6140163a317ffeb436931f1c28b9"
+    },
+    {
+      "path": "cmd/import/main.go",
+      "bytes": 1929,
+      "sha256": "ff629d1ee52cb0cca0fd2d03d68794358f83a67d5f24a9e967dff53c888bfb3e"
+    },
+    {
+      "path": "cmd/refresh/main.go",
+      "bytes": 5307,
+      "sha256": "9a00b6d95406ec6525a2d1cb52d8eb46dc5520f0da39501254fbf52ead7d5fd3"
+    },
+    {
+      "path": "cmd/scout-acquire/main.go",
+      "bytes": 1976,
+      "sha256": "f7677d50c1feaabb0ad3fd1c2a41d4b49baf4000a9965bcba5f337302512efac"
+    },
+    {
+      "path": "cmd/scout-audit/main.go",
+      "bytes": 5631,
+      "sha256": "23a570445eb91ff633856e954f841a40014d4dc8b26c11289556b96f1f01c380"
+    },
+    {
+      "path": "cmd/scout-coverage/main.go",
+      "bytes": 600,
+      "sha256": "3fed47f919c7cdf5295eec43bf1d9ebee56d83b71acd9a59f8c0f5c8a2b7dd65"
+    },
+    {
+      "path": "cmd/scout-http-verify/main.go",
+      "bytes": 1103,
+      "sha256": "a786231789bc79564c76c7e597dd3e901d458e2d89360881ba76f4cdbc2b8125"
+    },
+    {
+      "path": "cmd/scout-prepare/main.go",
+      "bytes": 5300,
+      "sha256": "a095c6ff1b60b833b0faa70f8aac229737e7d460466c89c2c705b10b7b7b3942"
+    },
+    {
+      "path": "cmd/scout-run-bounded/main.go",
+      "bytes": 794,
+      "sha256": "6a62251727658edb5f9fca3fa98886ea739179868f0e7e93c045a6ac8c236b2a"
+    },
+    {
+      "path": "cmd/server/main.go",
+      "bytes": 5635,
+      "sha256": "4dc32cb1a04e9c79741f92585c9f69df09fe666f402ce703b6142b5c21e4d10c"
+    },
+    {
+      "path": "cmd/server/main_test.go",
+      "bytes": 5512,
+      "sha256": "09a091162c7ddea7adaf207a55b0bf10a74e9c017f8af05a609fdb1b49cfc2b1"
+    },
+    {
+      "path": "cmd/server/national_integration_test.go",
+      "bytes": 8497,
+      "sha256": "d9099d9c0b79fe580d94f1ed625b4ad9a9545a49b8e853c4bcbfa8228fcbf47e"
+    },
+    {
+      "path": "cmd/server/scout.go",
+      "bytes": 1775,
+      "sha256": "48263fded53f081105d97101d878f7d110a7c694efd43efccdc31e7a69aa4df4"
+    },
+    {
+      "path": "docs/geocoding.md",
+      "bytes": 12753,
+      "sha256": "1ddb27a28cf988a4d0cd30e9fd01eff55196e30f7bb7f1a5e81a76d2627ad8c2"
+    },
+    {
+      "path": "docs/refresh.md",
+      "bytes": 13940,
+      "sha256": "8858fb89f8b16bf23ea9f1886ed01e62a41f3751a9fa53aa3617fbd67a6604cd"
+    },
+    {
+      "path": "docs/routing-national.md",
+      "bytes": 1278,
+      "sha256": "5279a63bea42564ba35e5d0a048b4411977586489e5dcb7ff6d41d12613fa93b"
+    },
+    {
+      "path": "docs/routing-prepared.md",
+      "bytes": 998,
+      "sha256": "fafd580433c882a9efe095ba4c4e897ae48c992e6b624c4faa556b974550cf88"
+    },
+    {
+      "path": "docs/routing-scale.md",
+      "bytes": 698,
+      "sha256": "e99ff27dd2f07de26bb7f8caecfe8fbfc12aa19d83569fa57407ee35ed89fe43"
+    },
+    {
+      "path": "docs/routing-scout.md",
+      "bytes": 22572,
+      "sha256": "08f2fad3e00c61cd4f22508ded8002ba24559b8b3985015633b65db6b0bb9401"
+    },
+    {
+      "path": "docs/routing.md",
+      "bytes": 2296,
+      "sha256": "a90fae9a7e9a12f0d607bb8f05d4b622d32192279d041e1e9e1b1825860d1fc1"
+    },
+    {
+      "path": "internal/api/api.go",
+      "bytes": 9310,
+      "sha256": "2db95f3ee9b2c12b5cc2c95edfc1ae570746e776d2a2d36d1b9a8a466acfeb70"
+    },
+    {
+      "path": "internal/api/routing.go",
+      "bytes": 5010,
+      "sha256": "63d7f1de2acce3b16b260a00703488b3040093dc2d599312f8e31ddb185f3994"
+    },
+    {
+      "path": "internal/api/routing_address.go",
+      "bytes": 963,
+      "sha256": "10bcc51ef0cb79bdb5aca3c31ba43567fa7c61b6833c7fe4772007329b383b8a"
+    },
+    {
+      "path": "internal/api/routing_scout.go",
+      "bytes": 4013,
+      "sha256": "7a3899bbf65e20e95ad0fb315b853abe089073dfe3b350368a6245b21deab75f"
+    },
+    {
+      "path": "internal/api/routing_scout_integration_test.go",
+      "bytes": 3445,
+      "sha256": "c29b07da8115426560c7cff5d8e606038c050f76eaef4f81cb521e87278a69d5"
+    },
+    {
+      "path": "internal/api/routing_test.go",
+      "bytes": 3321,
+      "sha256": "ad91a78c37b18024e2390d35bc05c0b3e4d30d53dbfce8b554964214d386aa68"
+    },
+    {
+      "path": "internal/dataset/deployment.go",
+      "bytes": 8369,
+      "sha256": "56fbbab83a504358b8f4fd940b3e924ab5f80c54495d10438376b6f35377e49e"
+    },
+    {
+      "path": "internal/dataset/deployment_test.go",
+      "bytes": 8634,
+      "sha256": "ca743af2b2329e7fa5ecc2a3f9fbb79eb0f104a5f355523b16fe8e3fe7f7e59a"
+    },
+    {
+      "path": "internal/importer/artifacts.go",
+      "bytes": 4152,
+      "sha256": "476488d4726b066b4c86286efdb27e90c484873d8de520fa3eba572b936e0d37"
+    },
+    {
+      "path": "internal/importer/import.go",
+      "bytes": 8452,
+      "sha256": "485001555d80aea8287479eaf69ece916cab0dea54a806747bfeaf127149d06e"
+    },
+    {
+      "path": "internal/importer/refresh.go",
+      "bytes": 19764,
+      "sha256": "5f97c61f881347621cdce5ebccb44e4dc182978fe248446352625cad269ba322"
+    },
+    {
+      "path": "internal/importer/scout/acquire.go",
+      "bytes": 17361,
+      "sha256": "e6f64b592fa82889837329d12f8bd8bd35a7fd30e8b55eea9e9b86a6b7bde9f4"
+    },
+    {
+      "path": "internal/importer/scout/acquire_test.go",
+      "bytes": 8459,
+      "sha256": "86e99c5aa77d2e599ab94f2961c79301f5909e38db142fdb4ce3afa6bf88cd32"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/1.payload",
+      "bytes": 18,
+      "sha256": "5dddd79a939bf3e3219d863469a22b4a38ed9e19332c598d729ac51990debfeb"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/1.size",
+      "bytes": 31,
+      "sha256": "ce343ae0943843bd5795cc3eb3b1e7affc088f2125760462c450a6636f155c62"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/2.payload",
+      "bytes": 18,
+      "sha256": "9932cc870e0c71a7ff312644293ef6c1d4b7623a613cf8e08ad258b9a0344543"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/2.size",
+      "bytes": 31,
+      "sha256": "0f462dbd0546b9a5db63aeb5362b48eee30bd766ff8f592d9b11338c7f6a34de"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/3.payload",
+      "bytes": 18,
+      "sha256": "9ff989eb37b69a1dad2dfe6447f7c6b60c4deb625d12563db52b95f494ea0237"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/3.size",
+      "bytes": 31,
+      "sha256": "cffda660423ce0acf0a7db44ddbbaa797460f17cfca6dac906b456194d45edd5"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/catalog.json",
+      "bytes": 193,
+      "sha256": "20b8faae5bbb40b7a23dcbcd85921c768c1930a089ea7f3a571152484e013e1d"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/digest.md5.bz2",
+      "bytes": 326,
+      "sha256": "bdc3916e0b9dfb0a667bc08b752ba16d8bbbddf9d025d5edae6e76cbf9ad740e"
+    },
+    {
+      "path": "internal/importer/scout/testdata/conflict/packages.html",
+      "bytes": 75,
+      "sha256": "0e1b9bae1fcd5a4bc39c92febbffe0e687c171b5c08bedb163e8b0b08a387d1b"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/1.payload",
+      "bytes": 18,
+      "sha256": "5dddd79a939bf3e3219d863469a22b4a38ed9e19332c598d729ac51990debfeb"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/1.size",
+      "bytes": 31,
+      "sha256": "ce343ae0943843bd5795cc3eb3b1e7affc088f2125760462c450a6636f155c62"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/2.payload",
+      "bytes": 18,
+      "sha256": "9932cc870e0c71a7ff312644293ef6c1d4b7623a613cf8e08ad258b9a0344543"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/2.size",
+      "bytes": 31,
+      "sha256": "0f462dbd0546b9a5db63aeb5362b48eee30bd766ff8f592d9b11338c7f6a34de"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/3.payload",
+      "bytes": 18,
+      "sha256": "9ff989eb37b69a1dad2dfe6447f7c6b60c4deb625d12563db52b95f494ea0237"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/3.size",
+      "bytes": 31,
+      "sha256": "cffda660423ce0acf0a7db44ddbbaa797460f17cfca6dac906b456194d45edd5"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/catalog.json",
+      "bytes": 194,
+      "sha256": "d5b15876cb14b89ec638f8a4b1cf5e24c148411c0e6a9dd62a5c6976ec7fbf12"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/digest.md5.bz2",
+      "bytes": 335,
+      "sha256": "e248014db7886e357a818bf28881923d52baf8426415446fb7a4dcaef88d86ff"
+    },
+    {
+      "path": "internal/importer/scout/testdata/mixed/packages.html",
+      "bytes": 75,
+      "sha256": "0e1b9bae1fcd5a4bc39c92febbffe0e687c171b5c08bedb163e8b0b08a387d1b"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/1.payload",
+      "bytes": 18,
+      "sha256": "5dddd79a939bf3e3219d863469a22b4a38ed9e19332c598d729ac51990debfeb"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/1.size",
+      "bytes": 31,
+      "sha256": "ce343ae0943843bd5795cc3eb3b1e7affc088f2125760462c450a6636f155c62"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/2.payload",
+      "bytes": 18,
+      "sha256": "9932cc870e0c71a7ff312644293ef6c1d4b7623a613cf8e08ad258b9a0344543"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/2.size",
+      "bytes": 31,
+      "sha256": "0f462dbd0546b9a5db63aeb5362b48eee30bd766ff8f592d9b11338c7f6a34de"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/3.payload",
+      "bytes": 18,
+      "sha256": "9ff989eb37b69a1dad2dfe6447f7c6b60c4deb625d12563db52b95f494ea0237"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/3.size",
+      "bytes": 31,
+      "sha256": "cffda660423ce0acf0a7db44ddbbaa797460f17cfca6dac906b456194d45edd5"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/catalog.json",
+      "bytes": 193,
+      "sha256": "20b8faae5bbb40b7a23dcbcd85921c768c1930a089ea7f3a571152484e013e1d"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/digest.md5.bz2",
+      "bytes": 336,
+      "sha256": "212d68602acfe5f0262f74ee8528021e7971a4099806ca4365298fc443630c7a"
+    },
+    {
+      "path": "internal/importer/scout/testdata/valid/packages.html",
+      "bytes": 75,
+      "sha256": "0e1b9bae1fcd5a4bc39c92febbffe0e687c171b5c08bedb163e8b0b08a387d1b"
+    },
+    {
+      "path": "internal/routing/qualification/coverage.go",
+      "bytes": 10183,
+      "sha256": "cf381cca73111a20bb73b0ae6e0934aec8a6e06719ca92ef37dec066db71b483"
+    },
+    {
+      "path": "internal/routing/qualification/coverage_integration_test.go",
+      "bytes": 795,
+      "sha256": "e8113ca07735629032598654fc9e2d418d21c0e9c89711834c3b4151bd2ffb6f"
+    },
+    {
+      "path": "internal/routing/qualification/coverage_test.go",
+      "bytes": 1025,
+      "sha256": "0d392863b6f5104fac21e427b80117fe8f7db16c422d3277ee6c607847f18ec4"
+    },
+    {
+      "path": "internal/routing/qualification/http.go",
+      "bytes": 9289,
+      "sha256": "9cb2928796764ad716c699d73505029bc2e471ed8943c86b1e069ac4d122ccbf"
+    },
+    {
+      "path": "internal/routing/qualification/http_test.go",
+      "bytes": 2422,
+      "sha256": "5616d06b3a208ef5b4df5808a4c8f040fc869e9274bd6c02023ebee7c7785ef5"
+    },
+    {
+      "path": "internal/routing/valhallatiles/pages.go",
+      "bytes": 4285,
+      "sha256": "f44f4147143178668b17cfefb0cf346910c0e6064f33aa1ef75caae96f102dbd"
+    },
+    {
+      "path": "internal/routing/valhallatiles/prepared.go",
+      "bytes": 17168,
+      "sha256": "d4b2dc81240290fd80d518c1a58e556bb04385a6484d8a91c2eba81fe1498c40"
+    },
+    {
+      "path": "internal/routing/valhallatiles/prepared_test.go",
+      "bytes": 6763,
+      "sha256": "156932cff2209a409cd5b914e2059dc5a427d0007aa3aac423ff8a4650d99565"
+    },
+    {
+      "path": "internal/routing/valhallatiles/provider_integration_test.go",
+      "bytes": 2086,
+      "sha256": "8428f66ca20a8b6bee68f62b4d450566bcbecf8c0483e0825ffa17410cd158eb"
+    },
+    {
+      "path": "internal/routing/valhallatiles/reader.go",
+      "bytes": 17661,
+      "sha256": "42409b8a2469dd3b18df73109a6fc1f8534902ac54ac3f3984c8e7f345b039f0"
+    },
+    {
+      "path": "internal/routing/valhallatiles/reader_test.go",
+      "bytes": 9969,
+      "sha256": "72077174b79912c84e94c59cdeacc61509baaa35f8db650c2c030e273f2e7887"
+    },
+    {
+      "path": "internal/routing/valhallatiles/route.go",
+      "bytes": 21907,
+      "sha256": "4850d42e0ea5f6864f47b02dbe503129dc704f3bbcbd382820bc36deca202072"
+    },
+    {
+      "path": "internal/routing/valhallatiles/scout.go",
+      "bytes": 2264,
+      "sha256": "4e1e23dc9c20100e5acf2ea08f0cf256502fbe120d1ae732ea271e76e0b0cb12"
+    },
+    {
+      "path": "internal/routing/valhallatiles/scout_integration_test.go",
+      "bytes": 11617,
+      "sha256": "133e239c904fe91480cc5e1d7666c4d1bd2beeb9c05bdff9908db99d66a5fb04"
+    },
+    {
+      "path": "internal/routing/valhallatiles/scout_test.go",
+      "bytes": 2251,
+      "sha256": "0d2cf7d2bf5df9d7e03ffc269486ec7854d124dd99a8306e382ba8ff2b6a13a6"
+    },
+    {
+      "path": "internal/routing/valhallatiles/source_fixture_test.go",
+      "bytes": 940,
+      "sha256": "c097c396f874e9fad0f5c1c182d3c4a669d99fc978ca9ca7b423293f19217447"
+    },
+    {
+      "path": "internal/supervisor/run.go",
+      "bytes": 4667,
+      "sha256": "79b23edf5f35a2f95fe14999c5d1a812757b7c19a5046129acd95edebb10996a"
+    },
+    {
+      "path": "internal/supervisor/run_test.go",
+      "bytes": 2317,
+      "sha256": "ff59a6d4054aef5cf9f443385c4d606009fff685b31d8d8d4a17ff68475e8951"
+    },
+    {
+      "path": "public/attribution.html",
+      "bytes": 2232,
+      "sha256": "435e9865f948f607c08a666832a7fdd914591571253d49474e4d47a312f136a9"
+    },
+    {
+      "path": "public/index.html",
+      "bytes": 4090,
+      "sha256": "1462701af253dba0161a11039e93692bce167bc1d8322c889dd370c8b92de602"
+    },
+    {
+      "path": "public/routing.js",
+      "bytes": 8052,
+      "sha256": "87eac24accff936dd738723696e1899d7f2612f9eb21d35f9b06d7b46c8ad595"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "imports/scout-national-cases.json",
+      "bytes": 19562,
+      "sha256": "8ace0b9b8296ae883eca3eb8ea2b0049b76414bd3ad2a47193e05886658fc1e1"
+    },
+    {
+      "path": "imports/valhalla-scout-national.lock.json",
+      "bytes": 192416,
+      "sha256": "d1a83ba39a0700886b8822573454b5619a57a0c1b957cfab27a98acbdf13e53f"
+    },
+    {
+      "path": "imports/scout-national-landmarks-extended.json",
+      "bytes": 768,
+      "sha256": "a083d7a21de2812f3329265eb02c6de66a951eb016feee23a2f9d08bd8090e5e"
+    },
+    {
+      "path": "imports/scout-national-snap-probes.json",
+      "bytes": 455,
+      "sha256": "d89d5861279637bafaa8814369ece8b1ca19b22254fbf0874c17798bbf041e9b"
+    },
+    {
+      "path": "data/scout-national-20260909/national-aleutian-prepared/receipt.json",
+      "bytes": 9300118,
+      "sha256": "4cb6be091e5a7751d77d45d5ae719849e29971af6d5677f63e35e71abafda2a1"
+    },
+    {
+      "path": "data/scout-national-20260909/national-aleutian-prepared/landmarks/landmarks.json",
+      "bytes": 12906,
+      "sha256": "e41c8a76e103ee0e586d4d7944001ef246b3d6a829d489b2d398bfcc723df8cf"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "data/scout-go-migration-20260909/acquisition.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/acquisition.resources.json",
+      "bytes": 598,
+      "sha256": "fde113961fbecec009c583a853e40d2b268b551136187f619482936b5379a666"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/api-live-test",
+      "bytes": 24374322,
+      "sha256": "fc2d3a1ef94f84503069fa801096ee569945a6b97e37812cb0312e9786b95e60"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/scout-acquire",
+      "bytes": 9085250,
+      "sha256": "adaa5eaf5a697be3a3507506fa21a0fda5a4fd144e51be1c992df4e159cb4330"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/scout-audit",
+      "bytes": 3965106,
+      "sha256": "33e14e16be3ac7f7cc12e5bfea69c719c5c391a94dada3ff1323b844dd461e50"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/scout-coverage",
+      "bytes": 5824898,
+      "sha256": "8840a0897b1381af75a128d050b71c27f4473eb28c1de4d4ad1a62f4b847b2b3"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/scout-http-verify",
+      "bytes": 8696386,
+      "sha256": "8f9fbc729d5113c21c6c2db593eddf50ef4390f212e9151899df6839ef1f4f79"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/scout-landmarks",
+      "bytes": 3911938,
+      "sha256": "ee7edc08cfc5eef662036ae98a1d412995a7da6e845c880a39e363b3746265e0"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/scout-prepare",
+      "bytes": 6662530,
+      "sha256": "986b53ecb6552849afe4a578120a7b592c93057b6f09ed59e28101b95aa4db3a"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/scout-run-bounded",
+      "bytes": 3242754,
+      "sha256": "71491d7347aa9dc2805cd65838a52eaf631645eb336ebf499046ee48485f6052"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/scout-verify",
+      "bytes": 3982034,
+      "sha256": "5aabdd116639fbdd60e4326ebf24bf212f839861e148df0168bf63a6a9282d73"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/server",
+      "bytes": 22307426,
+      "sha256": "d75c5f8a85a6707276a5ff56823766c2a5f79fd8e82bd7c52745eaef1ae68f28"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/service-test",
+      "bytes": 23816914,
+      "sha256": "dc7732a227441f66cf30feb4af16387e2008a2028c25f6a18b73ea4b17686204"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/bin/service-test-final",
+      "bytes": 23816994,
+      "sha256": "4813719fec8afc8fa2a9df6886d58b04c62a266d362103b6f98c901bc2dca5da"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/combined-regional.log",
+      "bytes": 53,
+      "sha256": "3cf631bf9d978291a71404c97e64f62049b31a3a3b4074a86f88d158e1492936"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/combined-regional.resources.json",
+      "bytes": 707,
+      "sha256": "98285a0d6f9516e1621afc71d71682394d28c37b61e7950028eebf668ec9b143"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/coverage-final.json",
+      "bytes": 1463,
+      "sha256": "aa22e39adcf821033f0ea52da1c18813956fcb69fb304f43e6efed925a181d46"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/coverage-new-audit.json",
+      "bytes": 1463,
+      "sha256": "aa22e39adcf821033f0ea52da1c18813956fcb69fb304f43e6efed925a181d46"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/coverage.json",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/final-binary-health.json",
+      "bytes": 733,
+      "sha256": "9489343773ba08edc6df2e781453385eb5a49aada4e7fc1db058d434c429991d"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/final-binary.log",
+      "bytes": 53,
+      "sha256": "891f01e2dbcb18d7a06e959032e72de3bfd174323cfb8ed5bde0606a5176b734"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/final-binary.resources.json",
+      "bytes": 654,
+      "sha256": "23c0710d8ec189b80cb01d3d4bbcd721a7f703b8ef0245fbbe6954e401cf0108"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/final-offline.jsonl",
+      "bytes": 6877568,
+      "sha256": "ff24c0c6e479aeec113c2e3dd4e8231f6e33ac331ed65a50dd00f875b6d051f8"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/final-offline.resources.json",
+      "bytes": 703,
+      "sha256": "168ea6ae262981442e47b431daab78327c176571157f51c4822222287fccc99e"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/final-targeted.log",
+      "bytes": 136,
+      "sha256": "4ecdf8ff70cd84cd1b2397ac0622627fedae1e5c28233821a88e3987d510c681"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/go-test-final.log",
+      "bytes": 1042,
+      "sha256": "4699d82c6a36e269d14233182c7dbba74a86ed0f0c24e6f0ab2afd8a74578af6"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/go-test.log",
+      "bytes": 1034,
+      "sha256": "f3c24cb92f5b0d12b0a0ea33cc606f27252e488ee1ee7b70a0cb87a97d31169d"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/health-initial.json",
+      "bytes": 732,
+      "sha256": "6cbc6eb099b98bc4bee500f9851c08428f0976cdc06a51679701d8976bbf6489"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/http-all-summary.json",
+      "bytes": 364,
+      "sha256": "2f28690fc74bfca1be6336e1d0627bfadd705fac87f41d08e702494f9ede9237"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/http-final-binary-summary.json",
+      "bytes": 364,
+      "sha256": "92079020f766a0726a5c609bb7bd81ecfea7a5bf28a91ce2326392f53420d4eb"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/integration-final.log",
+      "bytes": 5249,
+      "sha256": "647460016d34540e110b3a379c438ec28e6506ec42f688a9bf90f9afdb4756c2"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/integration.log",
+      "bytes": 4976,
+      "sha256": "7762f37ce5c2ed01c5fa1a0053be4ea1b50433586e6abe6d99d8e8451a4f49f4"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/lookup-disabled-http.txt",
+      "bytes": 92,
+      "sha256": "fdc45202c1f3948ee039a639a14b5a125e1f718e97afa0fec6fa7b5c8f48cfa7"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/lookup-live.log",
+      "bytes": 3141,
+      "sha256": "b27d530b1fab2ddcc605d6885b999ffe885f2c0d76ecb437326a87ad0b7ea6d2"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/lookup-probe.log",
+      "bytes": 95,
+      "sha256": "757975c512c1a09a4754915082d01231dc328c1f05f11c19650a8ad975fe9428"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/lookup-selection.json",
+      "bytes": 481,
+      "sha256": "d7070c4c86ff7221ea2691aae07fe37436b5d37fc878e12c7b2c5aa1c2e90aff"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/offline.jsonl",
+      "bytes": 6876908,
+      "sha256": "9127ba37ed22fce408bcf3b88bdb37bb8f30f2c29d794d87071cc9e1166feadd"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/offline.resources.json",
+      "bytes": 705,
+      "sha256": "3cf02fd6f3f6f08d1bec9ac4a652b6c471652a3c9a9ee769d3de940367a3beeb"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/preserved-national-health.json",
+      "bytes": 699,
+      "sha256": "eef6013b431bc1f1758730326a2a5662c63e22efff13057bad9233a6c8ca192e"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/preserved-regional-health.json",
+      "bytes": 642,
+      "sha256": "8ca8b7b1f6a71b262e7b4959d0c86bd5893cd46ece58d219b81fe70212ea361c"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/race-final.log",
+      "bytes": 306,
+      "sha256": "28974ff06926655a535a78ef83aaac616d859fc7534ba48618a35d838127ce4b"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/race.log",
+      "bytes": 294,
+      "sha256": "4ea0160b83491aefb5b8245224ef222668d9e60da5d103802e8339847732e5ed"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/rebuilt-regional-integration.log",
+      "bytes": 2963,
+      "sha256": "bda5ec3d4b45c70b3b10a9135ebb596e98f0d595e034a0b336e602b8b99d23d4"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-landmarks.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-landmarks.resources.json",
+      "bytes": 716,
+      "sha256": "9f51175867266072971d5c174b2dc9e3683c1ba88dc2bce0f69d755525ee9e0f"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-potential.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-potential.resources.json",
+      "bytes": 621,
+      "sha256": "3aa2261940813926040e11697e998a093303cff37e1908122337de55fd34e37f"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-prepare.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-prepare.resources.json",
+      "bytes": 643,
+      "sha256": "358574f89e2b30a8f12c3aeb35de64f6b3eb3873f62f192b121c2f84853e7cfb"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-reverse-support.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-reverse-support.resources.json",
+      "bytes": 627,
+      "sha256": "550fd62effde18be9179f58bfa6adaaa412e4bc9f071b48049a3912afbf70a96"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-reverse-turns.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-reverse-turns.resources.json",
+      "bytes": 622,
+      "sha256": "f0adf8cf5836b98f8e20d60f9df20b0c14893574ba5165451c75dfa122d687cd"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-turns.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/regional-turns.resources.json",
+      "bytes": 615,
+      "sha256": "c58cb6812c96794c2b27a275b1242f16876575220556bef7a47126c7d73682d3"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/selection.json",
+      "bytes": 70,
+      "sha256": "56f32790ae63324570ba6d4540ebec8e157f850f3a906cecbb2eec04511a1237"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/server-final.log",
+      "bytes": 1171,
+      "sha256": "b0ac1d03c85828fc943cfd4bbdac69b050edb7198dcd1e7622161f994393592e"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/server-final.resources.json",
+      "bytes": 713,
+      "sha256": "f7ccde34580b01fdb557b4ba8d361b2c6140f0bd6bac948ef895016abb55cf76"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/server.log",
+      "bytes": 109,
+      "sha256": "5f42a41c1690e4b69d294d45c10fd35554db28709e2befcaa614bd5531ad1a94"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/server.resources.json",
+      "bytes": 705,
+      "sha256": "090fb24108fea770e3e409bff6481ebf9b3dc0551e8362f1fcb24acf3383cac2"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/service-integration-compile.log",
+      "bytes": 50,
+      "sha256": "0633a3a95b1f8579684f389d51923955eadb12df80b61ccd384cccf46ae78fe5"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/service-roundtrip-final.log",
+      "bytes": 443,
+      "sha256": "c6bd3c6a5b5edbff3a86bf1a0a7420b14bf35837078ebad051af4143c35b59be"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/service-roundtrip.log",
+      "bytes": 445,
+      "sha256": "d6d2418f053651e988635f9745ca5d596ea685bc9d7c34d90e25ddcfb1162edd"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/source-audit.json",
+      "bytes": 11745826,
+      "sha256": "238ce573e194d55ddcbde1e1544bac0c7f671603ef93573a61bf4ba908d1a5e5"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/source-audit.resources.json",
+      "bytes": 668,
+      "sha256": "cb41f70b85f2d4047ba3df7110044b32f4487aad73c3e597459a3facdf7fba27"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/vet-final.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "data/scout-go-migration-20260909/vet.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "resources": {
+    "acquisition.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-acquire",
+        "verify",
+        "--root",
+        "data/scout-national-20260909",
+        "--plan",
+        "national-aleutian-acquisition.json"
+      ],
+      "seconds": 15.715716292,
+      "sampled_peak_rss_bytes": 40599552,
+      "returncode": 0,
+      "free_before": 38523478016,
+      "free_after": 38518476800,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 40599552,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "combined-regional.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/server",
+        "-deployment",
+        "data/scout-go-migration-20260909/lookup-selection.json",
+        "-routing-scout",
+        "data/scout-go-migration-20260909/regional-prepared",
+        "-routing-concurrency",
+        "2",
+        "-listen",
+        "127.0.0.1:8107"
+      ],
+      "seconds": 180.371327042,
+      "sampled_peak_rss_bytes": 75677696,
+      "returncode": 0,
+      "free_before": 37152247808,
+      "free_after": 37163823104,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 80199680,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "final-binary.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/server",
+        "-routing-scout",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-db",
+        "",
+        "-routing-concurrency",
+        "2",
+        "-listen",
+        "127.0.0.1:8106"
+      ],
+      "seconds": 143.387277458,
+      "sampled_peak_rss_bytes": 1582923776,
+      "returncode": 0,
+      "free_before": 37134553088,
+      "free_after": 37120950272,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 1603272704,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "final-offline.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-verify",
+        "-prepared",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-landmarks",
+        "data/scout-national-20260909/national-aleutian-prepared/landmarks",
+        "-cases",
+        "imports/scout-national-cases.json"
+      ],
+      "seconds": 36.1552445,
+      "sampled_peak_rss_bytes": 780664832,
+      "returncode": 0,
+      "free_before": 38482214912,
+      "free_after": 38393769984,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 782745600,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "offline.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-verify",
+        "-prepared",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-landmarks",
+        "data/scout-national-20260909/national-aleutian-prepared/landmarks",
+        "-cases",
+        "imports/scout-national-cases.json"
+      ],
+      "seconds": 37.624394625,
+      "sampled_peak_rss_bytes": 783187968,
+      "returncode": 0,
+      "free_before": 38523383808,
+      "free_after": 38509588480,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 783220736,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "regional-landmarks.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-landmarks",
+        "-prepared",
+        "data/scout-go-migration-20260909/regional-prepared",
+        "-out",
+        "data/scout-go-migration-20260909/regional-prepared/landmarks",
+        "-seeds",
+        "data/scout-national-20260909/regional-landmark-seeds.json"
+      ],
+      "seconds": 17.178657875,
+      "sampled_peak_rss_bytes": 459177984,
+      "returncode": 0,
+      "free_before": 37255839744,
+      "free_after": 37160988672,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 459964416,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "regional-potential.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-prepare",
+        "-root",
+        "data/scout-national-20260909",
+        "-out",
+        "data/scout-go-migration-20260909/regional-prepared",
+        "-potential-only"
+      ],
+      "seconds": 5.525182042,
+      "sampled_peak_rss_bytes": 158613504,
+      "returncode": 0,
+      "free_before": 37256736768,
+      "free_after": 37256671232,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 158629888,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "regional-prepare.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-prepare",
+        "-root",
+        "data/scout-national-20260909",
+        "-plan",
+        "regional-acquisition.json",
+        "-out",
+        "data/scout-go-migration-20260909/regional-prepared"
+      ],
+      "seconds": 29.803983375,
+      "sampled_peak_rss_bytes": 40845312,
+      "returncode": 0,
+      "free_before": 38471131136,
+      "free_after": 37309210624,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 40845312,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "regional-reverse-support.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-prepare",
+        "-root",
+        "data/scout-national-20260909",
+        "-out",
+        "data/scout-go-migration-20260909/regional-prepared",
+        "-reverse-support-only"
+      ],
+      "seconds": 4.854971834,
+      "sampled_peak_rss_bytes": 151142400,
+      "returncode": 0,
+      "free_before": 37256663040,
+      "free_after": 37255847936,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 152092672,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "regional-reverse-turns.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-prepare",
+        "-root",
+        "data/scout-national-20260909",
+        "-out",
+        "data/scout-go-migration-20260909/regional-prepared",
+        "-reverse-turns-only"
+      ],
+      "seconds": 0.71697725,
+      "sampled_peak_rss_bytes": 11517952,
+      "returncode": 0,
+      "free_before": 37257457664,
+      "free_after": 37256740864,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 93028352,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "regional-turns.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-prepare",
+        "-root",
+        "data/scout-national-20260909",
+        "-out",
+        "data/scout-go-migration-20260909/regional-prepared",
+        "-turns-only"
+      ],
+      "seconds": 1.060432083,
+      "sampled_peak_rss_bytes": 89522176,
+      "returncode": 0,
+      "free_before": 37091532800,
+      "free_after": 37074100224,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 96288768,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "server-final.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/server",
+        "-routing-scout",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-scout-selection",
+        "data/scout-go-migration-20260909/selection.json",
+        "-routing-concurrency",
+        "2",
+        "-listen",
+        "127.0.0.1:8106"
+      ],
+      "seconds": 719.30085775,
+      "sampled_peak_rss_bytes": 1745731584,
+      "returncode": 0,
+      "free_before": 38476947456,
+      "free_after": 37163945984,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 1745747968,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "server.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/server",
+        "-routing-scout",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-scout-selection",
+        "data/scout-go-migration-20260909/selection.json",
+        "-routing-concurrency",
+        "2",
+        "-listen",
+        "127.0.0.1:8106"
+      ],
+      "seconds": 0.365737417,
+      "sampled_peak_rss_bytes": 32768,
+      "returncode": 1,
+      "free_before": 38482202624,
+      "free_after": 38482198528,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 19546112,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    },
+    "source-audit.resources.json": {
+      "command": [
+        "data/scout-go-migration-20260909/bin/scout-audit",
+        "-prepared",
+        "data/scout-national-20260909/national-aleutian-prepared",
+        "-audit",
+        "-audit-snaps",
+        "imports/scout-national-snap-probes.json",
+        "-cache-mib",
+        "128"
+      ],
+      "seconds": 284.01382175,
+      "sampled_peak_rss_bytes": 397721600,
+      "returncode": 1,
+      "free_before": 37310308352,
+      "free_after": 37257494528,
+      "budgets": {
+        "reserve_gib": 32,
+        "rss_mib": 4096
+      },
+      "child_maxrss_native_units": 397770752,
+      "note": "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."
+    }
+  },
+  "offline": {
+    "cases": 83,
+    "outcomes": {
+      "routed": 75,
+      "unreachable": 2,
+      "unsnappable": 6
+    },
+    "verified": 75,
+    "reference_matches": 66
+  },
+  "http": {
+    "bytes": 5198292,
+    "cases": 83,
+    "failures": [],
+    "max_seconds": 4.658862167,
+    "note": "Full JSON receive/parse and geometry equality; shared host OS cache, no physical-cold claim",
+    "p50_seconds": 0.077699792,
+    "p95_seconds": 0.784391959,
+    "passed": 83,
+    "requests": 83,
+    "seconds": 19.158784084,
+    "snapshots": [
+      "453d3ad01d124f750fb80220d237c00da3ec5b0e939c64545e7c78cf09f3cc27"
+    ],
+    "workers": 1
+  },
+  "regional_rebuild_equal": {
+    "bytes": true,
+    "sha256": true,
+    "tiles": true,
+    "tile_version": true,
+    "dataset_id": true,
+    "timestamp": true
+  },
+  "source_audit": {
+    "expected_nonzero": true,
+    "tiles": 37362,
+    "missing_references": 706,
+    "geometry_examples": 19
+  },
+  "coverage": {
+    "boundary_sha256": "9cbfe171dad1555e11770c981d8f4db9e687a65c86f5bdae684eeb487e2e9b80",
+    "geometry_examples_inside_states": [],
+    "limitation": "Simplified 1:500,000 Census polygons; retained dependencies against coarse state footprints, not source road completeness or surveyed boundaries.",
+    "missing_reference_tiles_touching_states": [],
+    "missing_route_states": [],
+    "route_failures": [],
+    "route_states": [
+      "AK",
+      "AL",
+      "AR",
+      "AZ",
+      "CA",
+      "CO",
+      "CT",
+      "DC",
+      "DE",
+      "FL",
+      "GA",
+      "HI",
+      "IA",
+      "ID",
+      "IL",
+      "IN",
+      "KS",
+      "KY",
+      "LA",
+      "MA",
+      "MD",
+      "ME",
+      "MI",
+      "MN",
+      "MO",
+      "MS",
+      "MT",
+      "NC",
+      "ND",
+      "NE",
+      "NH",
+      "NJ",
+      "NM",
+      "NV",
+      "NY",
+      "OH",
+      "OK",
+      "OR",
+      "PA",
+      "RI",
+      "SC",
+      "SD",
+      "TN",
+      "TX",
+      "UT",
+      "VA",
+      "VT",
+      "WA",
+      "WI",
+      "WV",
+      "WY"
+    ],
+    "states": [
+      "AK",
+      "AL",
+      "AR",
+      "AZ",
+      "CA",
+      "CO",
+      "CT",
+      "DC",
+      "DE",
+      "FL",
+      "GA",
+      "HI",
+      "IA",
+      "ID",
+      "IL",
+      "IN",
+      "KS",
+      "KY",
+      "LA",
+      "MA",
+      "MD",
+      "ME",
+      "MI",
+      "MN",
+      "MO",
+      "MS",
+      "MT",
+      "NC",
+      "ND",
+      "NE",
+      "NH",
+      "NJ",
+      "NM",
+      "NV",
+      "NY",
+      "OH",
+      "OK",
+      "OR",
+      "PA",
+      "RI",
+      "SC",
+      "SD",
+      "TN",
+      "TX",
+      "UT",
+      "VA",
+      "VT",
+      "WA",
+      "WI",
+      "WV",
+      "WY"
+    ]
+  },
+  "remaining_python": {
+    "tracked_implementations": 0,
+    "ignored_data_files": 83,
+    "existing_supervisor": "Prior 8097 Python supervisor deliberately preserved; unsupported for new starts"
+  },
+  "limitations": [
+    "No national full re-decompression/landmark rebuild due disk reserve; fresh regional rebuild plus retained national verification used.",
+    "Source audit still has known failures; no exhaustive upstream coverage or OSM-cutoff claim.",
+    "Sampled RSS and shared host timings; no hard RSS or physical-cold claim."
+  ]
+}

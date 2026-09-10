@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"openmaps/internal/importer/scout"
 	"openmaps/internal/routing/valhallatiles"
 	"os"
 	"os/signal"
@@ -64,6 +65,13 @@ func run() error {
 	}
 	if *turns {
 		return valhallatiles.PrepareScoutTurns(ctx, *out)
+	}
+	pinned, err := scout.ReadPlan(*root, *plan)
+	if err != nil {
+		return err
+	}
+	if err := scout.ValidatePlan(*root, pinned, scout.Budgets{Download: 16 << 30, Reserve: 32 << 30}); err != nil {
+		return err
 	}
 	b, err := readMetadata(filepath.Join(*root, *plan), 8<<20)
 	if err != nil {

@@ -1,7 +1,6 @@
 package valhallatiles
 
-// Persistent Scout preparation deliberately has its own resource contract. The
-// small OpenScout experiment retains its original limits and temporary lifetime.
+// Scout preparation publishes immutable bounded page files and source receipts.
 import (
 	"archive/tar"
 	"bufio"
@@ -312,6 +311,16 @@ func preparePackage(ctx context.Context, dir, out string, f *os.File, p ScoutPac
 	if _, err := source.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
+	expectedTiles := map[string]ScoutTile{}
+	for _, pin := range p.Tiles {
+		if _, err := scoutID(pin.Name); err != nil {
+			return err
+		}
+		if _, exists := expectedTiles[pin.Name]; exists || pin.Bytes < 272 || pin.Bytes > maxPreparedTile || checkDigest(pin.SHA256) != nil {
+			return errors.New("invalid or duplicate explicit tile pin")
+		}
+		expectedTiles[pin.Name] = pin
+	}
 	outer := &io.LimitedReader{R: bzip2.NewReader(contextReader{ctx, source}), N: 512<<20 + 1}
 	tr := tar.NewReader(outer)
 	members := map[string]bool{}
@@ -409,6 +418,13 @@ func preparePackage(ctx context.Context, dir, out string, f *os.File, p ScoutPac
 			return err
 		}
 		pin := preparedTile{ID: id, Offset: offset, ScoutTile: ScoutTile{Name: hdr.Name, Bytes: size, SHA256: hex.EncodeToString(h.Sum(nil))}, Package: p.ID}
+		if len(p.Tiles) > 0 {
+			expected, exists := expectedTiles[hdr.Name]
+			if !exists || expected.Bytes != size || expected.SHA256 != pin.SHA256 {
+				return errors.New("explicit tile pin mismatch")
+			}
+			delete(expectedTiles, hdr.Name)
+		}
 		if index, exists := ids[id]; exists {
 			previous := m.Tiles[index]
 			if previous.Bytes != pin.Bytes || previous.SHA256 != pin.SHA256 {
@@ -429,6 +445,9 @@ func preparePackage(ctx context.Context, dir, out string, f *os.File, p ScoutPac
 			ids[id] = len(m.Tiles)
 			m.Tiles = append(m.Tiles, pin)
 		}
+	}
+	if len(expectedTiles) != 0 {
+		return errors.New("missing explicitly pinned tiles")
 	}
 	if stamp != m.Timestamp || len(listed) != len(tileNames) {
 		return errors.New("mixed timestamp or member list mismatch")

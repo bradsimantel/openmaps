@@ -1,17 +1,9 @@
 package valhallatiles
 
 import (
-	"archive/tar"
-	"bytes"
-	"container/list"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"fmt"
 	"math"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -71,8 +63,7 @@ func fixtureWithParallel(t *testing.T, simple, complex, parallel bool) (*Router,
 		panic("missing fixture edge")
 	}
 	path := []ID{lookup(0, 1).id, lookup(1, 2).id, lookup(2, 3).id}
-	var archive bytes.Buffer
-	tw := tar.NewWriter(&archive)
+	r := &Reader{version: "3.4.0", tiles: map[ID]*tile{}, index: map[ID]entry{}}
 	put32 := func(b []byte, o int, v uint32) { binary.LittleEndian.PutUint32(b[o:], v) }
 	put64 := func(b []byte, o int, v uint64) { binary.LittleEndian.PutUint64(b[o:], v) }
 	for _, base := range bases {
@@ -126,7 +117,7 @@ func fixtureWithParallel(t *testing.T, simple, complex, parallel bool) (*Router,
 		put64(b, 0, uint64(base))
 		put32(b, 8, math.Float32bits(float32(8.5+float64(base.Tile()-824434)*.25)))
 		put32(b, 12, math.Float32bits(53))
-		copy(b[16:], "3.6.3")
+		copy(b[16:], "3.4.0")
 		put64(b, 40, uint64(len(ns))|uint64(len(es))<<21)
 		put32(b, 96, uint32(cf))
 		put32(b, 100, uint32(cr))
@@ -175,24 +166,12 @@ func fixtureWithParallel(t *testing.T, simple, complex, parallel bool) (*Router,
 		}
 		copy(b[cf:], restriction)
 		copy(b[info:], shapeBytes)
-		if err := tw.WriteHeader(&tar.Header{Name: fmt.Sprintf("%d.gph", base), Mode: 0600, Size: int64(len(b))}); err != nil {
+		decoded, err := parseTile(b, base)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tw.Write(b); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(t.TempDir(), "fixture.tar")
-	if err := os.WriteFile(file, archive.Bytes(), 0600); err != nil {
-		t.Fatal(err)
-	}
-	sum := fmt.Sprintf("%x", sha256.Sum256(archive.Bytes()))
-	r, err := Open(file, sum, 4096)
-	if err != nil {
-		t.Fatal(err)
+		r.tiles[base] = decoded
+		r.index[base] = entry{size: int64(len(b))}
 	}
 	t.Cleanup(func() { r.Close() })
 	s, err := NewRouter(r)
@@ -249,9 +228,6 @@ func TestFixtureRestrictionsAndBoundary(t *testing.T) {
 func TestReaderRejectsCorruptionAndMissingTiles(t *testing.T) {
 	s, path := fixture(t, false, false)
 	r := s.Reader
-	if _, err := Open(r.f.Name(), strings.Repeat("0", 64), 4096); err == nil {
-		t.Fatal("wrong checksum accepted")
-	}
 	if _, err := r.Edge(path[0].Base().WithIndex(999)); err == nil {
 		t.Fatal("bad edge accepted")
 	}
@@ -270,28 +246,6 @@ func TestReaderRejectsCorruptionAndMissingTiles(t *testing.T) {
 		}
 	}
 }
-func TestCacheEviction(t *testing.T) {
-	s, path := fixture(t, false, false)
-	r := s.Reader
-	t0, _ := r.get(path[0])
-	t1, _ := r.get(path[2])
-	limit := max(len(t0.b), len(t1.b))
-	r.cache = map[ID]*list.Element{}
-	r.lru.Init()
-	r.Stats = CacheStats{}
-	r.limit = int64(limit)
-	for range 5 {
-		for _, id := range path {
-			if _, err := r.Edge(id); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if r.Stats.Evictions == 0 || r.Stats.PeakBytes > int64(limit) {
-		t.Fatalf("cache budget: %+v", r.Stats)
-	}
-}
-
 func TestOneWayPartialAndZeroRoutes(t *testing.T) {
 	s, path := fixture(t, false, false)
 	e, _ := s.Reader.Edge(path[0])
@@ -349,7 +303,7 @@ func TestEncodedAccessLimits(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s.Reader.cache[tile.id].Value = cached{tile.id, updated}
+			s.Reader.tiles[tile.id] = updated
 			ok, err := s.Allowed(e)
 			if err != nil || ok != test.allowed {
 				t.Fatalf("allowed=%v error=%v", ok, err)

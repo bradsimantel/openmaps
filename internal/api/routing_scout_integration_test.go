@@ -24,7 +24,7 @@ func TestScoutHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	server := httptest.NewServer(RoutingAdmission(Handler{Scout: c}, 1))
+	server := httptest.NewServer(RoutingAdmission(Handler{Routing: c}, 1))
 	defer server.Close()
 	coordinate := `{"origin":{"location":{"latLng":{"longitude":-71.31373108,"latitude":41.49138952}}},"destination":{"location":{"latLng":{"longitude":-71.30830418,"latitude":41.48654393}}},"polylineEncoding":"GEO_JSON_LINESTRING"}`
 	for _, tc := range []struct {
@@ -85,7 +85,7 @@ func TestScoutHTTP(t *testing.T) {
 	request := httptest.NewRequest("POST", "/directions/v2:computeRoutes", bytes.NewBufferString(coordinate))
 	request.Header.Set("X-Goog-FieldMask", "routes.duration")
 	response := httptest.NewRecorder()
-	Handler{Scout: c}.ServeHTTP(response, request)
+	Handler{Routing: c}.ServeHTTP(response, request)
 	lease.Close()
 	if response.Code != 429 || response.Header().Get("Retry-After") != "1" {
 		t.Fatal("candidate admission did not preserve 429 contract")

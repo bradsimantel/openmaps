@@ -40,8 +40,6 @@ func run() error {
 	candidate := f.String("candidate", "", "candidate database (build refuses existing output)")
 	bundle := f.String("bundle", "", "normalized input bundle")
 	checksum := f.String("checksum", "", "expected input bundle SHA-256 file")
-	preparedDir := f.String("routing-prepared", "", "trusted prepared routing directory for rollback")
-	routingPBF := f.String("routing-pbf", "", "optional pinned OSM PBF for a driving graph in a new build")
 	replacements := f.String("replacements", "", "optional reviewed one-to-one replacements JSON")
 	queries := f.String("queries", "imports/newport.queries.json", "representative search expectations JSON")
 	report := f.String("report", "data/refresh-report.json", "full deterministic comparison JSON")
@@ -100,11 +98,6 @@ func run() error {
 		defer os.Remove(name)
 		if e = importer.Build(ctx, name, b); e != nil {
 			return e
-		}
-		if *routingPBF != "" {
-			if e = importer.AddRouting(ctx, name, *routingPBF, b.Manifest); e != nil {
-				return e
-			}
 		}
 		if e = importer.SaveRefreshMetadata(name, history, decisions, strings.TrimSpace(string(expected))); e != nil {
 			return e
@@ -165,9 +158,6 @@ func run() error {
 		}
 		return dataset.Activate(ctx, *state, *candidate, *report, *review)
 	case "rollback":
-		if *preparedDir != "" {
-			return dataset.RollbackPrepared(ctx, *state, *preparedDir)
-		}
 		return dataset.Rollback(ctx, *state)
 	case "status":
 		s, e := dataset.Read(*state)

@@ -50,8 +50,6 @@ large source files, databases, reports and review receipts in ignored `data/`.
 The comparison contains:
 
 - Baseline and candidate manifests and whole-database SHA-256 fingerprints.
-- Optional routing metadata and graph payload SHA-256 on each side, making graph
-  additions, changes and removal visible.
 - Counts by entity kind; every added, absent and changed entity, including full
   before/after public attributes and changed-field names.
 - Added/removed source keys and changes in release, raw JSON, normalized
@@ -164,17 +162,13 @@ sibling `.lock` serializes writers. A crash may leave this lock: confirm no
 refresh writer is running before removing the stale lock. Never edit a selected
 SQLite file in place. Archive it along with its lock, bundle and identity evidence.
 
-On the next API or health request, the server detects a changed selection,
-validates and opens Places, the geocoding address index and any optional routing
-graph before replacing its handler. Requests hold shared snapshot leases; normal
-routing and lookup requests can run concurrently. One request loads a changed
-selection while others use the previous snapshot, and publication waits for old
-leases before closing SQLite. Snapshot validation supplies its already loaded
-graph to avoid a second allocation. A failed reload
-retains the last working handler and makes health return HTTP 503 with an error.
-With `-routing-prepared`, complete source semantics were validated offline; runtime
-verifies the source and prepared artifact against trusted publication receipts
-and checks query structure without graph reconstruction.
+On the next lookup API or health request, the server detects a changed selection,
+validates and opens Places and geocoding before replacing their handler. Requests
+hold shared lookup leases; one request loads a changed selection while others
+use the previous snapshot, and publication waits for old leases before closing
+SQLite. A failed reload retains the last working handler and makes health return
+HTTP 503 with an error. Scout routing has a separate immutable selection and
+admission pool; lookup replacement never retires its readers.
 Successful API responses include `X-OpenMaps-Dataset`. Check health after every
 switch. Autocomplete and details are separate requests; an ID removed between
 those requests can correctly return `NOT_FOUND`.
@@ -252,121 +246,22 @@ without that flag. Build, inspect churn, establish replacements, rebuild to a
 new candidate path, compare and review before selecting it. Never use
 `-write-lock` to bypass an unexpected mismatch in an established pin.
 
-## Optional driving graph
+## Independent routing snapshots
 
-A new `build` can take `-routing-pbf data/rhode-island-260801.osm.pbf`. The PBF must
-match the bundle manifest's existing pin. Graph construction occurs inside the
-unpublished candidate; it never edits the baseline. Omitting the flag creates a
-lookup-only snapshot, and comparison makes any loss of routing explicit. See
-[the maintained driving profile, contract and build commands](routing.md).
+`cmd/server -deployment STATE -routing-scout DIRECTORY` serves lookup data and
+Scout routing together. Refresh builds and compares lookup SQLite only; it does
+not import or validate retired SQLite routing payloads. Existing nonempty lookup
+databases can still serve their places and geocoding records. Routing-only legacy
+databases are not supported lookup snapshots. No database bytes are rewritten.
 
-Routing manifests have their own version and content checksum in `routing_graph`.
-New snapshots use `routing-chunks-v1` and checksummed `routing_chunks`; the
-manifest commits to query records and separately stored provenance. Comparison
-includes layout and preprocessing versions. Retained JSON graphs remain readable.
-Snapshot validation checks graph integrity and connectivity references as well as
-the existing lookup checks. A missing table is supported for retained snapshots;
-a present but corrupt/unsupported graph fails validation and loading. Health reports
-`routing_available` on both fixed-database and deployment servers. Routing requests
-on retained lookup-only snapshots return 503 `UNAVAILABLE`.
+`-scout-selection` watches a separate `{"directory":"prepared-directory"}` file.
+The new graph and indexes are fully verified before publication. Routing leases
+cover HTTP encoding; global admission spans both generations during retirement.
+Failures retain the previous graph and appear in health `reload_error`.
+See [Scout preparation and replacement](routing-scout.md).
 
-Live selection loads Places, geocoding and the candidate's optional graph before
-replacing any domain. Rollback restores routing availability alongside lookup data.
-Existing reports for two lookup-only snapshots remain readable and reproducible;
-new routing comparisons are included in the same reviewed report fingerprint.
-The routing integration suite rehearses a real snapshot cycle using a temporary
-state file, leaving `data/deployment.json` untouched. Building/testing a routing
-candidate does not authorize activating the user's deployment.
-
-Retained graph format 2 (`driving-distance-v2`) contains the ordinary-car limits, destination
-zones and guarded snapping documented in [routing](routing.md). Format 1 remains
-loadable with its retained profile; comparison shows each version and graph hash.
-For current route-quality changes, use the v4 comparison suites below and a
-snapshot cycle from both lookup-only and retained routing baselines. Historical
-v1 → v2 → v1 profile responses were checked at the earlier milestone.
-All such cycles use `t.TempDir()` deployment state. See the
-[historical quality milestone](log/0016-newport-driving-quality.md) for the candidate,
-rebuild/comparison checksums, source findings and evaluated differences.
-
-
-Retained graph format **3** (`driving-distance-v3`) contains automatic address
-endpoint evidence from the same pinned PBF. New v4 builds inherit that evidence
-using the unchanged lookup bundle and existing `-routing-pbf` option. Existing Places IDs, source records
-and coordinates remain unchanged. The independently checksummed SQLite payload
-contains local access geometry and source references, while API code resolves
-address labels at request time. Formats 1 and 2 remain readable for coordinate
-routing; address requests explicitly require format 3 or later. No migration modifies a
-retained snapshot. See [routing](routing.md#automatic-address-endpoints).
-
-Run the address benchmark, coordinate/geocoding benchmarks, comparison and an
-independent rebuild before review. The historical lookup-only → v3 → lookup-only
-and v2 → v3 → v2 cycles used the integration snapshot cycle’s `t.TempDir()` state. Address availability, loaded profile and geocoding identities must return
-to the prior state. Never exercise switching against the active deployment merely
-to test a candidate. The [historical address milestone](log/0017-newport-address-routing.md)
-records actual before/after evaluations and reproducibility checks.
-
-
-Graph format **4** (`driving-time-v4`, cost model `estimated-driving-v1`) adds
-explicit directional effective speeds, interpreted numeric ceilings and assumption
-notes in the existing SQLite payload. Graph v1–v3 remains readable with its original
-distance objective and no duration estimates; v3 retains address orchestration.
-Unknown cost-model versions and missing/invalid costs fail loading. Comparison
-reports the cost-model version as well as the graph/profile and payload checksum.
-
-For time-model changes, run the **31-trip coordinate** and **22-case address**
-suites, including the distance-versus-time comparison under one model. Build a
-separate candidate and independent rebuild from the pinned PBF; verify identical
-logical rows and graph payloads, stable IDs, source provenance and unchanged
-restrictions. Run loading/performance checks and isolated lookup-only → v4 →
-lookup-only and v3 → v4 → v3 cycles. The integration cycle uses `t.TempDir()` and
-must never use the active deployment state. Health reports
-`routing_duration_available` alongside routing availability. See the [historical
-time-routing verification](log/0018-newport-estimated-driving-time.md) for the
-source findings, route comparisons, candidate checksums and remaining uncertainty.
-
-
-The [Oregon scaling workflow](routing-scale.md) adds explicit routing-only
-snapshots with empty lookup tables, source pins and no invented address coverage.
-A routing-only snapshot without a valid graph is rejected by snapshot validation.
-The regional snapshot lifetime test exercises concurrent replacement, failure and
-rollback exclusively through temporary deployment state. The initiating reload
-request can take a full graph load; server writes allow two minutes for this
-regional operation. Building Oregon candidates never changes the active selection.
-
-
-The legacy server `-routing-legacy-load -routing-cache` stores verified immutable numeric routing
-arrays separately from authoritative SQLite snapshots. A replacement loads and
-validates its mapping before publication; old mappings stay valid until their
-HTTP response leases finish, then close. Failed cache validation keeps the old
-handler usable and degrades health, just like failed SQLite validation. The
-server's shared `-routing-concurrency` budget also spans replacements. See
-[mapped data and admission behavior](routing-scale.md).
-
-Current routing builds use `junction-cells-v1` preprocessing with unchanged graph
-and cost semantics. Its recursive cell transfers use the separately versioned
-`routing-hot-le64-v2` cache; old SQLite preprocessing versions remain readable and
-regenerate current arrays into new cache filenames. The explicit legacy loader still reconstructs
-the full graph before publication; see the [historical cell-overlay evaluation](log/0021-recursive-junction-cell-overlay.md).
-
-For current production routing startup, run `cmd/routing-prepare` on each approved
-SQLite snapshot and pass `-routing-prepared` to the server. Prepared replacement
-verifies source/artifact digests against trusted offline receipts and loads persisted
-query structures without reconstructing the graph. Use `refresh rollback -routing-prepared DIR` to validate prepared rollback snapshots through the same
-boundary. Missing or invalid artifacts fail without a legacy fallback. Lookup-only
-snapshots remain supported. See [prepared snapshots](routing-prepared.md).
-
-Prepared rollback now verifies the complete source/artifact publication with a
-bounded streaming buffer, without opening another mapping of a serving graph.
-The trusted offline receipt still authorizes the canonical artifact; the runtime
-checks structure before publishing any changed handler. Selection remains atomic,
-and a failed check preserves the current state and serving responses. See
-[prepared verification and residency measurement](routing-prepared.md) and the
-[historical residency investigation](log/0023-routing-residency-and-rollback.md).
-
-Prepared v2 and retained v1 publications may coexist for different snapshot
-digests in one trusted directory. New preparation writes v2 artifacts into a new
-directory when the snapshot already has a receipt. Replacement and streaming
-rollback accept both versions, preserving source identities and mapping ownership.
-The version changes the internal edge encoding only; review still binds the exact
-SQLite snapshot. See [the current format](routing-prepared.md) and the
-[historical dense-edge verification](log/0024-dense-routing-edges.md).
+The earlier SQLite graph refresh, address association, mapped overlays and
+prepared rollback workflows are historical; see records
+[0015](log/0015-newport-driving-routing.md) through
+[0025](log/0025-bounded-routing-construction.md) in `docs/log/` for their original
+investigations. They are not current setup instructions.

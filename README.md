@@ -16,41 +16,20 @@ are implemented in the [Newport refresh workflow](docs/refresh.md). The original
 August data remains the baseline; the second pinned release is a historical July
 rehearsal, not a newer Overture release.
 
-**Driving routing is implemented in separate candidate snapshots:** supply addresses, existing
-lookup coordinates or arbitrary map points in one request, calculate an estimated-time driving
-route, and see its geometry, road distance, estimated duration, requested/road endpoints and separate
-unverified snap gaps. The passenger-car profile interprets vehicle limits and
-supports strictly qualified destination-only access without through shortcuts. The graph uses the wider
-retained Rhode Island extract for detours. The active August baseline is unchanged
-and has no routing graph. See [the routing contract and candidate build](docs/routing.md).
-Separate Oregon and full Oregon–Washington–Idaho coordinate-routing candidates
-cover regional scaling and boundary detours. [Storage and scaling](docs/routing-scale.md)
-describes the recursive junction-cell overlay, directly loadable prepared snapshots, concurrent
-snapshot leases, compact prepared edges with dense internal endpoints, streaming
-rollback verification and residency measurements. These regional candidates have no address coverage. Nearby place search and general
-text search remain future milestones.
+**Scout is the sole routing backend.** Go reads pinned Scout Valhalla 3.4.0
+tiles and owns coordinate snapping, estimated edge-speed costs, restrictions,
+search, geometry, preparation and snapshot lifetime. The national graph passes
+83 frozen representative cases across all states/DC, including Alaska, Hawaii,
+Aleutian roads and international road legs. This is sampled qualification, not
+exhaustive source coverage. See [Scout routing](docs/routing-scout.md) and the
+[historical qualification](docs/log/0034-national-scout-qualification.md).
 
-The [national candidate plan](docs/routing-national.md) proposes 50-state/DC
-coordinate coverage, explicit connectivity limits and construction/serving budgets.
-The PBF/SQLite pipeline fails national capacity preflight on this host; no
-national publication has been built through that pipeline. See the [historical preflight](docs/log/0026-national-routing-preflight.md)
-for source metadata, measured regional evidence and conservative build-resource estimates.
-
-A separate [experimental Scout backend](docs/routing-scout.md) now reads pinned
-Valhalla tiles directly through bounded Go page caches, prepared turn indexes,
-and Go-owned search. Its isolated national coordinate candidate passes 83 frozen
-cases across all states/DC, including long routes, Canada/Mexico road legs,
-Alaska, Hawaii and Aleutian roads on both sides of the dateline. The
-[historical qualification report](docs/log/0034-national-scout-qualification.md)
-records source-path checks, HTTP replacement, resource measurements and known
-source limitations. It uses an explicit
-experimental profile because the tiles cannot reproduce all `driving-time-v4`
-source, access, snapping and address behavior.
-
-Offline construction now bounds segment/guard identity-index scratch and streams
-publication encoding. The importer also avoids a duplicate segment-membership
-map. Full source parsing, graph arrays and hierarchy construction still require
-graph-sized memory; see [construction limits](docs/routing-prepared.md).
+The explicit `osm-scout-public-auto-v1` profile excludes ferries and destination
+access, supports coordinates only, and cannot reproduce discarded source tags or
+verify the exact OSM cutoff. Address requests fail explicitly. Places and geocoding
+remain available in the same service. Lookup SQLite and routing snapshots have
+independent selection and lifetime. Acquisition, preparation and verification run
+with Go tools; Python and Valhalla's routing engine are not required.
 
 ## Run the Newport demo
 
@@ -61,13 +40,11 @@ Docker, external database server or system SQLite installation are required.
 ```sh
 go run ./cmd/prepare -fetch
 
-go run ./cmd/import -routing-pbf data/rhode-island-260801.osm.pbf
+go run ./cmd/import
 
 go run ./cmd/basemap
 
-go run ./cmd/routing-prepare -db data/openmaps.sqlite -out data/prepared-routing
-
-go run ./cmd/server -routing-prepared data/prepared-routing
+go run ./cmd/server
 ```
 
 The pipeline is Go code in this repository. If a C compiler or zlib headers are
@@ -84,19 +61,16 @@ coordinates, approximate precision and reverse distance. `364 Bellevue Avenue`
 requires choosing among eight distinct points; apartment requests are explicitly
 unsupported. See [the maintained geocoding contract](docs/geocoding.md).
 
-For driving, enter **Origin address** and **Destination address**, then
-**Calculate driving route**. The API resolves addresses and road arrivals automatically
-or returns a clear failure in the same request. Selected lookup coordinates and
-map points can also supply either endpoint.
-**Clear route** resets the route and endpoints. Ambiguous address routes fail without a selection step. Duration uses conservative, uncalibrated speed estimates and excludes live traffic
-and unverified off-road gaps. Retained older routing graphs provide distance only.
-Existing databases are never overwritten: to add routing to retained data, build
-and serve a [separate candidate](docs/routing.md#storage-builds-and-snapshots).
+For driving, add `-routing-scout PREPARED_DIRECTORY` to the server command after
+following [Scout acquisition and preparation](docs/routing-scout.md#acquisition-and-preparation).
+Use selected lookup coordinates or map points for both endpoints. Address routing
+is unavailable. Duration uses uncalibrated provider speeds and excludes traffic
+and unverified off-road gaps. Routes outside the Newport basemap can still be
+returned, although the local basemap has no tiles there.
 
 `data/` is ignored by Git.
 The OSM regional PBF is about 52 MB; canonical Overture subsets and SQLite add
-further local storage. The optional chunked Newport routing graph adds about
-34 MiB to SQLite. The Protomaps cutout is about 3.8 MB. Internet is required
+further local storage. The Protomaps cutout is about 3.8 MB. Internet is required
 for initial downloads, esm.sh browser libraries and Protomaps-hosted fonts/sprites.
 Lookup APIs
 and local basemap tile requests work without external services after import.
@@ -116,9 +90,8 @@ Already have source files? Rebuild offline into a **new** database:
 
 ```sh
 go run ./cmd/prepare
-go run ./cmd/import -db data/openmaps-next.sqlite -routing-pbf data/rhode-island-260801.osm.pbf
-go run ./cmd/routing-prepare -db data/openmaps-next.sqlite -out data/prepared-next
-go run ./cmd/server -db data/openmaps-next.sqlite -routing-prepared data/prepared-next -listen 127.0.0.1:8081
+go run ./cmd/import -db data/openmaps-next.sqlite
+go run ./cmd/server -db data/openmaps-next.sqlite -listen 127.0.0.1:8081
 ```
 
 The import refuses to overwrite an existing database. Stop the earlier service
@@ -146,7 +119,7 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 | `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, and response field mask; up to five place predictions |
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
 | `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional English `language` and unauthenticated `key` |
-| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: address/coordinate origin/destination (including mixed), driving, GeoJSON geometry, road distance and estimated duration; requires routing data and response mask |
+| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: coordinate origin/destination, driving (address requests explicitly unavailable), GeoJSON geometry, road distance and estimated duration; requires routing data and response mask |
 | `GET /healthz` | Process health and routing availability; in deployment mode, loaded database fingerprint and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
 
@@ -177,8 +150,8 @@ and source limitations](docs/geocoding.md) and the [historical contract decision
 
 Launch rectangle: longitude **−71.33 to −71.29**, latitude **41.47 to 41.51**.
 It covers downtown Newport and nearby streets, not the full municipality.
-This is also the Newport candidate's routing endpoint rectangle; graph coverage
-uses the whole retained Rhode Island extract to allow detours outside it.
+This limits lookup imports. Scout routing uses its retained tile envelope,
+independent of the Newport lookup rectangle.
 
 | Imported data | Pinned source | Records |
 | --- | --- | ---: |
@@ -225,12 +198,19 @@ are never used as lookup data. Upstream notices are linked on the demo's
 cmd/server/         Go HTTP service
 cmd/prepare/        Pinned acquisition, regional normalization and audit
 cmd/import/         Checksum-verified SQLite builder
-cmd/routing-prepare/ Offline validation and prepared routing publication
+cmd/scout-acquire/  Complete provider metadata, selection, resumable downloads
+cmd/scout-prepare/  Immutable routing graph and index publication
+cmd/scout-landmarks/ Directed landmark construction and safe extension
+cmd/scout-verify/   Frozen cases and independent source-path verification
+cmd/scout-audit/    Source dependencies, geometry and snap audits
+cmd/scout-coverage/ Pinned Census footprint verification
+cmd/scout-http-verify/ Full HTTP body comparison and concurrency measurement
+cmd/scout-run-bounded/ Sampled RSS/free-disk supervision
 cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
 cmd/refresh/        Snapshot build, comparison, review, activation and rollback
 internal/places/    Domain entities, autocomplete, details and search normalization
 internal/geocoding/ Address label matching, bounded nearest address lookup and fixtures
-internal/routing/   Immutable driving graph, road snapping and estimated-time routes
+internal/routing/valhallatiles/ Scout decoder, search, indexes and snapshot leases
 internal/api/       Google request/response translation and errors
 internal/importer/  Source adapters, schema, identity history and refresh comparison
 internal/dataset/   Atomic deployment selection and live HTTP handler replacement
@@ -246,14 +226,10 @@ index. Activation replaces all available domains together. The owned Go import p
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
-Routing remains independent of text search and address resolution. Its accelerated
-search skips forced geometry chains and bounded cells of ordinary junctions, and uses A*
-while preserving directed-edge turn history and destination access. Dijkstra
-remains an internal correctness reference; verified read-only prepared
-mappings, bounded SQLite chunks and spatial indexes use the existing import/snapshot
-workflow. Server routing startup requires [offline preparation](docs/routing-prepared.md);
-`-routing-legacy-load` explicitly enables the older reconstruction path. See
-[the maintained routing design](docs/routing.md).
+Routing remains independent of text search and address resolution. Scout uses
+bounded graph pages and directed landmark A*, preserving full turn history and
+source steps. Ordinary Go traversal and independent source-path replay remain
+correctness references. See [the maintained routing design](docs/routing-scout.md).
 
 ## Verification
 
@@ -308,8 +284,8 @@ validation of real-world estimate accuracy.
 The [historical routing scale and Oregon evaluation](docs/log/0019-routing-scale-and-oregon.md)
 records compact storage, indexed endpoint selection, search acceleration,
 source-backed regional cases, concurrent replacement and measured resource use.
-The [maintained scaling documentation](docs/routing-scale.md) explains the current
-implementation and the unfinished work before national coverage.
+These SQLite routing designs have been retired; [Scout](docs/routing-scout.md)
+describes the current architecture.
 
 ## Current limitations and next work
 
@@ -331,11 +307,10 @@ implementation and the unfinished work before national coverage.
   locks, replacement evidence and snapshot identity history across rebuilds.
 - The local map cutout is finite; zooming or panning far outside Newport can show
   missing tiles. Browser libraries, fonts and sprites use external hosts.
-- Driving routing minimizes an uncalibrated estimated duration for the documented ordinary-car profile.
-  Restricted-access roads and incompatible/unknown limits can be excluded; conditions are not
-  evaluated. No live/historical traffic or navigation instructions; limited source-backed access associations,
-  with explicitly unverified property entrances and off-road gaps.
-  Snap limits and disconnected coverage can produce no route. See
-  [the exact profile and remaining limits](docs/routing.md).
+- Scout minimizes uncalibrated provider edge-speed cost. No traffic, turn delay,
+  navigation instructions, address routing, destination-only access or ferries.
+  Retained tiles do not establish complete source coverage or an exact OSM cutoff.
+  Missing dependencies, unsupported snaps and disconnected networks remain
+  distinct outcomes. See [the profile and limits](docs/routing-scout.md).
 - Deployment hardening, continuous coverage evaluation and richer data are
   later work.

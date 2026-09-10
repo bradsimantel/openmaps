@@ -1,23 +1,16 @@
-// Package valhallatiles is an isolated feasibility reader for pinned Valhalla
-// 3.6.3 and 3.4.0 little-endian road tiles. It is not used by the production router.
-// Layout references: upstream e2f017b16080f49203de245a211b09efab09cf72,
-// valhalla/baldr/{graphtileheader,nodeinfo,directededge,edgeinfo}.h.
+// Package valhallatiles decodes pinned Scout Valhalla 3.4.0 road tiles.
+// Go owns search; no Valhalla routing engine is invoked.
 package valhallatiles
 
 import (
-	"archive/tar"
 	"bytes"
 	"container/list"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"sort"
-	"strings"
 )
 
 type ID uint64
@@ -86,10 +79,6 @@ type tile struct {
 	nodes, edges, transitions, access, edgeStart, accessStart, binStart, forward, reverse, info, text, textEnd int
 }
 type entry struct{ offset, size int64 }
-type cached struct {
-	id   ID
-	tile *tile
-}
 type CacheStats struct{ Bytes, PeakBytes, Loads, Hits, Evictions, ReadBytes int64 }
 
 // Reader is single-owner, not concurrent. Methods return copied records, never
@@ -109,116 +98,22 @@ type Reader struct {
 	skipEmptyAccessRules bool
 	landmarkReaders      []*Reader
 	version              string
-	removeOnClose        bool
 	pages                map[int64]*list.Element
 	tiles                map[ID]*tile
 	packages             map[ID]string
 	f                    *os.File
 	index                map[ID]entry
-	cache                map[ID]*list.Element
 	lru                  list.List
 	limit                int64
 	Stats                CacheStats
 }
 
-// Open verifies a caller-pinned digest before indexing a seekable, uncompressed
-// tar. It never extracts files, constructs graph arrays, or contacts the network.
-// Explicit small-experiment caps: 64 MiB archive, 128 tiles, 16 MiB per tile.
-func Open(path, digest string, cacheBytes int64) (*Reader, error) {
-	if len(digest) != 64 {
-		return nil, errors.New("a pinned SHA-256 is required")
-	}
-	if _, err := hex.DecodeString(digest); err != nil {
-		return nil, err
-	}
-	if cacheBytes < 272 || cacheBytes > 64<<20 {
-		return nil, errors.New("cache must be between 272 bytes and 64 MiB")
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			f.Close()
-		}
-	}()
-	st, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if st.Size() > 64<<20 {
-		return nil, errors.New("archive exceeds small-prototype 64 MiB cap")
-	}
-	h := sha256.New()
-	if _, err = io.Copy(h, f); err != nil {
-		return nil, err
-	}
-	if hex.EncodeToString(h.Sum(nil)) != strings.ToLower(digest) {
-		return nil, errors.New("archive SHA-256 mismatch")
-	}
-	if _, err = f.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-	r := &Reader{version: "3.6.3", f: f, index: map[ID]entry{}, cache: map[ID]*list.Element{}, limit: cacheBytes}
-	tr := tar.NewReader(f)
-	var dataset, checksum uint64
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		if !strings.HasSuffix(hdr.Name, ".gph") {
-			continue
-		}
-		if hdr.Typeflag != tar.TypeReg || hdr.Size < 272 || hdr.Size > 16<<20 || hdr.Size > cacheBytes {
-			return nil, fmt.Errorf("unsupported tile size/type: %s", hdr.Name)
-		}
-		off, err := f.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return nil, err
-		}
-		var header [272]byte
-		if _, err = io.ReadFull(tr, header[:]); err != nil {
-			return nil, err
-		}
-		if string(bytes.TrimRight(header[16:32], "\x00")) != r.version {
-			return nil, errors.New("unsupported tile version: expected 3.6.3")
-		}
-		id := ID(binary.LittleEndian.Uint64(header[:]) & idMask)
-		if len(r.index) == 0 {
-			dataset, checksum = u64(header[:], 32), u64(header[:], 88)
-		} else if dataset != u64(header[:], 32) || checksum != u64(header[:], 88) {
-			return nil, errors.New("mixed tile dataset/checksum headers")
-		}
-		if id.Index() != 0 || id.Level() > 2 {
-			return nil, errors.New("only road tile bases supported")
-		}
-		if _, exists := r.index[id]; exists {
-			return nil, errors.New("duplicate tile")
-		}
-		r.index[id] = entry{off, hdr.Size}
-		if len(r.index) > 128 {
-			return nil, errors.New("tile count exceeds prototype cap")
-		}
-	}
-	if len(r.index) == 0 {
-		return nil, errors.New("no road tiles")
-	}
-	ok = true
-	return r, nil
-}
 func (r *Reader) Close() error {
 	if r.closed {
 		return nil
 	}
 	r.closed = true
 	r.records = nil
-	r.cache = nil
 	r.pages = nil
 	r.tiles = nil
 	r.lru.Init()
@@ -239,9 +134,6 @@ func (r *Reader) Close() error {
 		err = errors.Join(err, r.turnsReader.Close())
 		r.turnsReader = nil
 	}
-	if r.removeOnClose && r.f != nil {
-		err = errors.Join(err, os.Remove(r.f.Name()))
-	}
 	return err
 }
 func (r *Reader) TileIDs() []ID {
@@ -257,44 +149,12 @@ func (r *Reader) get(id ID) (*tile, error) {
 		return nil, errors.New("reader closed")
 	}
 	id = id.Base()
-	if r.tiles != nil {
-		if t := r.tiles[id]; t != nil {
-			return t, nil
-		}
-		return nil, &MissingTileError{Tile: id}
+	if t := r.tiles[id]; t != nil {
+		return t, nil
 	}
-	if el := r.cache[id]; el != nil {
-		r.lru.MoveToFront(el)
-		r.Stats.Hits++
-		return el.Value.(cached).tile, nil
-	}
-	e, ok := r.index[id]
-	if !ok {
-		return nil, &MissingTileError{Tile: id}
-	}
-	for r.Stats.Bytes+e.size > r.limit {
-		el := r.lru.Back()
-		c := el.Value.(cached)
-		r.Stats.Bytes -= int64(len(c.tile.b))
-		delete(r.cache, c.id)
-		r.lru.Remove(el)
-		r.Stats.Evictions++
-	}
-	b := make([]byte, e.size)
-	if _, err := r.f.ReadAt(b, e.offset); err != nil {
-		return nil, err
-	}
-	t, err := parseTile(b, id)
-	if err != nil {
-		return nil, fmt.Errorf("tile %s: %w", id, err)
-	}
-	r.cache[id] = r.lru.PushFront(cached{id, t})
-	r.Stats.Bytes += e.size
-	r.Stats.Loads++
-	r.Stats.ReadBytes += e.size
-	r.Stats.PeakBytes = max(r.Stats.PeakBytes, r.Stats.Bytes)
-	return t, nil
+	return nil, &MissingTileError{Tile: id}
 }
+
 func u32(b []byte, o int) uint32            { return binary.LittleEndian.Uint32(b[o : o+4]) }
 func u64(b []byte, o int) uint64            { return binary.LittleEndian.Uint64(b[o : o+8]) }
 func field(w uint64, start, width uint) int { return int(w >> start & (1<<width - 1)) }
@@ -309,8 +169,8 @@ func parseTileHeader(b []byte, id ID, size int) (*tile, error) {
 		return nil, errors.New("short header")
 	}
 	version := string(bytes.TrimRight(b[16:32], "\x00"))
-	if version != "3.6.3" && version != "3.4.0" {
-		return nil, errors.New("unsupported tile version (only audited 3.4.0/3.6.3 layouts)")
+	if version != "3.4.0" {
+		return nil, errors.New("unsupported tile version (only audited Scout 3.4.0 layout)")
 	}
 	if ID(u64(b, 0)&idMask) != id || int(u32(b, 224)) != size {
 		return nil, errors.New("tile identity/size mismatch")
@@ -481,7 +341,7 @@ func (r *Reader) AccessRules(e Edge) ([]AccessRestriction, error) {
 		if field(w, 0, 22) != e.ID.Index() {
 			break
 		}
-		out = append(out, AccessRestriction{Edge: e.ID.Index(), Type: uint8(field(w, 22, 6)), Modes: uint16(field(w, 28, 12)), Value: u64(record, 8), ExceptDestination: string(bytes.TrimRight(t.b[16:32], "\x00")) == "3.6.3" && w&(1<<40) != 0})
+		out = append(out, AccessRestriction{Edge: e.ID.Index(), Type: uint8(field(w, 22, 6)), Modes: uint16(field(w, 28, 12)), Value: u64(record, 8), ExceptDestination: false})
 	}
 	return out, nil
 }

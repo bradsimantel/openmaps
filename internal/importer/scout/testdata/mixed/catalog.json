@@ -1,0 +1,1 @@
+{"global":{"valhalla":"valhalla-34"},"test/one":{"valhalla":{"packages":["1"],"timestamp":"pinned","version":"2"}},"test/two":{"valhalla":{"packages":["2"],"timestamp":"rotated","version":"2"}}}

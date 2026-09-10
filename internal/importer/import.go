@@ -68,10 +68,7 @@ func Build(ctx context.Context, path string, b Bundle) (err error) {
 	if err := json.Unmarshal(b.Manifest, &scope); err != nil {
 		return err
 	}
-	if scope.RoutingOnly && len(b.Records) != 0 {
-		return fmt.Errorf("routing-only bundle must contain no lookup records")
-	}
-	if b.Schema != 1 || (len(b.Records) == 0 && !scope.RoutingOnly) || !json.Valid(b.Manifest) || string(b.Manifest) == "null" {
+	if b.Schema != 1 || len(b.Records) == 0 || !json.Valid(b.Manifest) || string(b.Manifest) == "null" {
 		return fmt.Errorf("unsupported or empty bundle")
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)

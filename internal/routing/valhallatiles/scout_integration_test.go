@@ -27,10 +27,7 @@ func scoutProvider(t *testing.T, cache int64) *Router {
 	if err := json.Unmarshal(b, &lock); err != nil {
 		t.Fatal(err)
 	}
-	r, err := OpenScout(context.Background(), dir, t.TempDir(), lock, cache)
-	if err != nil {
-		t.Fatal(err)
-	}
+	r := prepareSourceFixture(t, dir, lock, cache)
 	t.Cleanup(func() {
 		if err := r.Close(); err != nil {
 			t.Error(err)
@@ -168,28 +165,6 @@ func TestScoutInventory(t *testing.T) {
 		}
 	}
 	t.Logf("nodes=%d edges=%d restrictions=%d timed=%d missing tiles=%d cross-package transitions=%d", report.Nodes, report.Edges, report.ComplexRestrictions, report.TimedTurns, len(report.MissingReferences), report.CrossPackageTransitions)
-}
-
-func TestProviderPageCache(t *testing.T) {
-	s := provider(t)
-	a, b := Point{8.745062, 53.083827}, Point{8.765082, 53.085226}
-	want, err := s.Route(context.Background(), a, b, 100000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Reader.UsePageCache(); err != nil {
-		t.Fatal(err)
-	}
-	s.Reader.limit = pageSize
-	s.Reader.ClearCache()
-	got, err := s.Route(context.Background(), a, b, 100000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Seconds != want.Seconds || !reflect.DeepEqual(got.Steps, want.Steps) || !reflect.DeepEqual(got.Geometry, want.Geometry) {
-		t.Fatal("page cache changes Librescoot reference")
-	}
-	verifyRoute(t, s, got)
 }
 
 func TestScoutRestrictedRoutes(t *testing.T) {
