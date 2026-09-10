@@ -200,7 +200,7 @@ func PrepareLandmarks(ctx context.Context, dir, out string, seeds []LandmarkSeed
 	if hexSum(graph) != rtr.Reader.preparedSHA {
 		return errors.New("graph receipt changed during preparation")
 	}
-	manifest := landmarkManifest{Schema: landmarkSchema, GraphReceiptSHA256: hexSum(graph), Profile: CandidateProfile, NodeCount: d.count}
+	manifest := landmarkManifest{Schema: landmarkSchema, GraphReceiptSHA256: hexSum(graph), Profile: Profile, NodeCount: d.count}
 	vectorBytes := (64 + int64(d.count)*4 + pageSize - 1) / pageSize * pageSize
 	if err := os.Mkdir(out, 0700); err != nil && !os.IsExist(err) {
 		return err
@@ -222,7 +222,7 @@ func PrepareLandmarks(ctx context.Context, dir, out string, seeds []LandmarkSeed
 		Schema, Graph, Profile string
 		Nodes                  uint32
 		Seeds                  []LandmarkSeed
-	}{landmarkSchema, manifest.GraphReceiptSHA256, CandidateProfile, d.count, seeds}
+	}{landmarkSchema, manifest.GraphReceiptSHA256, Profile, d.count, seeds}
 	configBytes, err := json.Marshal(config)
 	if err != nil {
 		return err

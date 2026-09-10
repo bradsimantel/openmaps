@@ -22,7 +22,7 @@ import (
 )
 
 type Handler struct {
-	Routing   *valhallatiles.Candidate
+	Routing   *valhallatiles.Service
 	Places    *places.Store
 	Geocoding *geocoding.Store
 }

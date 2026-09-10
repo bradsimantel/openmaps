@@ -114,11 +114,6 @@ func TestManyToOneOpposingIndexesPreserveIncomingEdges(t *testing.T) {
 		t.Fatalf("reverse distance lost fast incoming edge: got %g want %g", distance, want)
 	}
 	s.turns = testTurnTable(s)
-	reverse, err := buildRouterOrder(context.Background(), s.Reader, 4096, 65536, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.reverseTurns = testTurnTable(reverse)
 	s.secondsPerMeter = .001
 	last, _ := s.Reader.Edge(path[2])
 	fromEdge, _ := s.opposite(last)
@@ -129,9 +124,9 @@ func TestManyToOneOpposingIndexesPreserveIncomingEdges(t *testing.T) {
 	pa, pb := clip(sa.Points, .5, .5)[0], clip(sb.Points, .5, .5)[0]
 	a, bSnap := Snap{pa, pa, 0, fromEdge.ID, .5}, Snap{pb, pb, 0, toEdge.ID, .5}
 	ref, re := s.RouteSnaps(context.Background(), a, bSnap, 1000)
-	bi, be := s.routeBidirectionalSnaps(context.Background(), a, bSnap, 1000)
-	if re != nil || be != nil || math.Abs(ref.Seconds-bi.Seconds) > 1e-8 {
-		t.Fatalf("nonbijective reverse route differs: %g %v vs %g %v", bi.Seconds, be, ref.Seconds, re)
+	accelerated, ae := s.RoutePreparedSnaps(context.Background(), a, bSnap, 1000)
+	if re != nil || ae != nil || math.Abs(ref.Seconds-accelerated.Seconds) > 1e-8 {
+		t.Fatalf("nonbijective opposing-index route differs: %g %v vs %g %v", accelerated.Seconds, ae, ref.Seconds, re)
 	}
 }
 

@@ -1,10 +1,12 @@
 # Sole Scout backend and Go workflow migration
 
-Date: 2026-09-09 (America/Los_Angeles). Scope: `dc20ef2` plus this uncommitted
-migration. Historical implementation and verification record; current commands
+Date: 2026-09-09 (America/Los_Angeles). Scope: migration from `dc20ef2`,
+subsequently committed and pushed as `8d4a688`. Historical implementation and verification record; current commands
 are maintained in [Scout routing](../routing-scout.md). Supersedes the parallel
 service and Python workflow described in historical [0034](0034-national-scout-qualification.md).
-No commit, push, dataset deletion or deployment replacement occurred.
+Verification preceded the commit and push. No dataset deletion or deployment
+replacement occurred during that milestone. The later deployment cutover and
+remaining code cleanup are recorded in [0036](0036-scout-deployment-cutover.md).
 
 ## Architecture and removed components
 

@@ -113,10 +113,10 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		}
 		lookup = api.Handler{Places: store, Geocoding: geocoder}
 	}
-	var router *valhallatiles.Candidate
+	var router *valhallatiles.Service
 	if c.routing != "" {
 		var err error
-		router, err = valhallatiles.OpenCandidate(ctx, c.routing, c.workers, c.cache<<20)
+		router, err = valhallatiles.OpenService(ctx, c.routing, c.workers, c.cache<<20)
 		if err != nil {
 			return fail(err)
 		}
@@ -150,6 +150,7 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		}
 		if router != nil {
 			meta, reloadError := router.Status()
+			// Keep the established health JSON key for existing monitors.
 			health["routing_candidate"] = meta
 			health["reload_error"] = reloadError
 			health["exhaustive_source_coverage_verified"] = false

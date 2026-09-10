@@ -151,25 +151,7 @@ func TestPreparedReaderRejectsReboundIndex(t *testing.T) {
 	if err := s.EnablePotential(dir); err == nil {
 		t.Fatal("index for replaced receipt attached to old reader")
 	}
-	b, err = os.ReadFile(filepath.Join(dir, "reverse-routing.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var reverse turnsReceipt
-	if err := json.Unmarshal(b, &reverse); err != nil {
-		t.Fatal(err)
-	}
-	reverse.GraphReceiptSHA256 = hexSum(changed)
-	b, err = json.Marshal(reverse)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "reverse-routing.json"), b, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.EnableBidirectional(ctx, dir); err == nil {
-		t.Fatal("reverse index for replaced receipt attached to old reader")
-	}
+
 }
 
 func TestPreparedExplicitPinsAndCompressionCorruption(t *testing.T) {

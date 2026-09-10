@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func watchScoutSelection(ctx context.Context, c *valhallatiles.Candidate, path string) {
+func watchScoutSelection(ctx context.Context, c *valhallatiles.Service, path string) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var last string
@@ -72,7 +72,7 @@ func watchScoutSelection(ctx context.Context, c *valhallatiles.Candidate, path s
 				log.Printf("Scout replacement rejected; old snapshot retained: %v", err)
 			} else {
 				lastError = ""
-				log.Printf("Scout candidate replaced: %s (load and retirement %s)", dir, time.Since(started))
+				log.Printf("Scout snapshot replaced: %s (load and retirement %s)", dir, time.Since(started))
 			}
 		}
 	}

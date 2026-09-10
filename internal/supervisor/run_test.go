@@ -42,6 +42,33 @@ func TestReportAndNoOverwrite(t *testing.T) {
 		t.Fatal("overwrote report")
 	}
 }
+
+func TestRestartReports(t *testing.T) {
+	o := options(t)
+	o.Report, o.ReportDir = "", t.TempDir()
+	for range 2 {
+		if _, err := Run(context.Background(), o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := os.ReadDir(o.ReportDir)
+	if err != nil || len(files) != 2 {
+		t.Fatalf("restart lost a report: %v %v", files, err)
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(filepath.Join(o.ReportDir, f.Name()))
+		if err != nil || !json.Valid(b) {
+			t.Fatalf("invalid report: %s %v", f.Name(), err)
+		}
+	}
+	o.Report = filepath.Join(t.TempDir(), "must-not-create.json")
+	if _, err := Run(context.Background(), o); err == nil {
+		t.Fatal("accepted conflicting report destinations")
+	}
+	if _, err := os.Stat(o.Report); !os.IsNotExist(err) {
+		t.Fatal("conflicting options created a report")
+	}
+}
 func TestBudgetTerminationAndCancellation(t *testing.T) {
 	for _, kind := range []string{"rss", "disk", "cancel"} {
 		t.Run(kind, func(t *testing.T) {

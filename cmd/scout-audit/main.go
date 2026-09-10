@@ -42,7 +42,6 @@ func run() error {
 	probeFile := flag.String("audit-snaps", "", "JSON point array for full-shape scan comparisons during audit")
 	inspect := flag.Uint64("inspect-edge", 0, "emit one source edge, endpoints and geometry for diagnostics")
 	landmarks := flag.String("landmarks", "", "prepared landmark directory (requires -accelerated)")
-	bidirectional := flag.Bool("bidirectional", false, "use prepared bidirectional search")
 	accelerated := flag.Bool("accelerated", false, "use prepared validated geometric A* lower bound")
 	prepared := flag.String("prepared", "", "prepared Scout snapshot directory")
 	cold := flag.Bool("cold-cache", false, "clear application cache after preprocessing")
@@ -66,7 +65,7 @@ func run() error {
 	}
 	r := router.Reader
 	defer r.Close()
-	if *accelerated || *bidirectional {
+	if *accelerated {
 		if *prepared == "" {
 			return fmt.Errorf("acceleration requires persistent preparation")
 		}
@@ -74,13 +73,8 @@ func run() error {
 			return err
 		}
 	}
-	if *bidirectional {
-		if err := router.EnableBidirectional(lifetime, *prepared); err != nil {
-			return err
-		}
-	}
 	if *landmarks != "" {
-		if !*accelerated || *bidirectional {
+		if !*accelerated {
 			return fmt.Errorf("landmarks require one-sided -accelerated search")
 		}
 		if err := router.EnableLandmarks(lifetime, *prepared, *landmarks); err != nil {
@@ -154,9 +148,7 @@ func run() error {
 	for i := 0; i < *repeat; i++ {
 		ctx, cancel := context.WithTimeout(lifetime, *timeout)
 		start = time.Now()
-		if *bidirectional {
-			route, err = router.RouteBidirectional(ctx, a, b, *labels)
-		} else if *accelerated {
+		if *accelerated {
 			route, err = router.RouteAccelerated(ctx, a, b, *labels)
 		} else {
 			route, err = router.Route(ctx, a, b, *labels)

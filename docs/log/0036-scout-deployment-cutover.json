@@ -1,0 +1,1129 @@
+{
+  "schema": 1,
+  "date": "2026-09-09",
+  "base_revision": "8d4a688f418a1e0801151fc38788e6684b6c83ec",
+  "scope": "Deployment cutover and Scout service/one-sided search cleanup; evidence captured before commit",
+  "production_go_sources_sha256": {
+    "cmd/basemap/main.go": "b4e3ab8e4f09c1a7cac1e9140b615ef881b973f095e56e4d4884f72f2a08ace6",
+    "cmd/import/main.go": "ff629d1ee52cb0cca0fd2d03d68794358f83a67d5f24a9e967dff53c888bfb3e",
+    "cmd/prepare/main.go": "0f3f4eb171bf7909018589e2fefe91d6a1386927f724bc8d5b440bd79661b7ea",
+    "cmd/refresh/main.go": "9a00b6d95406ec6525a2d1cb52d8eb46dc5520f0da39501254fbf52ead7d5fd3",
+    "cmd/scout-acquire/main.go": "f7677d50c1feaabb0ad3fd1c2a41d4b49baf4000a9965bcba5f337302512efac",
+    "cmd/scout-audit/main.go": "1aca4a4a142f44e101f968c804f429bb629db1b310a6f98c3720b68c3d01431c",
+    "cmd/scout-coverage/main.go": "3fed47f919c7cdf5295eec43bf1d9ebee56d83b71acd9a59f8c0f5c8a2b7dd65",
+    "cmd/scout-http-verify/main.go": "a786231789bc79564c76c7e597dd3e901d458e2d89360881ba76f4cdbc2b8125",
+    "cmd/scout-landmarks/main.go": "90cc27babf22a8f796d48f6b252a6a5f9b3e02af9de21f2c03719f0d1d48e57d",
+    "cmd/scout-prepare/main.go": "ce18903848ca1052fff8c20805cd807260e1e833169aaf038dfde197eac3d194",
+    "cmd/scout-run-bounded/main.go": "3104dd7e4c466b1195cffdb59a1468df7d15c836703b5dd3ea39c165765d6ba5",
+    "cmd/scout-verify/main.go": "3c67bd4de93e749f19405c12bdc4f7647e5811d6cbb11132992fcf579993b39b",
+    "cmd/server/main.go": "6c6955b79b78e672106a684837c92aa0b7b21cfe7ca14ec811d11defa2a2ce78",
+    "cmd/server/scout.go": "81f4e3363225825148b7eec57560ad5b7e128d7e5dd57c2464d7f2cdb399ae02",
+    "internal/api/admission.go": "5917d26f7f44fd3f1780e6a855a5097651a30eb1ae941f8f66218dbccf32f81e",
+    "internal/api/api.go": "64dd5fdc8fc03e71bcd2319f4a9f58af03ab4f2e3b19a3d8894e5ee13fbdf0da",
+    "internal/api/geocoding.go": "a4715ce8ad1d1aec6b4d0236b3e178375abe1519a628dcc5776c7b725f5bc3e9",
+    "internal/api/routing.go": "63d7f1de2acce3b16b260a00703488b3040093dc2d599312f8e31ddb185f3994",
+    "internal/api/routing_address.go": "10bcc51ef0cb79bdb5aca3c31ba43567fa7c61b6833c7fe4772007329b383b8a",
+    "internal/api/routing_scout.go": "ce36b390032320c2cb31b3dc74e5511f684b6af9fae3ca7ee3e7990340bcf789",
+    "internal/dataset/deployment.go": "56fbbab83a504358b8f4fd940b3e924ab5f80c54495d10438376b6f35377e49e",
+    "internal/geocoding/geocoding.go": "2de5485798a01488f5377257fe565c1300cd641b08830afb9bab86219f4a2d4b",
+    "internal/importer/addressdata/overture.go": "98a9f5ab6d05853a66bf5284f4e391b84eaaf8ac14a4dda76632aaa8dead3882",
+    "internal/importer/artifacts.go": "476488d4726b066b4c86286efdb27e90c484873d8de520fa3eba572b936e0d37",
+    "internal/importer/import.go": "485001555d80aea8287479eaf69ece916cab0dea54a806747bfeaf127149d06e",
+    "internal/importer/osm.go": "636d4bdb003e7a414f66a771daa0fdf6ac64f44a988e79fc352fca290d99de70",
+    "internal/importer/overture.go": "4d8ce6d4a855bbdeb314dbc2fea6f3f22c06dff6d198f7e1e26589cc2def1499",
+    "internal/importer/parquet.go": "b76b6e100464811cee3a63a4a082c60818f5f179643585075f43f16722128066",
+    "internal/importer/refresh.go": "5f97c61f881347621cdce5ebccb44e4dc182978fe248446352625cad269ba322",
+    "internal/importer/region.go": "3cbf1abe55516c0812015988b09782218ea15d233d0c9ef00d0264ab1a740284",
+    "internal/importer/scout/acquire.go": "e6f64b592fa82889837329d12f8bd8bd35a7fd30e8b55eea9e9b86a6b7bde9f4",
+    "internal/places/places.go": "fd887c48752d6fe58de2fb85a2fe6fe9b9fedcbf3a4580da9ea90652384d6ed8",
+    "internal/routing/qualification/coverage.go": "cf381cca73111a20bb73b0ae6e0934aec8a6e06719ca92ef37dec066db71b483",
+    "internal/routing/qualification/http.go": "9cb2928796764ad716c699d73505029bc2e471ed8943c86b1e069ac4d122ccbf",
+    "internal/routing/valhallatiles/audit.go": "4b6f384a47febac3c781baf6b4160bf23831ca418da4f664553dc49118d89339",
+    "internal/routing/valhallatiles/forced.go": "d478807b018b70c084d172b8dbc65b62030482c8c8ce412ef1a0306acaca1f7d",
+    "internal/routing/valhallatiles/incoming.go": "8d37ac8d3f9e24baac1238edf3dcd4f0dd5ec1a75a2531981212c4514d55e13b",
+    "internal/routing/valhallatiles/landmark_extension.go": "d15931ca0ab9f2a6f7f2896c2b491d9b580ee23eb395c3c8d8fcf2dbec9870dc",
+    "internal/routing/valhallatiles/landmark_prefix.go": "0967b4b2d959ae5b6e78daa37b79d95abace3af64107ba282b7b65019c166e38",
+    "internal/routing/valhallatiles/landmark_query.go": "1c25567f452e55cbb246c1d0e7a59120831309840bff79ef6bf5ba8244b1020b",
+    "internal/routing/valhallatiles/landmarks.go": "3f1b83316706a12800dbe9b7f6d49904977d11f954d6fd7ffb7fb1cacfb125aa",
+    "internal/routing/valhallatiles/pages.go": "219876702ab6238fdb1c07f60a73cd5801a54a5bee9e513206b193102b793895",
+    "internal/routing/valhallatiles/potential.go": "94497353ac1038f7baee1fd027aa25c12c91de6d275713e6de75b20c90d24f83",
+    "internal/routing/valhallatiles/prepared.go": "d4b2dc81240290fd80d518c1a58e556bb04385a6484d8a91c2eba81fe1498c40",
+    "internal/routing/valhallatiles/prepared_turns.go": "0d388bc1f553faa53a195e1e536b39f863984853a7fe4b20f46df6ec47909b22",
+    "internal/routing/valhallatiles/reader.go": "c355466b4cc44360a33463941196e3139955c4885d033dcf3426aa043cc70498",
+    "internal/routing/valhallatiles/reverse_support.go": "9a6a0a7aa8251cd32789100729897873e3221fd2786b739845e3866b57529e93",
+    "internal/routing/valhallatiles/route.go": "ca09c5bc8d1ab701e3ed7c8e101a1ab03522c5a0ecaa5a615e1de47a5bad0c8d",
+    "internal/routing/valhallatiles/scout.go": "4e1e23dc9c20100e5acf2ea08f0cf256502fbe120d1ae732ea271e76e0b0cb12",
+    "internal/routing/valhallatiles/service.go": "a6ecf5b79b0226f1ac353a48fa45bea587c886f0dbb4fa373cc9a09a1a597009",
+    "internal/routing/valhallatiles/verify.go": "37642169ca96aaa5bf7627d76d36ed7220e2ac2aa9fd2559d49f85811c17f97f",
+    "internal/supervisor/run.go": "5440ea654fdcb1cebd9966086800d067ce5503b3a56083293ff62cc709ab4108",
+    "go.mod": "d7e3bff404430f119b9d25dae5ffe9fe18bed78ba84237c6e6bb1013f69f45ce",
+    "go.sum": "3d251a8d4431cc1b372a189adebe7f5019c44204916c4410c372d67143dbcfe0"
+  },
+  "artifacts": {
+    "data/scout-cutover-20260909/bin/api-integration.test": {
+      "bytes": 24323362,
+      "sha256": "670dba1a2c416caeeaf010ce765e79f2a33960c86411b9ddf8de4322e8ad2dbf"
+    },
+    "data/scout-cutover-20260909/bin/scout-http-verify": {
+      "bytes": 8696386,
+      "sha256": "32df6fc7a3e6d2c9b1ff08376e3ee7680bb7bb1ef9c3d498886a7a74cdf0d06b"
+    },
+    "data/scout-cutover-20260909/bin/scout-run-bounded": {
+      "bytes": 3259442,
+      "sha256": "e532e861a087fda8a5312794dbe455b84a4c02aaf9745ab83a942f18d07877dd"
+    },
+    "data/scout-cutover-20260909/bin/scout-verify": {
+      "bytes": 3930786,
+      "sha256": "edf12ace060d2993e18ebf86e155157dece4a5ddf91eba888f83b66c5a12bf25"
+    },
+    "data/scout-cutover-20260909/bin/server": {
+      "bytes": 22256434,
+      "sha256": "a1b7a4d76fd7d2622459ea34b108af37d882d3a41b6f4cf96130458f91b99714"
+    },
+    "data/scout-cutover-20260909/bin/server-integration.test": {
+      "bytes": 23782770,
+      "sha256": "0a43743f98b084515547ad1570f58dbb6f81b300fbb02411a420983dd42c2599"
+    },
+    "data/scout-cutover-20260909/binaries.sha256": {
+      "bytes": 441,
+      "sha256": "50d3ffe7b977994ba61f6fd069959b201542949a6aaf40a58c390dc8b9396b64"
+    },
+    "data/scout-cutover-20260909/final-processes.txt": {
+      "bytes": 2596,
+      "sha256": "60567f9b0d81301e2c48afcc81f0fe6febc429205d4065929e8c58d71f6af930"
+    },
+    "data/scout-cutover-20260909/go-test.log": {
+      "bytes": 1038,
+      "sha256": "0ce58a1148164bb5f1e9f2ae725ca578bda6dc99128560ddeb8ab4d76d9fe4f6"
+    },
+    "data/scout-cutover-20260909/http-national-live-summary.json": {
+      "bytes": 364,
+      "sha256": "54436af5f14f2341f0e2c00e2c811e31970c9e2945528d7d4d468b525eca9298"
+    },
+    "data/scout-cutover-20260909/http-national-live/requests.jsonl": {
+      "bytes": 24676,
+      "sha256": "d57911d95ee56583970c61e5f357a2b2b91fd07b0c3a21b4a3e1e8b0148f644a"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-000.json": {
+      "bytes": 2786,
+      "sha256": "d66c414b115b84bfed0b85c2fd9b01aa6cfd592fc00c426203a6ce3e22e9aefb"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-001.json": {
+      "bytes": 4328,
+      "sha256": "59878e57b3ebcf829eff9530d7438b5c8b3bf35b4081d0c5768e5b666d211773"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-002.json": {
+      "bytes": 4604,
+      "sha256": "b2d113582b66dd7975b086f71ba3f64119d5e155095c56cf53b067e472e7d63d"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-003.json": {
+      "bytes": 6488,
+      "sha256": "4d420174c581eccffd6128a32075f5c95a273effab74edcb2ebb22914ac14dc8"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-004.json": {
+      "bytes": 4402,
+      "sha256": "10ac50053e41ba0d7d16199413a595581bf77b8bbad29eb12aac8a9117325bc9"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-005.json": {
+      "bytes": 5003,
+      "sha256": "d330c9b7f053c2435ae22f0a4067f8fc82f8bd85d2753f370c0061f62f60b7bb"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-006.json": {
+      "bytes": 9461,
+      "sha256": "36ec3af25256d8cd7730ac776bee2edcfa6085a255f231fc0a90819c9a74e167"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-007.json": {
+      "bytes": 3941,
+      "sha256": "6bb16f7ad9fe3748185e20e3511d6211df8341a6a0d7cadf252ebd65d8ea0f38"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-008.json": {
+      "bytes": 5125,
+      "sha256": "0ec5713adb400bbcbad558ce04bd200f3bc767381ad31868ca99b4f2b20b7195"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-009.json": {
+      "bytes": 5041,
+      "sha256": "e2ddb7bbf1a0b40e1be18febc191171be072a41d838967e60a40b91d7250715c"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-010.json": {
+      "bytes": 4572,
+      "sha256": "4cb806c921e59b1bbe038f4b52f19b0f95b1cc64bb41fb79414c22f2488a8028"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-011.json": {
+      "bytes": 4797,
+      "sha256": "fe08452a8da2cfede3396ae6822f162ea9370066e70412e6778e9bca3769b182"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-012.json": {
+      "bytes": 2843,
+      "sha256": "d038238bfca9befbea34db197e91e76ba2c51d0dcdb69cefa27b626b2bb3bf41"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-013.json": {
+      "bytes": 4997,
+      "sha256": "2a5b56dff554ec0f6e8e78889aa2980f6078fa19490024ab35a16366f0a30e4a"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-014.json": {
+      "bytes": 4268,
+      "sha256": "d44088b1097607a9d186854554979044f2d14b69602aaa93631c2812daab7a03"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-015.json": {
+      "bytes": 3790,
+      "sha256": "3090bc8fefbe264e4a34f06765387ada339c7009f3aa4ef43052d3e8032da2dc"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-016.json": {
+      "bytes": 4185,
+      "sha256": "7d4258c91bc37d4b7c4c6156eb4ac9c84b72c023016fabf31dfb25e5006ed50c"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-017.json": {
+      "bytes": 4241,
+      "sha256": "3daf7b609c1364b90732cffd8cc94e9a033a1adb1951438416958e9d4599564e"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-018.json": {
+      "bytes": 5342,
+      "sha256": "39848e64b242ba337f69b4554b2b39da87d06aebc2c8f442f4a6abefa57ac61d"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-019.json": {
+      "bytes": 8480,
+      "sha256": "e69ec34058b90e9192af76e6c41655b08597cdd6b0fe4e74c3ac3beb1db81739"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-020.json": {
+      "bytes": 4564,
+      "sha256": "b9e8da6fcf91db14d5761219a3d06845d108b9c203dad8619ffba91bc2ef72df"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-021.json": {
+      "bytes": 14457,
+      "sha256": "1b5262f6adfa6f6a138f2aec45215aac0a28a78fad5b7bb1b4a7a6bc39c31a91"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-022.json": {
+      "bytes": 3887,
+      "sha256": "5965d085dc55d6115d2afa51b9fd3c23a58eec9164905535db2713fa52a08435"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-023.json": {
+      "bytes": 4317,
+      "sha256": "ed3f977b676d22618ed63d21e35c443b4d44e1f967f7d973bdd91b516ccc2588"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-024.json": {
+      "bytes": 3938,
+      "sha256": "eaac2494f6bdcf75171d98e693d930bfb8447549e02e27e1a9c4e4d6c96864a6"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-025.json": {
+      "bytes": 3856,
+      "sha256": "8ec84ba201709680968323cbe556ead1e66adc06487b40cca867b850172bc2db"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-026.json": {
+      "bytes": 3753,
+      "sha256": "0d5d9f0aedc6dfb70cf8d8bf0e5d75bc04246fcb93a0c1a22985ee9e66aacd42"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-027.json": {
+      "bytes": 4839,
+      "sha256": "cdd478cd647abff38e30d1c85550235f750e7d667c26895ccc833c8e352c1091"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-028.json": {
+      "bytes": 4239,
+      "sha256": "0bf86871311b1d8894a90b658efd052f52c4c0f9ed869f68603b3ba3a0f08c15"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-029.json": {
+      "bytes": 2758,
+      "sha256": "69c136d69ec892e955b8e54380d19dbfd40f756ff27f4a981818c5511279a751"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-030.json": {
+      "bytes": 3300,
+      "sha256": "075b4dbb7abca58cb2cd98ad98ade99239ab7325a45b1c5ffdccf35da5ddd3ff"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-031.json": {
+      "bytes": 4358,
+      "sha256": "420661c71884f4d27fce2f16fb7cfb28d30e3f7f427c595486381097ab0ca4f6"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-032.json": {
+      "bytes": 4300,
+      "sha256": "d01a91b03f4091f242eb990d8184e5ddfbff147f4d61eea774182a3d43e0efea"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-033.json": {
+      "bytes": 5655,
+      "sha256": "ab43760e579f58ab79e703e99740cbc2f39653eb4f5f633e4933c3dd7073346a"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-034.json": {
+      "bytes": 3880,
+      "sha256": "efbeb66dbf8d2a8c9aaba9e743b59fd73af3fae59a6f9e4788a6ac02ff4bc62d"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-035.json": {
+      "bytes": 5286,
+      "sha256": "9d077bd9dfd42fce98aa8b1e4ef4ccbbec20453d094e7b5e8494df87ac69c8ae"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-036.json": {
+      "bytes": 4842,
+      "sha256": "f494e09512d2895b3e8cb254f902a41042526f0b686fbb0791a9c60f5d24d8a9"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-037.json": {
+      "bytes": 4182,
+      "sha256": "76d7fcd6baf21ca079ecb68c6b6ac5d563fdd303c6644bf3ae4ef073b68ec9ea"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-038.json": {
+      "bytes": 4453,
+      "sha256": "098728044250cc7977ca8873fcd09a4e41a4b0f57f6e412f6e5e69a8abaae837"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-039.json": {
+      "bytes": 4055,
+      "sha256": "9955f7db3608e79ae65feffa29b1f354ac0f4b611e04edae158da7fc08a16f16"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-040.json": {
+      "bytes": 4682,
+      "sha256": "fa02fd715be72644a914b93c1fb50be33201049beb0a62869d4bad6e4adb4315"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-041.json": {
+      "bytes": 2637,
+      "sha256": "9b9799159cbeb3f4a090a0d0b59d41694c147d34563eb4d874a958d1f3df4b1e"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-042.json": {
+      "bytes": 3830,
+      "sha256": "928e7629e0b9b7fb88cf15801db743bf319ad7d8498fcf4dfcf8457b6025e9a5"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-043.json": {
+      "bytes": 4743,
+      "sha256": "07069fdb54ddd9146c1b9fe9d30ed70098dd55cf6bcbd7e2612f70ea6bd0d64a"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-044.json": {
+      "bytes": 5228,
+      "sha256": "fa629f37f683ec93995e029474523264562bba0b62523184aee984639c9ee463"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-045.json": {
+      "bytes": 5760,
+      "sha256": "c10e868e5280f591b035efe0ff575cd8b9aaa6809b9a959291695278481ee4e6"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-046.json": {
+      "bytes": 6673,
+      "sha256": "1498780df89097db41b8ae2faae30d34f3c4707cd5583989232c38a660c7d2b9"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-047.json": {
+      "bytes": 5565,
+      "sha256": "9e24289d109aea46f092128a900f507737f3c8a2e87037a7989ffcd38cc518c4"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-048.json": {
+      "bytes": 5578,
+      "sha256": "06d7052d3f6e6d0366e523e1226afa01fab020b1fc0064659430e5a415dbba5e"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-049.json": {
+      "bytes": 5405,
+      "sha256": "0beac7f36fb01e8964fae1552c49ed16c8792665307a1c417a6be3f6da8157a2"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-050.json": {
+      "bytes": 4052,
+      "sha256": "4270f8f4bdd8fe9315ec623bdd4e32e2ef01d34f72a870c9230103c2cf4cb137"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-051.json": {
+      "bytes": 32194,
+      "sha256": "a8f2831e138c0d4cd5dc378f5fcc06ef26225987ab0e91d09d01c69a593f8d7d"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-052.json": {
+      "bytes": 7642,
+      "sha256": "3c17b613ae4d2b1d02ecae2421a5b9adfd2de4091639b80d15faf9616345e6fd"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-053.json": {
+      "bytes": 30866,
+      "sha256": "528df892b4bf0ccf4a993779d636e5d69960f2d10e99b4dadd0bac85b5a398e0"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-054.json": {
+      "bytes": 16113,
+      "sha256": "3efed2c21ef0d5fda07c12311d7a769663d3c9a3c2ac17c6fb910770405739dc"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-055.json": {
+      "bytes": 11825,
+      "sha256": "a0edbf55a23d1b8336adb4c3b7f0a4c9ba07c604d3a8998deedef5c139a756c5"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-056.json": {
+      "bytes": 31699,
+      "sha256": "aa1caafaef4c52b3c61586a3bc10c17ddd4963aaffb7d64dfde7bad935ff298c"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-057.json": {
+      "bytes": 16467,
+      "sha256": "34fbb4c322836e2795406c8948eaa3d7b140ee7961cdfe42953c47c5b7407c6a"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-058.json": {
+      "bytes": 3044,
+      "sha256": "57970fcb09eb2218c5e7ef446422f49da4ea8255813d9c258d1bc05e9e088ce8"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-059.json": {
+      "bytes": 7730,
+      "sha256": "43ae5b4565ced79ddd4c46ed892122b7300c750d001daae3e75a1a8257a736c6"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-060.json": {
+      "bytes": 5957,
+      "sha256": "5ee784c53de5cf36a05dc1ad0d52d3cd0323c36bbef8d0f834498b7e34b29787"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-061.json": {
+      "bytes": 1804,
+      "sha256": "7cc5a30ff40aa13e3c8585044eee0c0d7acd90c4998db4fddda40a1a618028f4"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-062.json": {
+      "bytes": 1798,
+      "sha256": "334c9cd93d857d6f817a28113592c1202b085d7114153b8efbbe32a22b410939"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-063.json": {
+      "bytes": 10931,
+      "sha256": "69f55251073b644119ac46932763680ff4abb38d4434854cb53a0df5a005119f"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-064.json": {
+      "bytes": 17433,
+      "sha256": "6d24e1f39140be1a38bb33cfe3eed2368aa901c5de818ec83c6edf4414db6c62"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-065.json": {
+      "bytes": 22270,
+      "sha256": "dc0ed2e5757f21d0273686b2189271853a9ffa467d96e44581589130f2fb9712"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-066.json": {
+      "bytes": 87482,
+      "sha256": "bc27e2e0baa2b20dd8416ad71c7e31e756867af2335747a9d48f96dc2bcbdd3d"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-067.json": {
+      "bytes": 16405,
+      "sha256": "0d138e80d529089fcddeb044342537a190521a1d8e0ffc434168304071541fd8"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-068.json": {
+      "bytes": 759468,
+      "sha256": "6813223023299d269859c29d1395b96d949e778b37a975c2f1373ed9e4896f5b"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-069.json": {
+      "bytes": 1093550,
+      "sha256": "f8fa6a700fba7ebb83be0fb090361e30a1f72e2a590392a0a6650b247f5eb61e"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-070.json": {
+      "bytes": 1004537,
+      "sha256": "be8f61aadb5783ed99739d44395c0f4b093fe74c8f701cc2e9755199008754db"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-071.json": {
+      "bytes": 634712,
+      "sha256": "4da87a6c1a7f70a3476f7872835ac83ea91291ba36ce4b7042c1ff3379b31fe3"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-072.json": {
+      "bytes": 924,
+      "sha256": "15f7642d55f50e2d1dcf4b2bfba85d135ded001a09830762560eec549c4c65c3"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-073.json": {
+      "bytes": 1380,
+      "sha256": "5576a5a9cbce2123c5aed73c897b29a3af65ae62d6a6f523357a8c887d7d1cce"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-074.json": {
+      "bytes": 1364,
+      "sha256": "aaf61c33eb16c28ad68ec87e88082733306fc38df981b387fa6fd7fd53cc29e9"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-075.json": {
+      "bytes": 1380,
+      "sha256": "09247d9ce42519980eb23dc032903d536348bc18019edcba3ac39479ea65ea66"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-076.json": {
+      "bytes": 1375,
+      "sha256": "5e895e43bf71b7cb5200c95ec8b9a0409975a1afc2fe6d62c5fc8337a5eeab04"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-077.json": {
+      "bytes": 924,
+      "sha256": "15f7642d55f50e2d1dcf4b2bfba85d135ded001a09830762560eec549c4c65c3"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-078.json": {
+      "bytes": 65459,
+      "sha256": "3665f14e5b249823f9c480806b3593a02b68946201b6c500629bc50220d9aa66"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-079.json": {
+      "bytes": 595161,
+      "sha256": "6b882d5021376af8a8824987a7ac4a2cc6049f0ae2e3808bdb83b990da85defd"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-080.json": {
+      "bytes": 457729,
+      "sha256": "3c85e5f4cc718cb60a3b34496cf4614518aacc8150961dec805e041ac043f01c"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-081.json": {
+      "bytes": 4946,
+      "sha256": "aa65e1590e201df17fc6a3dcc28cc0cf9afd0e46bc5b851180df27bd55a55941"
+    },
+    "data/scout-cutover-20260909/http-national-live/response-082.json": {
+      "bytes": 5957,
+      "sha256": "6475a2b67aa573201df254dea25ac8aa1da9aca8b583d046b644342929b4d930"
+    },
+    "data/scout-cutover-20260909/http-national-live/summary.json": {
+      "bytes": 421,
+      "sha256": "46b3e06e682892802b0b30411629abe6a6d743473fa6483b96c212d6afb72358"
+    },
+    "data/scout-cutover-20260909/http-regional-live-final-summary.json": {
+      "bytes": 357,
+      "sha256": "7b7490875cf39d0e00fab85be74eaab3b4f64fa9dc2109dae62c40bd668ce776"
+    },
+    "data/scout-cutover-20260909/http-regional-live-final/requests.jsonl": {
+      "bytes": 289,
+      "sha256": "a95fbad1c398f3575e6486bc98dec4cb51b65058683faa75044727f28a8030d6"
+    },
+    "data/scout-cutover-20260909/http-regional-live-final/response-000.json": {
+      "bytes": 4046,
+      "sha256": "23881dd01610041d1c41532183c122359a485f0af9cdd2e6738253918eacb47e"
+    },
+    "data/scout-cutover-20260909/http-regional-live-final/summary.json": {
+      "bytes": 414,
+      "sha256": "f2d25d3bfcd33ba5fedd0697acb2eead61b8f2bacef3b248e2a9e6dea945e2a0"
+    },
+    "data/scout-cutover-20260909/http-regional-live-summary.json": {
+      "bytes": 633,
+      "sha256": "d20479d4d42fa98c4570086497993182cd417d3c6e83991378db3eebf09451ed"
+    },
+    "data/scout-cutover-20260909/http-regional-live.err": {
+      "bytes": 27,
+      "sha256": "4fcfc6e14921adfaa49ed5452f1a9847eef52c15d64dd914e4d2db57afd005f1"
+    },
+    "data/scout-cutover-20260909/http-regional-live/requests.jsonl": {
+      "bytes": 344,
+      "sha256": "7dbdec7a2d53fe0d92fd4ea64ff2cee961e94f69cea72b11f2af8d24876fe0d0"
+    },
+    "data/scout-cutover-20260909/http-regional-live/summary.json": {
+      "bytes": 791,
+      "sha256": "8d9fb8d92651a8be68917591682f40e30fbd23c49f2166be8c5126d1ee97123f"
+    },
+    "data/scout-cutover-20260909/http-regional-restarted-summary.json": {
+      "bytes": 357,
+      "sha256": "3bb08be3e1531ba1b01bc9d02504f20a7319dca84fa98938ed7ad9b69ad1b66e"
+    },
+    "data/scout-cutover-20260909/http-regional-restarted/requests.jsonl": {
+      "bytes": 289,
+      "sha256": "7e779fada5377e9eece81af14ab51107078fd738a7e5b085568e87c1c8661b3a"
+    },
+    "data/scout-cutover-20260909/http-regional-restarted/response-000.json": {
+      "bytes": 4046,
+      "sha256": "23881dd01610041d1c41532183c122359a485f0af9cdd2e6738253918eacb47e"
+    },
+    "data/scout-cutover-20260909/http-regional-restarted/summary.json": {
+      "bytes": 414,
+      "sha256": "cd4eda0728ae6a36988d05f0579809939cbdb59586680ebc3cc64833667d1810"
+    },
+    "data/scout-cutover-20260909/http-regional-staging-summary.json": {
+      "bytes": 357,
+      "sha256": "4ce82831a605e9ff8b30d6fda2883745e7815ed82a7df7f93c79790be0cef50d"
+    },
+    "data/scout-cutover-20260909/http-regional-staging/requests.jsonl": {
+      "bytes": 289,
+      "sha256": "28013a2baa93f0e19203e10626e7d2f1780c52e1327b174e7300e65eacbc5efd"
+    },
+    "data/scout-cutover-20260909/http-regional-staging/response-000.json": {
+      "bytes": 4046,
+      "sha256": "23881dd01610041d1c41532183c122359a485f0af9cdd2e6738253918eacb47e"
+    },
+    "data/scout-cutover-20260909/http-regional-staging/summary.json": {
+      "bytes": 414,
+      "sha256": "3f9e2bea01b871e0d426f807e3af29435d9c9e696d5899764bd3856b11902981"
+    },
+    "data/scout-cutover-20260909/http-staging-summary.json": {
+      "bytes": 363,
+      "sha256": "aab7ffe23203e7cb9d13eee4add4f5eb9cf0b9d88352b15ff7d3baf0cf916c8b"
+    },
+    "data/scout-cutover-20260909/http-staging/requests.jsonl": {
+      "bytes": 24664,
+      "sha256": "d69cf973b033f6d71b23835ffd363be5b4821cc1484dda358972fecfe41bd10c"
+    },
+    "data/scout-cutover-20260909/http-staging/response-000.json": {
+      "bytes": 2786,
+      "sha256": "d66c414b115b84bfed0b85c2fd9b01aa6cfd592fc00c426203a6ce3e22e9aefb"
+    },
+    "data/scout-cutover-20260909/http-staging/response-001.json": {
+      "bytes": 4328,
+      "sha256": "59878e57b3ebcf829eff9530d7438b5c8b3bf35b4081d0c5768e5b666d211773"
+    },
+    "data/scout-cutover-20260909/http-staging/response-002.json": {
+      "bytes": 4604,
+      "sha256": "b2d113582b66dd7975b086f71ba3f64119d5e155095c56cf53b067e472e7d63d"
+    },
+    "data/scout-cutover-20260909/http-staging/response-003.json": {
+      "bytes": 6488,
+      "sha256": "4d420174c581eccffd6128a32075f5c95a273effab74edcb2ebb22914ac14dc8"
+    },
+    "data/scout-cutover-20260909/http-staging/response-004.json": {
+      "bytes": 4402,
+      "sha256": "10ac50053e41ba0d7d16199413a595581bf77b8bbad29eb12aac8a9117325bc9"
+    },
+    "data/scout-cutover-20260909/http-staging/response-005.json": {
+      "bytes": 5003,
+      "sha256": "d330c9b7f053c2435ae22f0a4067f8fc82f8bd85d2753f370c0061f62f60b7bb"
+    },
+    "data/scout-cutover-20260909/http-staging/response-006.json": {
+      "bytes": 9461,
+      "sha256": "36ec3af25256d8cd7730ac776bee2edcfa6085a255f231fc0a90819c9a74e167"
+    },
+    "data/scout-cutover-20260909/http-staging/response-007.json": {
+      "bytes": 3941,
+      "sha256": "6bb16f7ad9fe3748185e20e3511d6211df8341a6a0d7cadf252ebd65d8ea0f38"
+    },
+    "data/scout-cutover-20260909/http-staging/response-008.json": {
+      "bytes": 5125,
+      "sha256": "0ec5713adb400bbcbad558ce04bd200f3bc767381ad31868ca99b4f2b20b7195"
+    },
+    "data/scout-cutover-20260909/http-staging/response-009.json": {
+      "bytes": 5041,
+      "sha256": "e2ddb7bbf1a0b40e1be18febc191171be072a41d838967e60a40b91d7250715c"
+    },
+    "data/scout-cutover-20260909/http-staging/response-010.json": {
+      "bytes": 4572,
+      "sha256": "4cb806c921e59b1bbe038f4b52f19b0f95b1cc64bb41fb79414c22f2488a8028"
+    },
+    "data/scout-cutover-20260909/http-staging/response-011.json": {
+      "bytes": 4797,
+      "sha256": "fe08452a8da2cfede3396ae6822f162ea9370066e70412e6778e9bca3769b182"
+    },
+    "data/scout-cutover-20260909/http-staging/response-012.json": {
+      "bytes": 2843,
+      "sha256": "d038238bfca9befbea34db197e91e76ba2c51d0dcdb69cefa27b626b2bb3bf41"
+    },
+    "data/scout-cutover-20260909/http-staging/response-013.json": {
+      "bytes": 4997,
+      "sha256": "2a5b56dff554ec0f6e8e78889aa2980f6078fa19490024ab35a16366f0a30e4a"
+    },
+    "data/scout-cutover-20260909/http-staging/response-014.json": {
+      "bytes": 4268,
+      "sha256": "d44088b1097607a9d186854554979044f2d14b69602aaa93631c2812daab7a03"
+    },
+    "data/scout-cutover-20260909/http-staging/response-015.json": {
+      "bytes": 3790,
+      "sha256": "3090bc8fefbe264e4a34f06765387ada339c7009f3aa4ef43052d3e8032da2dc"
+    },
+    "data/scout-cutover-20260909/http-staging/response-016.json": {
+      "bytes": 4185,
+      "sha256": "7d4258c91bc37d4b7c4c6156eb4ac9c84b72c023016fabf31dfb25e5006ed50c"
+    },
+    "data/scout-cutover-20260909/http-staging/response-017.json": {
+      "bytes": 4241,
+      "sha256": "3daf7b609c1364b90732cffd8cc94e9a033a1adb1951438416958e9d4599564e"
+    },
+    "data/scout-cutover-20260909/http-staging/response-018.json": {
+      "bytes": 5342,
+      "sha256": "39848e64b242ba337f69b4554b2b39da87d06aebc2c8f442f4a6abefa57ac61d"
+    },
+    "data/scout-cutover-20260909/http-staging/response-019.json": {
+      "bytes": 8480,
+      "sha256": "e69ec34058b90e9192af76e6c41655b08597cdd6b0fe4e74c3ac3beb1db81739"
+    },
+    "data/scout-cutover-20260909/http-staging/response-020.json": {
+      "bytes": 4564,
+      "sha256": "b9e8da6fcf91db14d5761219a3d06845d108b9c203dad8619ffba91bc2ef72df"
+    },
+    "data/scout-cutover-20260909/http-staging/response-021.json": {
+      "bytes": 14457,
+      "sha256": "1b5262f6adfa6f6a138f2aec45215aac0a28a78fad5b7bb1b4a7a6bc39c31a91"
+    },
+    "data/scout-cutover-20260909/http-staging/response-022.json": {
+      "bytes": 3887,
+      "sha256": "5965d085dc55d6115d2afa51b9fd3c23a58eec9164905535db2713fa52a08435"
+    },
+    "data/scout-cutover-20260909/http-staging/response-023.json": {
+      "bytes": 4317,
+      "sha256": "ed3f977b676d22618ed63d21e35c443b4d44e1f967f7d973bdd91b516ccc2588"
+    },
+    "data/scout-cutover-20260909/http-staging/response-024.json": {
+      "bytes": 3938,
+      "sha256": "eaac2494f6bdcf75171d98e693d930bfb8447549e02e27e1a9c4e4d6c96864a6"
+    },
+    "data/scout-cutover-20260909/http-staging/response-025.json": {
+      "bytes": 3856,
+      "sha256": "8ec84ba201709680968323cbe556ead1e66adc06487b40cca867b850172bc2db"
+    },
+    "data/scout-cutover-20260909/http-staging/response-026.json": {
+      "bytes": 3753,
+      "sha256": "0d5d9f0aedc6dfb70cf8d8bf0e5d75bc04246fcb93a0c1a22985ee9e66aacd42"
+    },
+    "data/scout-cutover-20260909/http-staging/response-027.json": {
+      "bytes": 4839,
+      "sha256": "cdd478cd647abff38e30d1c85550235f750e7d667c26895ccc833c8e352c1091"
+    },
+    "data/scout-cutover-20260909/http-staging/response-028.json": {
+      "bytes": 4239,
+      "sha256": "0bf86871311b1d8894a90b658efd052f52c4c0f9ed869f68603b3ba3a0f08c15"
+    },
+    "data/scout-cutover-20260909/http-staging/response-029.json": {
+      "bytes": 2758,
+      "sha256": "69c136d69ec892e955b8e54380d19dbfd40f756ff27f4a981818c5511279a751"
+    },
+    "data/scout-cutover-20260909/http-staging/response-030.json": {
+      "bytes": 3300,
+      "sha256": "075b4dbb7abca58cb2cd98ad98ade99239ab7325a45b1c5ffdccf35da5ddd3ff"
+    },
+    "data/scout-cutover-20260909/http-staging/response-031.json": {
+      "bytes": 4358,
+      "sha256": "420661c71884f4d27fce2f16fb7cfb28d30e3f7f427c595486381097ab0ca4f6"
+    },
+    "data/scout-cutover-20260909/http-staging/response-032.json": {
+      "bytes": 4300,
+      "sha256": "d01a91b03f4091f242eb990d8184e5ddfbff147f4d61eea774182a3d43e0efea"
+    },
+    "data/scout-cutover-20260909/http-staging/response-033.json": {
+      "bytes": 5655,
+      "sha256": "ab43760e579f58ab79e703e99740cbc2f39653eb4f5f633e4933c3dd7073346a"
+    },
+    "data/scout-cutover-20260909/http-staging/response-034.json": {
+      "bytes": 3880,
+      "sha256": "efbeb66dbf8d2a8c9aaba9e743b59fd73af3fae59a6f9e4788a6ac02ff4bc62d"
+    },
+    "data/scout-cutover-20260909/http-staging/response-035.json": {
+      "bytes": 5286,
+      "sha256": "9d077bd9dfd42fce98aa8b1e4ef4ccbbec20453d094e7b5e8494df87ac69c8ae"
+    },
+    "data/scout-cutover-20260909/http-staging/response-036.json": {
+      "bytes": 4842,
+      "sha256": "f494e09512d2895b3e8cb254f902a41042526f0b686fbb0791a9c60f5d24d8a9"
+    },
+    "data/scout-cutover-20260909/http-staging/response-037.json": {
+      "bytes": 4182,
+      "sha256": "76d7fcd6baf21ca079ecb68c6b6ac5d563fdd303c6644bf3ae4ef073b68ec9ea"
+    },
+    "data/scout-cutover-20260909/http-staging/response-038.json": {
+      "bytes": 4453,
+      "sha256": "098728044250cc7977ca8873fcd09a4e41a4b0f57f6e412f6e5e69a8abaae837"
+    },
+    "data/scout-cutover-20260909/http-staging/response-039.json": {
+      "bytes": 4055,
+      "sha256": "9955f7db3608e79ae65feffa29b1f354ac0f4b611e04edae158da7fc08a16f16"
+    },
+    "data/scout-cutover-20260909/http-staging/response-040.json": {
+      "bytes": 4682,
+      "sha256": "fa02fd715be72644a914b93c1fb50be33201049beb0a62869d4bad6e4adb4315"
+    },
+    "data/scout-cutover-20260909/http-staging/response-041.json": {
+      "bytes": 2637,
+      "sha256": "9b9799159cbeb3f4a090a0d0b59d41694c147d34563eb4d874a958d1f3df4b1e"
+    },
+    "data/scout-cutover-20260909/http-staging/response-042.json": {
+      "bytes": 3830,
+      "sha256": "928e7629e0b9b7fb88cf15801db743bf319ad7d8498fcf4dfcf8457b6025e9a5"
+    },
+    "data/scout-cutover-20260909/http-staging/response-043.json": {
+      "bytes": 4743,
+      "sha256": "07069fdb54ddd9146c1b9fe9d30ed70098dd55cf6bcbd7e2612f70ea6bd0d64a"
+    },
+    "data/scout-cutover-20260909/http-staging/response-044.json": {
+      "bytes": 5228,
+      "sha256": "fa629f37f683ec93995e029474523264562bba0b62523184aee984639c9ee463"
+    },
+    "data/scout-cutover-20260909/http-staging/response-045.json": {
+      "bytes": 5760,
+      "sha256": "c10e868e5280f591b035efe0ff575cd8b9aaa6809b9a959291695278481ee4e6"
+    },
+    "data/scout-cutover-20260909/http-staging/response-046.json": {
+      "bytes": 6673,
+      "sha256": "1498780df89097db41b8ae2faae30d34f3c4707cd5583989232c38a660c7d2b9"
+    },
+    "data/scout-cutover-20260909/http-staging/response-047.json": {
+      "bytes": 5565,
+      "sha256": "9e24289d109aea46f092128a900f507737f3c8a2e87037a7989ffcd38cc518c4"
+    },
+    "data/scout-cutover-20260909/http-staging/response-048.json": {
+      "bytes": 5578,
+      "sha256": "06d7052d3f6e6d0366e523e1226afa01fab020b1fc0064659430e5a415dbba5e"
+    },
+    "data/scout-cutover-20260909/http-staging/response-049.json": {
+      "bytes": 5405,
+      "sha256": "0beac7f36fb01e8964fae1552c49ed16c8792665307a1c417a6be3f6da8157a2"
+    },
+    "data/scout-cutover-20260909/http-staging/response-050.json": {
+      "bytes": 4052,
+      "sha256": "4270f8f4bdd8fe9315ec623bdd4e32e2ef01d34f72a870c9230103c2cf4cb137"
+    },
+    "data/scout-cutover-20260909/http-staging/response-051.json": {
+      "bytes": 32194,
+      "sha256": "a8f2831e138c0d4cd5dc378f5fcc06ef26225987ab0e91d09d01c69a593f8d7d"
+    },
+    "data/scout-cutover-20260909/http-staging/response-052.json": {
+      "bytes": 7642,
+      "sha256": "3c17b613ae4d2b1d02ecae2421a5b9adfd2de4091639b80d15faf9616345e6fd"
+    },
+    "data/scout-cutover-20260909/http-staging/response-053.json": {
+      "bytes": 30866,
+      "sha256": "528df892b4bf0ccf4a993779d636e5d69960f2d10e99b4dadd0bac85b5a398e0"
+    },
+    "data/scout-cutover-20260909/http-staging/response-054.json": {
+      "bytes": 16113,
+      "sha256": "3efed2c21ef0d5fda07c12311d7a769663d3c9a3c2ac17c6fb910770405739dc"
+    },
+    "data/scout-cutover-20260909/http-staging/response-055.json": {
+      "bytes": 11825,
+      "sha256": "a0edbf55a23d1b8336adb4c3b7f0a4c9ba07c604d3a8998deedef5c139a756c5"
+    },
+    "data/scout-cutover-20260909/http-staging/response-056.json": {
+      "bytes": 31699,
+      "sha256": "aa1caafaef4c52b3c61586a3bc10c17ddd4963aaffb7d64dfde7bad935ff298c"
+    },
+    "data/scout-cutover-20260909/http-staging/response-057.json": {
+      "bytes": 16467,
+      "sha256": "34fbb4c322836e2795406c8948eaa3d7b140ee7961cdfe42953c47c5b7407c6a"
+    },
+    "data/scout-cutover-20260909/http-staging/response-058.json": {
+      "bytes": 3044,
+      "sha256": "57970fcb09eb2218c5e7ef446422f49da4ea8255813d9c258d1bc05e9e088ce8"
+    },
+    "data/scout-cutover-20260909/http-staging/response-059.json": {
+      "bytes": 7730,
+      "sha256": "43ae5b4565ced79ddd4c46ed892122b7300c750d001daae3e75a1a8257a736c6"
+    },
+    "data/scout-cutover-20260909/http-staging/response-060.json": {
+      "bytes": 5957,
+      "sha256": "5ee784c53de5cf36a05dc1ad0d52d3cd0323c36bbef8d0f834498b7e34b29787"
+    },
+    "data/scout-cutover-20260909/http-staging/response-061.json": {
+      "bytes": 1804,
+      "sha256": "7cc5a30ff40aa13e3c8585044eee0c0d7acd90c4998db4fddda40a1a618028f4"
+    },
+    "data/scout-cutover-20260909/http-staging/response-062.json": {
+      "bytes": 1798,
+      "sha256": "334c9cd93d857d6f817a28113592c1202b085d7114153b8efbbe32a22b410939"
+    },
+    "data/scout-cutover-20260909/http-staging/response-063.json": {
+      "bytes": 10931,
+      "sha256": "69f55251073b644119ac46932763680ff4abb38d4434854cb53a0df5a005119f"
+    },
+    "data/scout-cutover-20260909/http-staging/response-064.json": {
+      "bytes": 17433,
+      "sha256": "6d24e1f39140be1a38bb33cfe3eed2368aa901c5de818ec83c6edf4414db6c62"
+    },
+    "data/scout-cutover-20260909/http-staging/response-065.json": {
+      "bytes": 22270,
+      "sha256": "dc0ed2e5757f21d0273686b2189271853a9ffa467d96e44581589130f2fb9712"
+    },
+    "data/scout-cutover-20260909/http-staging/response-066.json": {
+      "bytes": 87482,
+      "sha256": "bc27e2e0baa2b20dd8416ad71c7e31e756867af2335747a9d48f96dc2bcbdd3d"
+    },
+    "data/scout-cutover-20260909/http-staging/response-067.json": {
+      "bytes": 16405,
+      "sha256": "0d138e80d529089fcddeb044342537a190521a1d8e0ffc434168304071541fd8"
+    },
+    "data/scout-cutover-20260909/http-staging/response-068.json": {
+      "bytes": 759468,
+      "sha256": "6813223023299d269859c29d1395b96d949e778b37a975c2f1373ed9e4896f5b"
+    },
+    "data/scout-cutover-20260909/http-staging/response-069.json": {
+      "bytes": 1093550,
+      "sha256": "f8fa6a700fba7ebb83be0fb090361e30a1f72e2a590392a0a6650b247f5eb61e"
+    },
+    "data/scout-cutover-20260909/http-staging/response-070.json": {
+      "bytes": 1004537,
+      "sha256": "be8f61aadb5783ed99739d44395c0f4b093fe74c8f701cc2e9755199008754db"
+    },
+    "data/scout-cutover-20260909/http-staging/response-071.json": {
+      "bytes": 634712,
+      "sha256": "4da87a6c1a7f70a3476f7872835ac83ea91291ba36ce4b7042c1ff3379b31fe3"
+    },
+    "data/scout-cutover-20260909/http-staging/response-072.json": {
+      "bytes": 924,
+      "sha256": "15f7642d55f50e2d1dcf4b2bfba85d135ded001a09830762560eec549c4c65c3"
+    },
+    "data/scout-cutover-20260909/http-staging/response-073.json": {
+      "bytes": 1380,
+      "sha256": "5576a5a9cbce2123c5aed73c897b29a3af65ae62d6a6f523357a8c887d7d1cce"
+    },
+    "data/scout-cutover-20260909/http-staging/response-074.json": {
+      "bytes": 1364,
+      "sha256": "aaf61c33eb16c28ad68ec87e88082733306fc38df981b387fa6fd7fd53cc29e9"
+    },
+    "data/scout-cutover-20260909/http-staging/response-075.json": {
+      "bytes": 1380,
+      "sha256": "09247d9ce42519980eb23dc032903d536348bc18019edcba3ac39479ea65ea66"
+    },
+    "data/scout-cutover-20260909/http-staging/response-076.json": {
+      "bytes": 1375,
+      "sha256": "5e895e43bf71b7cb5200c95ec8b9a0409975a1afc2fe6d62c5fc8337a5eeab04"
+    },
+    "data/scout-cutover-20260909/http-staging/response-077.json": {
+      "bytes": 924,
+      "sha256": "15f7642d55f50e2d1dcf4b2bfba85d135ded001a09830762560eec549c4c65c3"
+    },
+    "data/scout-cutover-20260909/http-staging/response-078.json": {
+      "bytes": 65459,
+      "sha256": "3665f14e5b249823f9c480806b3593a02b68946201b6c500629bc50220d9aa66"
+    },
+    "data/scout-cutover-20260909/http-staging/response-079.json": {
+      "bytes": 595161,
+      "sha256": "6b882d5021376af8a8824987a7ac4a2cc6049f0ae2e3808bdb83b990da85defd"
+    },
+    "data/scout-cutover-20260909/http-staging/response-080.json": {
+      "bytes": 457729,
+      "sha256": "3c85e5f4cc718cb60a3b34496cf4614518aacc8150961dec805e041ac043f01c"
+    },
+    "data/scout-cutover-20260909/http-staging/response-081.json": {
+      "bytes": 4946,
+      "sha256": "aa65e1590e201df17fc6a3dcc28cc0cf9afd0e46bc5b851180df27bd55a55941"
+    },
+    "data/scout-cutover-20260909/http-staging/response-082.json": {
+      "bytes": 5957,
+      "sha256": "6475a2b67aa573201df254dea25ac8aa1da9aca8b583d046b644342929b4d930"
+    },
+    "data/scout-cutover-20260909/http-staging/summary.json": {
+      "bytes": 420,
+      "sha256": "e5999e5c053f540c3e8735f0d8b50226e2623b70790495c879d62333f0cf7efc"
+    },
+    "data/scout-cutover-20260909/launchd/com.openmaps.national.plist": {
+      "bytes": 1937,
+      "sha256": "e2f2b0a105ab13f913bacf937b3af9ddb1c7060aef13af7eb40aaa3c32904fae"
+    },
+    "data/scout-cutover-20260909/launchd/com.openmaps.regional.plist": {
+      "bytes": 1792,
+      "sha256": "549747fb6b33e0e0c9fad8e86762928a9f2a7261900ea5c2b804db5987bc98aa"
+    },
+    "data/scout-cutover-20260909/national-launchd.txt": {
+      "bytes": 2498,
+      "sha256": "bb07e9a1392129d872be5669385beaaccfb44a92331c3115f8e7dc1486e73466"
+    },
+    "data/scout-cutover-20260909/national-live-health.json": {
+      "bytes": 878,
+      "sha256": "3afcbaa9a05d97af5f71341276c1eeb324a1448ed6000ec988984b3e9524f942"
+    },
+    "data/scout-cutover-20260909/national-live-lookup.log": {
+      "bytes": 3141,
+      "sha256": "fd09b0c3604657374f1bc08a299636865a4832430fd18081afafa29f68ec70e3"
+    },
+    "data/scout-cutover-20260909/national-live-startup.log": {
+      "bytes": 1620,
+      "sha256": "f32da24ad535212610339abb4251acdf60fb2e9c3d3772b490e74bcdc4d2b643"
+    },
+    "data/scout-cutover-20260909/national-live-tiles.bin": {
+      "bytes": 127,
+      "sha256": "35387ba2c571b854db58e9ba98bb25c3b198b00317cd47d5d6d0aa6702ece93c"
+    },
+    "data/scout-cutover-20260909/national-live-tiles.headers": {
+      "bytes": 234,
+      "sha256": "0f294839aed7e20102d5b6234bbad6bb67e9e092d8e0deea00b3ef20a3d45637"
+    },
+    "data/scout-cutover-20260909/offline.jsonl": {
+      "bytes": 6877613,
+      "sha256": "c3a8ed37fd289415c5f51e20be7d82871e3c20403798a46d31b2995d3b13a2b4"
+    },
+    "data/scout-cutover-20260909/offline.resources.json": {
+      "bytes": 700,
+      "sha256": "e497f48e5e9513d4ce00ee004192bc926690590f91aca4281a0ef34048a5de2e"
+    },
+    "data/scout-cutover-20260909/race.log": {
+      "bytes": 197,
+      "sha256": "0bd7bd0ba79f9365f52937fc3c932b61f4bcca31e5d7290454450ba6ef80f7f0"
+    },
+    "data/scout-cutover-20260909/regional-case.jsonl": {
+      "bytes": 10483,
+      "sha256": "ccff98b0d7a74f74e9eef21264970401c7e067183db6ebb7c5501ef81b76a6a4"
+    },
+    "data/scout-cutover-20260909/regional-integration.log": {
+      "bytes": 2769,
+      "sha256": "ec5dce9b45a25635e360af69d54c7fb0116dd9f2e8d78419bb2fad43ce4794b2"
+    },
+    "data/scout-cutover-20260909/regional-launchd-before-restart.txt": {
+      "bytes": 2381,
+      "sha256": "1daaf83d296da3e7b0ba2abdc75995abf07bce2871570cf3fe5e6471f40847cc"
+    },
+    "data/scout-cutover-20260909/regional-launchd.txt": {
+      "bytes": 2368,
+      "sha256": "86132bf554d8234854ce635632fcd22d3a0f2afe3fdfa7f03e9d6b7b29cff4ed"
+    },
+    "data/scout-cutover-20260909/regional-live-health.json": {
+      "bytes": 860,
+      "sha256": "2cf018958f3608c01e2a3592c30155114db982460ad1e248fe1457ea9fffc7c0"
+    },
+    "data/scout-cutover-20260909/regional-live-lookup-final.log": {
+      "bytes": 3141,
+      "sha256": "56f2dcad9d04be2133a1ad03d93e5cc7718e3d2c61cfae2e6cd9c8ab0cd81aea"
+    },
+    "data/scout-cutover-20260909/regional-live-lookup.log": {
+      "bytes": 420,
+      "sha256": "7ddf760eb32ebbe4d0f21988075d1e861c99da2a6d1e864ab1369a3f5d643de5"
+    },
+    "data/scout-cutover-20260909/regional-live-startup-final.log": {
+      "bytes": 180,
+      "sha256": "996b70f53605f3e707b3d57301f6fcb466a683cbe2a323c8a574bb7c8df2381b"
+    },
+    "data/scout-cutover-20260909/regional-live-startup.log": {
+      "bytes": 2790,
+      "sha256": "13cd8ddec446ac26973cc3c42e3ed1958430341d288d547a889aaa93fb8b0e33"
+    },
+    "data/scout-cutover-20260909/regional-live-tiles.bin": {
+      "bytes": 127,
+      "sha256": "35387ba2c571b854db58e9ba98bb25c3b198b00317cd47d5d6d0aa6702ece93c"
+    },
+    "data/scout-cutover-20260909/regional-live-tiles.headers": {
+      "bytes": 234,
+      "sha256": "848afc1af0951704c70759ecdd6338cfe376c65da697bb4bea906741f7bd5d26"
+    },
+    "data/scout-cutover-20260909/regional-restart.log": {
+      "bytes": 180,
+      "sha256": "996b70f53605f3e707b3d57301f6fcb466a683cbe2a323c8a574bb7c8df2381b"
+    },
+    "data/scout-cutover-20260909/regional-restarted-health.json": {
+      "bytes": 860,
+      "sha256": "2cf018958f3608c01e2a3592c30155114db982460ad1e248fe1457ea9fffc7c0"
+    },
+    "data/scout-cutover-20260909/regional-staging-health.json": {
+      "bytes": 860,
+      "sha256": "2cf018958f3608c01e2a3592c30155114db982460ad1e248fe1457ea9fffc7c0"
+    },
+    "data/scout-cutover-20260909/regional-staging-lookup.log": {
+      "bytes": 3141,
+      "sha256": "bdb8a89a6ad0e9f0864c8e783dd698321a9178648134668029c7ded79d862f70"
+    },
+    "data/scout-cutover-20260909/regional-staging-tiles.bin": {
+      "bytes": 127,
+      "sha256": "35387ba2c571b854db58e9ba98bb25c3b198b00317cd47d5d6d0aa6702ece93c"
+    },
+    "data/scout-cutover-20260909/regional-staging-tiles.headers": {
+      "bytes": 234,
+      "sha256": "86f896dd3a0a2861f7408708fa98cf7a8714ab4b3ae671fd44ba363935e1696d"
+    },
+    "data/scout-cutover-20260909/regional-staging.log": {
+      "bytes": 53,
+      "sha256": "00e15e8b25f4cc6057b3a119187b8701ebe49dcee9746740e674590fe4143446"
+    },
+    "data/scout-cutover-20260909/regional-staging.resources.json": {
+      "bytes": 664,
+      "sha256": "bddcfc02c1ca85dc8bcb4a99d21dab4ae7b04125dac1eebc4804570c657dfee3"
+    },
+    "data/scout-cutover-20260909/reports/regional/resources-20260910T045524Z-2863228823.json": {
+      "bytes": 874,
+      "sha256": "f826f0abb3ce8907021fb5d117827c5e909840607497e146fd27b644fec552a0"
+    },
+    "data/scout-cutover-20260909/rollback/lookup-selection.json": {
+      "bytes": 481,
+      "sha256": "d7070c4c86ff7221ea2691aae07fe37436b5d37fc878e12c7b2c5aa1c2e90aff"
+    },
+    "data/scout-cutover-20260909/rollback/national-health.json": {
+      "bytes": 699,
+      "sha256": "eef6013b431bc1f1758730326a2a5662c63e22efff13057bad9233a6c8ca192e"
+    },
+    "data/scout-cutover-20260909/rollback/national-help.txt": {
+      "bytes": 1151,
+      "sha256": "507a175ca7e873340b3a11a332a755235229d662eb1466c75e58a1c793a85c4c"
+    },
+    "data/scout-cutover-20260909/rollback/national-selection.json": {
+      "bytes": 44,
+      "sha256": "47166a9c5595612f32f85d622a7660bb7863d9f3017829635de720a985193e3a"
+    },
+    "data/scout-cutover-20260909/rollback/national.sh": {
+      "bytes": 821,
+      "sha256": "360983eac91e71b74a234c57360a10c4cebcdd101052f48dc3ed12963a59e02a"
+    },
+    "data/scout-cutover-20260909/rollback/regional-health.json": {
+      "bytes": 642,
+      "sha256": "8ca8b7b1f6a71b262e7b4959d0c86bd5893cd46ece58d219b81fe70212ea361c"
+    },
+    "data/scout-cutover-20260909/rollback/regional-help.txt": {
+      "bytes": 1008,
+      "sha256": "e3502f3eec662312106f0a25cacf79198f03620c6775e22f3af3c2c73eb0f025"
+    },
+    "data/scout-cutover-20260909/rollback/regional.sh": {
+      "bytes": 692,
+      "sha256": "a36913921bc726dc2525c2b2475b5202d352e9faa58e438e28b75c60a7340dfd"
+    },
+    "data/scout-cutover-20260909/staging-health.json": {
+      "bytes": 878,
+      "sha256": "3afcbaa9a05d97af5f71341276c1eeb324a1448ed6000ec988984b3e9524f942"
+    },
+    "data/scout-cutover-20260909/staging-lookup-final.log": {
+      "bytes": 3141,
+      "sha256": "30c8d8a6382f41d818090a6183367a31a7aade5d99efae0adaebbc3bf5cd9d94"
+    },
+    "data/scout-cutover-20260909/staging-lookup.log": {
+      "bytes": 333,
+      "sha256": "12f85f0bba5b039e3aa910d5fdbdc8dc65d0994eadeb9ef88d1363d7a1c80394"
+    },
+    "data/scout-cutover-20260909/staging-roundtrip-final.log": {
+      "bytes": 438,
+      "sha256": "8457e43d6c59e4d9aa78e22d09707f7eddd94d804885164632fecf806b44d5f0"
+    },
+    "data/scout-cutover-20260909/staging-roundtrip.log": {
+      "bytes": 163,
+      "sha256": "ef1358982d11303441a46f012d13e71d55403c18e093e582e6636276489f0999"
+    },
+    "data/scout-cutover-20260909/staging-selection.json": {
+      "bytes": 99,
+      "sha256": "6a9e7f4fe51d7a80353665aef8d78ad1120fb0c394eb3e0bd7bfc0f8d0f7acf6"
+    },
+    "data/scout-cutover-20260909/staging.log": {
+      "bytes": 630,
+      "sha256": "35acbd9efb5e7d1da9e52715fae18ee9fed37f246c9cb58cf692cc055ed111ef"
+    },
+    "data/scout-cutover-20260909/staging.resources.json": {
+      "bytes": 758,
+      "sha256": "0059222b19a9b052d7d976d6e6822020394a1a9bcbb4ebc1cbe7ba15fcfa6be2"
+    }
+  },
+  "services": {
+    "national": {
+      "url": "http://127.0.0.1:8097",
+      "label": "com.openmaps.national",
+      "health": {
+        "dataset": {
+          "path": "/Users/bs/Projects/openmaps/data/openmaps.sqlite",
+          "sha256": "b76ee297a476a67ed9883c1d5f8fb6ede17e5c4fba5525a3677600be824e3d13"
+        },
+        "exhaustive_source_coverage_verified": false,
+        "lookup_available": true,
+        "reload_error": "",
+        "routing_available": true,
+        "routing_candidate": {
+          "search": "astar-directed-landmarks-v2",
+          "snapshot": "453d3ad01d124f750fb80220d237c00da3ec5b0e939c64545e7c78cf09f3cc27",
+          "profile": "osm-scout-public-auto-v1",
+          "profile_note": "Experimental public-auto subset; provider edge speeds, no traffic or turn penalties; conditional speed payloads are not evaluated; destination-only access, excluded-road guards and address association are unsupported.",
+          "directory": "/Users/bs/Projects/openmaps/data/scout-national-20260909/national-aleutian-prepared",
+          "package_timestamp": "2026-06-20_07:12",
+          "dataset_id": 183131145
+        },
+        "routing_duration_available": true,
+        "status": "ok"
+      }
+    },
+    "regional": {
+      "url": "http://127.0.0.1:8096",
+      "label": "com.openmaps.regional",
+      "health": {
+        "dataset": {
+          "path": "/Users/bs/Projects/openmaps/data/openmaps.sqlite",
+          "sha256": "b76ee297a476a67ed9883c1d5f8fb6ede17e5c4fba5525a3677600be824e3d13"
+        },
+        "exhaustive_source_coverage_verified": false,
+        "lookup_available": true,
+        "reload_error": "",
+        "routing_available": true,
+        "routing_candidate": {
+          "search": "astar-geometric-v1",
+          "snapshot": "a95fc11c45adee7793394ef9e76d388dd7fea7464cc602098d1e5a9da1a2a7dd",
+          "profile": "osm-scout-public-auto-v1",
+          "profile_note": "Experimental public-auto subset; provider edge speeds, no traffic or turn penalties; conditional speed payloads are not evaluated; destination-only access, excluded-road guards and address association are unsupported.",
+          "directory": "/Users/bs/Projects/openmaps/data/scout-national-20260909/regional-prepared",
+          "package_timestamp": "2026-06-20_07:12",
+          "dataset_id": 183131145
+        },
+        "routing_duration_available": true,
+        "status": "ok"
+      }
+    }
+  },
+  "national_http": {
+    "bytes": 5198292,
+    "cases": 83,
+    "failures": [],
+    "max_seconds": 4.762739583,
+    "note": "Full JSON receive/parse and geometry equality; shared host OS cache, no physical-cold claim",
+    "p50_seconds": 0.085625916,
+    "p95_seconds": 1.065030083,
+    "passed": 83,
+    "requests": 83,
+    "seconds": 21.784870083,
+    "snapshots": [
+      "453d3ad01d124f750fb80220d237c00da3ec5b0e939c64545e7c78cf09f3cc27"
+    ],
+    "workers": 1
+  },
+  "offline": {
+    "cases": 83,
+    "routes_verified": 75,
+    "ordinary_reference_matches": 66,
+    "unreachable": 2,
+    "unsnappable": 6
+  },
+  "replacement": {
+    "requests": 801,
+    "failed": 0,
+    "bytes": 608333796,
+    "admitted": 2,
+    "rejected": 6
+  },
+  "runtime": "Per-user launchd -> Go supervisor -> unified Go server; PATH contains only ps; no Python or Valhalla executable",
+  "limitations": [
+    "Source defects and missing dependencies unchanged",
+    "No address routing or ferry connectivity",
+    "No physical-cold disk or exhaustive coverage claim",
+    "No automatic restart loop or pre-login system hosting"
+  ]
+}

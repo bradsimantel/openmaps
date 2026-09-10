@@ -94,9 +94,6 @@ func TestLandmarkPreparedPartialsAndCorruption(t *testing.T) {
 	if err := s.EnableLandmarks(ctx, dir, out); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.EnableBidirectional(ctx, dir); err != nil {
-		t.Fatal(err)
-	}
 	for _, a := range edges {
 		for _, b := range edges {
 			for _, fraction := range []float64{0, .01, .5, .99, 1} {
@@ -106,10 +103,6 @@ func TestLandmarkPreparedPartialsAndCorruption(t *testing.T) {
 				from, to := Snap{pa, pa, 0, a.ID, fraction}, Snap{pb, pb, 0, b.ID, 1 - fraction}
 				want, we := s.RouteSnaps(ctx, from, to, 1000)
 				got, ge := s.routeSnaps(ctx, from, to, 1000, true)
-				bi, be := s.routeBidirectionalSnaps(ctx, from, to, 1000)
-				if !(errors.Is(we, ErrUnreachable) && errors.Is(be, ErrUnreachable)) && (we != nil || be != nil || math.Abs(want.Seconds-bi.Seconds) > 1e-8) {
-					t.Fatalf("bidirectional landmark partial: %g %v vs %g %v", bi.Seconds, be, want.Seconds, we)
-				}
 				if errors.Is(we, ErrUnreachable) && errors.Is(ge, ErrUnreachable) {
 					continue
 				}

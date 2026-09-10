@@ -12,7 +12,7 @@ import (
 func syntheticPrepared(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	dir := filepath.Join(root, "candidate")
+	dir := filepath.Join(root, "snapshot")
 	budget := ScoutBudgets{CompressedBytes: 1 << 20, ExpandedBytes: 1 << 20, ReserveBytes: 32 << 30}
 	if err := diskReserve(root, 1<<20, budget.ReserveBytes); err != nil {
 		t.Skip("declared disk reserve unavailable")
@@ -26,14 +26,11 @@ func syntheticPrepared(t *testing.T) string {
 	if err := PrepareScoutPotential(context.Background(), dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareScoutReverseTurns(context.Background(), dir); err != nil {
-		t.Fatal(err)
-	}
 	return dir
 }
-func TestCandidateLeasesAndReplacement(t *testing.T) {
+func TestServiceLeasesAndReplacement(t *testing.T) {
 	dir := syntheticPrepared(t)
-	c, err := OpenCandidate(context.Background(), dir, 1, pageSize)
+	c, err := OpenService(context.Background(), dir, 1, pageSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +85,7 @@ func TestCandidateLeasesAndReplacement(t *testing.T) {
 	current.Close()
 	before, _ := c.Status()
 	if err := c.Replace(context.Background(), filepath.Join(t.TempDir(), "missing")); err == nil {
-		t.Fatal("accepted missing candidate")
+		t.Fatal("accepted missing snapshot")
 	}
 	after, reloadErr := c.Status()
 	if after.Snapshot != before.Snapshot || reloadErr == "" {
@@ -103,7 +100,7 @@ func TestCandidateLeasesAndReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := c.Acquire(); !errors.Is(err, ErrClosed) {
-		t.Fatal("acquired closed candidate")
+		t.Fatal("acquired closed snapshot")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "tiles.bin")); err != nil {
 		t.Fatal("retirement removed immutable graph")
@@ -119,9 +116,6 @@ func TestPotentialMatchesOrdinarySynthetic(t *testing.T) {
 	if err := s.EnablePotential(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.EnableBidirectional(context.Background(), dir); err != nil {
-		t.Fatal(err)
-	}
 	ordinary, path := fixture(t, true, true)
 	for _, fromFraction := range []float64{0, .25, .5, 1} {
 		for _, toFraction := range []float64{0, .5, .9, 1} {
@@ -130,7 +124,7 @@ func TestPotentialMatchesOrdinarySynthetic(t *testing.T) {
 			sa, _ := ordinary.Reader.Shape(a)
 			sb, _ := ordinary.Reader.Shape(b)
 			from, to := clip(sa.Points, fromFraction, fromFraction)[0], clip(sb.Points, toFraction, toFraction)[0]
-			got, err := s.RouteBidirectional(context.Background(), from, to, 1000)
+			got, err := s.RouteAccelerated(context.Background(), from, to, 1000)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -145,13 +139,13 @@ func TestPotentialMatchesOrdinarySynthetic(t *testing.T) {
 	}
 }
 
-func TestCandidateLandmarkOwnershipAndFailedLoad(t *testing.T) {
+func TestServiceLandmarkOwnershipAndFailedLoad(t *testing.T) {
 	ctx := context.Background()
 	dir := syntheticPrepared(t)
 	if err := PrepareLandmarks(ctx, dir, filepath.Join(dir, "landmarks"), []LandmarkSeed{{Name: "synthetic", Point: Point{8.749, 53.08}}}); err != nil {
 		t.Fatal(err)
 	}
-	c, err := OpenCandidate(ctx, dir, 1, pageSize)
+	c, err := OpenService(ctx, dir, 1, pageSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +156,7 @@ func TestCandidateLandmarkOwnershipAndFailedLoad(t *testing.T) {
 	}
 	defer lease.Close()
 	if lease.Metadata.Search != "astar-directed-landmarks-v2" || len(lease.Router.Reader.landmarkReaders) != 2 {
-		t.Fatal("candidate omitted landmark ownership/metadata")
+		t.Fatal("snapshot omitted landmark ownership/metadata")
 	}
 	readers := append([]*Reader(nil), lease.Router.Reader.landmarkReaders...)
 	bad := syntheticPrepared(t)

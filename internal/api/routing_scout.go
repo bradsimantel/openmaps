@@ -12,7 +12,7 @@ import (
 
 func (h Handler) computeScoutRoute(w http.ResponseWriter, r *http.Request, origin, destination routeWaypoint, paths []string) {
 	if origin.address != "" || destination.address != "" {
-		write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Scout supports coordinates only; it has no address evidence"}, "openmaps": object{"outcome": "address_routing_unavailable", "profile": valhallatiles.CandidateProfile}})
+		write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Scout supports coordinates only; it has no address evidence"}, "openmaps": object{"outcome": "address_routing_unavailable", "profile": valhallatiles.Profile}})
 		return
 	}
 	lease, err := h.Routing.Acquire()

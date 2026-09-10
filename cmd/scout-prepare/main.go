@@ -1,4 +1,4 @@
-// scout-prepare publishes a separate immutable provider-tile candidate.
+// scout-prepare publishes a separate immutable Scout graph snapshot.
 package main
 
 import (
@@ -26,7 +26,6 @@ func main() {
 }
 func run() error {
 	support := flag.Bool("reverse-support-only", false, "certify nodes where opposing indexes form a complete reverse view")
-	reverse := flag.Bool("reverse-turns-only", false, "prepare reverse prohibition index for bidirectional search")
 	potential := flag.Bool("potential-only", false, "prepare validated geometric A* lower bound")
 	turns := flag.Bool("turns-only", false, "prepare routing index for an existing prepared graph")
 	root := flag.String("root", "", "acquisition directory containing packages and receipts")
@@ -38,7 +37,7 @@ func run() error {
 	reserve := flag.Int64("reserve-gib", 32, "minimum remaining free disk GiB")
 	flag.Parse()
 	phases := 0
-	for _, enabled := range []bool{*support, *reverse, *potential, *turns} {
+	for _, enabled := range []bool{*support, *potential, *turns} {
 		if enabled {
 			phases++
 		}
@@ -56,9 +55,6 @@ func run() error {
 	defer cancel()
 	if *support {
 		return valhallatiles.PrepareReverseSupport(ctx, *out)
-	}
-	if *reverse {
-		return valhallatiles.PrepareScoutReverseTurns(ctx, *out)
 	}
 	if *potential {
 		return valhallatiles.PrepareScoutPotential(ctx, *out)

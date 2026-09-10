@@ -24,9 +24,6 @@ func TestPreparedScoutRegional(t *testing.T) {
 	if err := s.EnablePotential(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.EnableBidirectional(context.Background(), dir); err != nil {
-		t.Fatal(err)
-	}
 	if landmarks := os.Getenv("OPENMAPS_SCOUT_LANDMARKS"); landmarks != "" {
 		if err := s.EnableLandmarks(context.Background(), dir, landmarks); err != nil {
 			t.Fatal(err)
@@ -51,22 +48,11 @@ func TestPreparedScoutRegional(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
-			got, err := s.RouteBidirectional(ctx, tc.from, tc.to, 2000000)
+			got, err := s.RouteAccelerated(ctx, tc.from, tc.to, 2000000)
 			if err != nil {
 				t.Fatal(err)
 			}
 			verifyRoute(t, s, got)
-			if s.landmarks != nil {
-				alt, err := s.RoutePreparedSnaps(ctx, got.Origin, got.Destination, 2000000)
-				if err != nil {
-					t.Fatal(err)
-				}
-				verifyRoute(t, s, alt)
-				if math.Abs(alt.Seconds-got.Seconds) > 1e-6 {
-					t.Fatal("landmark answer differs from bidirectional")
-				}
-				t.Logf("ALT settled=%d labels=%d search_ms=%g", alt.Metrics.Settled, alt.Metrics.Labels, alt.Metrics.SearchMilliseconds)
-			}
 			want, err := s.RouteSnaps(ctx, got.Origin, got.Destination, 2000000)
 			if err != nil {
 				t.Fatal(err)

@@ -38,11 +38,6 @@ func (r *Reader) CacheReport() CacheReport {
 		out.Turns = &v
 		add(r.turnsReader)
 	}
-	if r.reverseTurnsReader != nil {
-		v := r.reverseTurnsReader.Stats
-		out.ReverseTurns = &v
-		add(r.reverseTurnsReader)
-	}
 	for _, child := range r.landmarkReaders {
 		out.Landmarks = append(out.Landmarks, child.Stats)
 		add(child)
@@ -57,9 +52,6 @@ func (r *Reader) ClearCache() {
 	}
 	for _, reader := range r.landmarkReaders {
 		reader.ClearCache()
-	}
-	if r.reverseTurnsReader != nil {
-		r.reverseTurnsReader.ClearCache()
 	}
 	if r.turnsReader != nil {
 		r.turnsReader.ClearCache()

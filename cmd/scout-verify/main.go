@@ -37,7 +37,6 @@ func main() {
 func run() error {
 	dir := flag.String("prepared", "", "prepared graph")
 	landmarks := flag.String("landmarks", "", "optional landmarks directory")
-	bidirectional := flag.Bool("bidirectional", false, "use bidirectional search with complete reverse preparation")
 	casesPath := flag.String("cases", "", "frozen coordinate case JSON array")
 	snaps := flag.Bool("snaps-only", false, "endpoint discovery without routing")
 	timeout := flag.Duration("timeout", 30*time.Second, "per-case calculation deadline")
@@ -83,11 +82,6 @@ func run() error {
 			return err
 		}
 	}
-	if *bidirectional {
-		if err := s.EnableBidirectional(ctx, *dir); err != nil {
-			return err
-		}
-	}
 	var verifier *valhallatiles.PathVerifier
 	if !*snaps {
 		verifier, err = valhallatiles.NewPathVerifier(ctx, s.Reader)
@@ -120,11 +114,7 @@ func run() error {
 		var got valhallatiles.Result
 		err = errors.Join(ae, be)
 		if err == nil && !*snaps {
-			if *bidirectional {
-				got, err = s.RouteBidirectionalSnaps(query, a, b, *labels)
-			} else {
-				got, err = s.RoutePreparedSnaps(query, a, b, *labels)
-			}
+			got, err = s.RoutePreparedSnaps(query, a, b, *labels)
 		}
 		row["calculation_seconds"] = time.Since(start).Seconds()
 		row["search_metrics"] = got.Metrics

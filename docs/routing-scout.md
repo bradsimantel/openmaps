@@ -7,7 +7,7 @@ engine. Places, geocoding, basemap serving and Scout share `cmd/server`.
 Lookup SQLite and routing pages have independent snapshot selections. The retired
 SQLite/PBF graph engines and transient provider backends are no longer built.
 
-The national candidate uses nine directed landmark pairs for long routes. Its
+The national snapshot uses nine directed landmark pairs for long routes. Its
 frozen qualification includes every state/DC, rural roads, international road
 legs, Alaska–lower-48 travel, Hawaii, disconnected islands and eastern-hemisphere
 Aleutian roads. See the [historical final qualification report](log/0034-national-scout-qualification.md)
@@ -74,7 +74,7 @@ checks size sidecars before downloading, streams one package at a time, and
 refuses changed bytes or receipts. Failed transfers remain partial; rerunning
 reuses verified packages and retries only the incomplete package.
 
-To reproduce the pinned candidate from its retained acquisition directory, copy
+To reproduce the pinned snapshot from its retained acquisition directory, copy
 the repository lock into that directory under a new plan name, then prepare into
 a new output directory. The root must retain the three pinned metadata files,
 `packages/` and `receipts/`:
@@ -88,7 +88,6 @@ go run ./cmd/scout-run-bounded --root data/scout-national-20260909 \
   -plan locked-acquisition.json -out data/scout-rebuilt
 
 data/scout-prepare -root data/scout-national-20260909 -out data/scout-rebuilt -turns-only
-data/scout-prepare -root data/scout-national-20260909 -out data/scout-rebuilt -reverse-turns-only
 data/scout-prepare -root data/scout-national-20260909 -out data/scout-rebuilt -potential-only
 data/scout-prepare -root data/scout-national-20260909 -out data/scout-rebuilt -reverse-support-only
 ```
@@ -111,7 +110,6 @@ go run ./cmd/scout-acquire fetch --root data/scout-next
 
 go run ./cmd/scout-prepare -root data/scout-next -out data/scout-prepared-next
 go run ./cmd/scout-prepare -root data/scout-next -out data/scout-prepared-next -turns-only
-go run ./cmd/scout-prepare -root data/scout-next -out data/scout-prepared-next -reverse-turns-only
 go run ./cmd/scout-prepare -root data/scout-next -out data/scout-prepared-next -potential-only
 ```
 
@@ -162,8 +160,8 @@ fails this conservative proof requires full landmark recomputation. This is a
 specific extension mechanism, not a general incremental shortest-path algorithm.
 
 The page index contains tile offsets and hashes; it does not expand nodes, roads
-or shapes into graph-sized memory. Forward and reversed prohibition
-tries are prepared into flat state/transition files. Serving uses sorted binary
+or shapes into graph-sized memory. Forward prohibition tries are prepared into
+flat state/transition files. Serving uses sorted binary
 lookup and a 4 MiB page cache per turn file, rather than reconstructing global
 restriction maps. Offline trie construction still uses bounded resident maps.
 
@@ -176,12 +174,8 @@ reciprocal transitions are checked. The minimum actual cost/geometric-distance
 ratio accounts for provider integer-length rounding. The bound does not assume
 that upstream hierarchy pruning is correct for this cost model.
 
-The optional bidirectional search uses balanced potentials and independently
-prepared forward/reversed prohibition automata. Meeting paths retain incoming
-and outgoing identities, validate the simple joining turn, and replay up to 33
-suffix edges through forward history. All ordinary road levels remain available;
-no provider shortcut or hierarchy-level pruning is used. The optional bidirectional landmark experiment did not solve the difficult
-national case within the HTTP budget; the serving strategy uses one-sided A*.
+All ordinary road levels remain available; no provider shortcut or hierarchy-level
+pruning is used. Serving and accelerated offline checks use one-sided A*.
 
 | Resource | Explicit limit or current default |
 | --- | --- |
@@ -190,7 +184,7 @@ national case within the HTTP budget; the serving strategy uses one-sided A*.
 | Tile index | 100,000 tiles, 64 MiB serialized metadata |
 | Offline turns | 250,000 rules, 2,000,000 trie states; 4,096 decoded rules per tile |
 | Runtime cache | CLI prepared pages up to 128 MiB; service default 128 MiB per independent reader (`-scout-cache-mib`), plus turn caches and fixed record caches |
-| Query | HTTP: 2,000,000 labels; offline admission: up to 4,000,000, including both frontiers and obsolete labels; 1,000,000 output positions; 30-second HTTP calculation timeout |
+| Query | HTTP: 2,000,000 labels; offline admission: up to 4,000,000, including obsolete labels; 1,000,000 output positions; 30-second HTTP calculation timeout |
 | Service | 1–4 readers; non-waiting shared admission across snapshot replacement and through HTTP encoding |
 
 These are resource admission and payload/record limits, **not hard RSS bounds**.
@@ -202,14 +196,16 @@ binary as its command so the sampled PID is the job itself.
 
 ## Unified service and snapshot lifetime
 
-The qualified local instance uses `127.0.0.1:8097` and
-`data/scout-national-20260909/national-aleutian-prepared`. The historical
-qualification report pins its binary and inputs; `/healthz` reports the current
-snapshot. The example below is for another prepared directory and unused port.
+The national instance uses `127.0.0.1:8097` and
+`data/scout-national-20260909/national-aleutian-prepared`; the regional instance
+uses `127.0.0.1:8096` and the retained `regional-prepared` directory. Both run
+the same unified Go binary with lookup, geocoding and basemap serving. See
+[local deployment](deployment.md) for service management and rollback.
+`/healthz` reports the loaded snapshot. The example uses an unused port:
 
 ```sh
 go run ./cmd/server -routing-scout data/scout-prepared-next \
-  -routing-concurrency 2 -listen 127.0.0.1:8096
+  -routing-concurrency 2 -listen 127.0.0.1:8106
 ```
 
 Use an unused loopback port. `-db` (default `data/openmaps.sqlite`) or
@@ -219,12 +215,11 @@ lookup for a routing-only service. The normal server always serves basemap files
 Neither selection changes the other's identity or resets routing admission.
 It implements the same explicit coordinate request subset and response masks at
 `POST /directions/v2:computeRoutes`; Google translation remains in `internal/api`.
-The current service uses one-sided A*. Bidirectional search is available in the
-offline harness with `-bidirectional`; `-accelerated` selects one-sided A* and
-omitting both selects ordinary Dijkstra.
+The service and `scout-verify` use one-sided A*. In `scout-audit`, `-accelerated`
+selects one-sided A*; omitting it selects ordinary Dijkstra.
 
 For landmark acceleration, prepare `landmarks/` inside the graph directory before
-selecting that immutable candidate:
+selecting that immutable snapshot:
 
 ```sh
 go build -o data/scout-landmarks ./cmd/scout-landmarks
@@ -255,11 +250,7 @@ explicit zero-cost hierarchy transitions, relaxing turns and node access only
 for the lower bound. It computes distances to/from each landmark. Serving uses
 conservative directed triangle inequalities with downward-quantized float32
 intervals; unreachable vector entries contribute no bound. Query traversal keeps
-the full access and turn constraints and can reopen states. With landmarks loaded, the offline bidirectional search uses two independent
-admissible endpoint bounds and reopens improved states. It stops when the maximum
-of the two minimum complete-path bounds reaches a verified joining cost; it does
-not add unbalanced landmark bounds. The service currently uses one-sided A*.
-Uniquely forced chains of at most 64 ordinary edges retain every source edge and
+the full access and turn constraints and can reopen states. Uniquely forced chains of at most 64 ordinary edges retain every source edge and
 the complete turn state; they stop at branches, hierarchy transitions and targets.
 
 Landmark preparation admits at most 128 million nodes and sixteen seeds. Dense
@@ -281,7 +272,7 @@ fast opposing-index reverse view; exceptional nodes enumerate every actual
 incoming ordinary edge, preserving many-to-one opposing identities. `CacheReport` includes these
 separate caches and their total retained payload limit.
 
-Candidate loading detects the optional `landmarks/` directory, requires its final
+Service loading detects the optional `landmarks/` directory, requires its final
 manifest, checks vector bytes and source bindings, and includes the landmark
 manifest in snapshot identity. Responses expose the selected search strategy.
 The offline harness accepts an external directory with `-accelerated -landmarks`.
@@ -298,10 +289,10 @@ excess concurrent work returns 429 with `Retry-After: 1`.
 
 `-scout-selection path.json` optionally watches a separate file containing
 `{"directory":"prepared-directory"}`. Relative directories resolve beside the
-selection file. A new candidate is fully loaded before publication; old response
+selection file. A new snapshot is fully loaded before publication; old response
 leases finish before retirement. Replacement shares the existing admission
 budget and serializes old/new overlap. A failed load preserves the old snapshot.
-The routing watcher does not read or write lookup deployment state. `/healthz` includes candidate
+The routing watcher does not read or write lookup deployment state. `/healthz` includes snapshot
 identity, load errors and an explicit statement that exhaustive upstream source
 coverage is unverified. Frozen route qualification is a separate measured report.
 
@@ -317,6 +308,9 @@ All supported acquisition, preparation, verification and serving commands are Go
 No Python installation or Valhalla executable is used. The resource supervisor
 uses the host's `ps` utility; optional macOS copy-on-write extension uses `cp -c`.
 Both are OS utilities, not routing engines. Compile supervised jobs first.
+For repeatable service starts, `scout-run-bounded -report-dir DIRECTORY` creates
+a distinct report per lifetime in an existing directory. It is exclusive with
+`-report FILE`; reports finish when the supervised process exits.
 
 ```sh
 go build -o data/scout-verify ./cmd/scout-verify

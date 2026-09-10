@@ -35,19 +35,7 @@ type preparedTurns struct {
 }
 
 func PrepareScoutTurns(ctx context.Context, dir string) error {
-	return prepareScoutTurns(ctx, dir, false)
-}
-func PrepareScoutReverseTurns(ctx context.Context, dir string) error {
-	return prepareScoutTurns(ctx, dir, true)
-}
-func prepareScoutTurns(ctx context.Context, dir string, reverse bool) error {
-	prefix := ""
-	schema := "openmaps-scout-routing-v1"
-	if reverse {
-		prefix = "reverse-"
-		schema = "openmaps-scout-routing-reverse-v1"
-	}
-	if _, err := os.Stat(filepath.Join(dir, prefix+"routing.json")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, "routing.json")); err == nil {
 		return errors.New("routing publication already exists")
 	} else if !os.IsNotExist(err) {
 		return err
@@ -57,7 +45,7 @@ func prepareScoutTurns(ctx context.Context, dir string, reverse bool) error {
 		return err
 	}
 	defer r.Close()
-	s, err := buildRouterOrder(ctx, r, maxTurnRules, maxTurnPrefixes, reverse)
+	s, err := buildRouter(ctx, r, maxTurnRules, maxTurnPrefixes)
 	if err != nil {
 		return err
 	}
@@ -106,7 +94,7 @@ func prepareScoutTurns(ctx context.Context, dir string, reverse bool) error {
 	if err := diskReserve(dir, padded, 32<<30); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, prefix+"turns.bin"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(filepath.Join(dir, "turns.bin"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
@@ -169,8 +157,8 @@ func prepareScoutTurns(ctx context.Context, dir string, reverse bool) error {
 	if hexSum(graph) != r.preparedSHA {
 		return errors.New("graph receipt changed during preparation")
 	}
-	receipt := turnsReceipt{ZeroAccessMaskHasNoRules: zeroAccessSafe, Schema: schema, GraphReceiptSHA256: hexSum(graph), SHA256: hex.EncodeToString(hash.Sum(nil)), Bytes: padded, States: len(s.prefixes), Transitions: counts, Rules: s.RestrictionCount, Timed: s.TimedRestrictionCount}
-	return publishJSON(dir, prefix+"routing.json", receipt)
+	receipt := turnsReceipt{ZeroAccessMaskHasNoRules: zeroAccessSafe, Schema: "openmaps-scout-routing-v1", GraphReceiptSHA256: hexSum(graph), SHA256: hex.EncodeToString(hash.Sum(nil)), Bytes: padded, States: len(s.prefixes), Transitions: counts, Rules: s.RestrictionCount, Timed: s.TimedRestrictionCount}
+	return publishJSON(dir, "routing.json", receipt)
 }
 func hexSum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 func publishJSON(dir, name string, value any) error {
@@ -203,19 +191,7 @@ func publishJSON(dir, name string, value any) error {
 // OpenPreparedRouter includes graph integrity, a graph-bound turns receipt and
 // structural turn validation. Closing its Reader releases both files/caches.
 func OpenPreparedRouter(ctx context.Context, dir string, cacheBytes int64) (*Router, error) {
-	return openPreparedRouter(ctx, dir, cacheBytes, false, "")
-}
-
-// ownedGraph is used only while attaching a reverse index to an already-open,
-// verified graph. That temporary result owns the turn file, not another graph.
-func openPreparedRouter(ctx context.Context, dir string, cacheBytes int64, reverse bool, ownedGraph string) (*Router, error) {
-	prefix := ""
-	schema := "openmaps-scout-routing-v1"
-	if reverse {
-		prefix = "reverse-"
-		schema = "openmaps-scout-routing-reverse-v1"
-	}
-	f, err := os.Open(filepath.Join(dir, prefix+"routing.json"))
+	f, err := os.Open(filepath.Join(dir, "routing.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +207,7 @@ func openPreparedRouter(ctx context.Context, dir string, cacheBytes int64, rever
 	if err := json.Unmarshal(b, &pin); err != nil {
 		return nil, err
 	}
-	if pin.Schema != schema || pin.States < 1 || pin.States > maxTurnPrefixes || pin.Transitions != pin.States-1 || pin.Rules < 0 || pin.Rules > maxTurnRules || pin.Timed < 0 || pin.Timed > pin.Rules || checkDigest(pin.SHA256) != nil {
+	if pin.Schema != "openmaps-scout-routing-v1" || pin.States < 1 || pin.States > maxTurnPrefixes || pin.Transitions != pin.States-1 || pin.Rules < 0 || pin.Rules > maxTurnRules || pin.Timed < 0 || pin.Timed > pin.Rules || checkDigest(pin.SHA256) != nil {
 		return nil, errors.New("invalid turns receipt")
 	}
 	need := int64(64 + 16*pin.States + 16*pin.Transitions)
@@ -245,17 +221,9 @@ func openPreparedRouter(ctx context.Context, dir string, cacheBytes int64, rever
 	if len(graph) > maxPreparedIndex || hexSum(graph) != pin.GraphReceiptSHA256 {
 		return nil, errors.New("foreign graph receipt")
 	}
-	var r *Reader
-	if ownedGraph != "" {
-		if !reverse || pin.GraphReceiptSHA256 != ownedGraph {
-			return nil, errors.New("reverse turns belong to a different opened graph")
-		}
-		r = &Reader{preparedSHA: ownedGraph}
-	} else {
-		r, err = OpenPreparedScout(ctx, dir, cacheBytes)
-		if err != nil {
-			return nil, err
-		}
+	r, err := OpenPreparedScout(ctx, dir, cacheBytes)
+	if err != nil {
+		return nil, err
 	}
 	ok := false
 	defer func() {
@@ -266,7 +234,7 @@ func openPreparedRouter(ctx context.Context, dir string, cacheBytes int64, rever
 	if r.preparedSHA != pin.GraphReceiptSHA256 {
 		return nil, errors.New("graph changed while loading routing snapshot")
 	}
-	tf, err := os.Open(filepath.Join(dir, prefix+"turns.bin"))
+	tf, err := os.Open(filepath.Join(dir, "turns.bin"))
 	if err != nil {
 		return nil, err
 	}
@@ -401,26 +369,4 @@ func (t *preparedTurns) advance(state int, edge ID) (int, bool, error) {
 		state = fail
 	}
 	return 0, false, errors.New("turn failure chain exceeded bound")
-}
-
-// EnableBidirectional loads the independently prepared reversed prohibition trie.
-func (s *Router) EnableBidirectional(ctx context.Context, dir string) error {
-	if s.reverseTurns != nil {
-		return errors.New("reverse turns already loaded")
-	}
-	if err := s.loadReverseSupport(ctx, dir); err != nil {
-		return err
-	}
-	r, err := openPreparedRouter(ctx, dir, pageSize, true, s.Reader.preparedSHA)
-	if err != nil {
-		return err
-	}
-	if r.Reader.preparedSHA != s.Reader.preparedSHA {
-		r.Reader.Close()
-		return errors.New("reverse turns belong to a different opened graph")
-	}
-	s.reverseTurns = r.turns
-	s.Reader.reverseTurnsReader = r.Reader.turnsReader
-	r.Reader.turnsReader = nil
-	return r.Reader.Close()
 }

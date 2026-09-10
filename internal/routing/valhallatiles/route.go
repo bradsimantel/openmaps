@@ -26,7 +26,6 @@ type Router struct {
 	prefixes                                []prefix
 	turns                                   *preparedTurns
 	secondsPerMeter                         float64
-	reverseTurns                            *preparedTurns
 	landmarks                               *landmarkTables
 	reverseSupport                          *reverseSupport
 	RestrictionCount, TimedRestrictionCount int
@@ -36,9 +35,6 @@ func NewRouter(r *Reader) (*Router, error) {
 	return buildRouter(context.Background(), r, 4096, 65536)
 }
 func buildRouter(ctx context.Context, r *Reader, maxRules, maxPrefixes int) (*Router, error) {
-	return buildRouterOrder(ctx, r, maxRules, maxPrefixes, false)
-}
-func buildRouterOrder(ctx context.Context, r *Reader, maxRules, maxPrefixes int, reverse bool) (*Router, error) {
 	s := &Router{Reader: r, prefixes: []prefix{{next: map[ID]int{}}}}
 	for _, id := range r.TileIDs() {
 		if err := ctx.Err(); err != nil {
@@ -49,11 +45,6 @@ func buildRouterOrder(ctx context.Context, r *Reader, maxRules, maxPrefixes int,
 			return nil, err
 		}
 		for _, restriction := range rs {
-			if reverse {
-				for i, j := 0, len(restriction.Path)-1; i < j; i, j = i+1, j-1 {
-					restriction.Path[i], restriction.Path[j] = restriction.Path[j], restriction.Path[i]
-				}
-			}
 			s.RestrictionCount++
 			if s.RestrictionCount > maxRules {
 				return nil, errors.New("complex restriction cap exceeded")
@@ -420,7 +411,7 @@ func (s *Router) RouteAccelerated(ctx context.Context, from, to Point, maxLabels
 	return result, err
 }
 func (s *Router) routeSnaps(ctx context.Context, a, b Snap, maxLabels int, accelerated bool) (Result, error) {
-	out := Result{Profile: CandidateProfile, ProfileNote: ProfileNote, Origin: a, Destination: b}
+	out := Result{Profile: Profile, ProfileNote: ProfileNote, Origin: a, Destination: b}
 	start := time.Now()
 	limit := 200000
 	if s.turns != nil {

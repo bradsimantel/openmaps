@@ -2,7 +2,8 @@
   "schema": 1,
   "date": "2026-09-09",
   "revision": "dc20ef2859e2d3fa4410d224d0c89ddbccb06c95",
-  "scope": "Uncommitted sole Scout backend and Go acquisition/preparation/verification migration",
+  "scope": "Sole Scout backend and Go acquisition/preparation/verification migration; evidence captured before commit",
+  "committed_revision": "8d4a688",
   "deleted_files": [
     "cmd/routing-prepare/main.go",
     "cmd/routing-valhalla/main.go",

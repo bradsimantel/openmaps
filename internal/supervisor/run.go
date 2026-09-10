@@ -17,13 +17,13 @@ import (
 )
 
 type Options struct {
-	Root, Report       string
-	RSSMiB, ReserveGiB int64
-	Command            []string
-	Stdout, Stderr     io.Writer
-	Interval           time.Duration
-	Free               func(string) (int64, error)
-	RSS                func(context.Context, int) (int64, error)
+	Root, Report, ReportDir string
+	RSSMiB, ReserveGiB      int64
+	Command                 []string
+	Stdout, Stderr          io.Writer
+	Interval                time.Duration
+	Free                    func(string) (int64, error)
+	RSS                     func(context.Context, int) (int64, error)
 }
 type Report struct {
 	Command    []string         `json:"command"`
@@ -58,6 +58,9 @@ func Run(ctx context.Context, o Options) (report Report, err error) {
 	if len(o.Command) == 0 || o.RSSMiB < 1 || o.RSSMiB > 8192 || o.ReserveGiB < 32 || o.ReserveGiB > 1024 {
 		return report, errors.New("command and valid headroom budgets required")
 	}
+	if (o.Report == "") == (o.ReportDir == "") {
+		return report, errors.New("choose exactly one report filename or report directory")
+	}
 	if o.Free == nil {
 		o.Free = freeDisk
 	}
@@ -67,7 +70,14 @@ func Run(ctx context.Context, o Options) (report Report, err error) {
 	if o.Interval <= 0 {
 		o.Interval = 200 * time.Millisecond
 	}
-	f, e := os.OpenFile(o.Report, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	var f *os.File
+	var e error
+	if o.ReportDir != "" {
+		// Service restarts retain a distinct report for every supervised lifetime.
+		f, e = os.CreateTemp(o.ReportDir, "resources-"+time.Now().UTC().Format("20060102T150405Z")+"-*.json")
+	} else {
+		f, e = os.OpenFile(o.Report, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	}
 	if e != nil {
 		return report, e
 	}

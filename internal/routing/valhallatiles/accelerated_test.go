@@ -39,16 +39,11 @@ func testTurnTable(s *Router) *preparedTurns {
 	}
 	return &preparedTurns{t: &tile{b: data, size: len(data)}, states: len(s.prefixes), transitions: count}
 }
-func TestBidirectionalAdversarialPartials(t *testing.T) {
+func TestAcceleratedAdversarialPartials(t *testing.T) {
 	for _, simple := range []bool{false, true} {
 		for _, complex := range []bool{false, true} {
 			s, _ := fixture(t, simple, complex)
-			reverse, err := buildRouterOrder(context.Background(), s.Reader, 4096, 65536, true)
-			if err != nil {
-				t.Fatal(err)
-			}
 			s.turns = testTurnTable(s)
-			s.reverseTurns = testTurnTable(reverse)
 			var edges []Edge
 			s.secondsPerMeter = math.Inf(1)
 			for _, id := range s.Reader.TileIDs() {
@@ -90,16 +85,9 @@ func TestBidirectionalAdversarialPartials(t *testing.T) {
 				pa, pb := clip(sa.Points, fa, fa)[0], clip(sb.Points, fb, fb)[0]
 				from, to := Snap{pa, pa, 0, a.ID, fa}, Snap{pb, pb, 0, b.ID, fb}
 				want, we := s.RouteSnaps(context.Background(), from, to, 1000)
-				got, ge := s.routeBidirectionalSnaps(context.Background(), from, to, 1000)
 				accelerated, ae := s.routeSnaps(context.Background(), from, to, 1000, true)
 				if !(errors.Is(we, ErrUnreachable) && errors.Is(ae, ErrUnreachable)) && (we != nil || ae != nil || math.Abs(accelerated.Seconds-want.Seconds) > 1e-8) {
 					t.Fatalf("forced A* differs: %g %v vs %g %v", accelerated.Seconds, ae, want.Seconds, we)
-				}
-				if errors.Is(we, ErrUnreachable) && errors.Is(ge, ErrUnreachable) {
-					continue
-				}
-				if we != nil || ge != nil || math.Abs(got.Seconds-want.Seconds) > 1e-8 {
-					t.Fatalf("simple=%v complex=%v case=%d %s/%g to %s/%g: bidirectional %g %v, reference %g %v", simple, complex, iteration, a.ID, fa, b.ID, fb, got.Seconds, ge, want.Seconds, we)
 				}
 			}
 		}

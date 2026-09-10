@@ -48,7 +48,7 @@ func (s *Router) EnableLandmarksWithCache(ctx context.Context, dir, landmarkDir 
 	if err != nil {
 		return err
 	}
-	if manifest.Schema != landmarkSchema || manifest.GraphReceiptSHA256 != hexSum(graph) || manifest.GraphReceiptSHA256 != s.Reader.preparedSHA || manifest.Profile != CandidateProfile || len(manifest.Entries) < 1 || len(manifest.Entries) > maxLandmarks {
+	if manifest.Schema != landmarkSchema || manifest.GraphReceiptSHA256 != hexSum(graph) || manifest.GraphReceiptSHA256 != s.Reader.preparedSHA || manifest.Profile != Profile || len(manifest.Entries) < 1 || len(manifest.Entries) > maxLandmarks {
 		return errors.New("foreign or unsupported landmark publication")
 	}
 	if manifest.ReindexedFrom != "" || manifest.ExtensionSHA256 != "" {

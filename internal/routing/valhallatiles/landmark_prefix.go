@@ -28,7 +28,7 @@ func PublishLandmarkPrefix(ctx context.Context, dir, built, out string, count in
 	if err := json.Unmarshal(b, &config); err != nil {
 		return err
 	}
-	if config.Schema != landmarkSchema || config.Profile != CandidateProfile || count > len(config.Seeds) {
+	if config.Schema != landmarkSchema || config.Profile != Profile || count > len(config.Seeds) {
 		return errors.New("foreign or incomplete landmark build")
 	}
 	r, err := OpenPreparedScout(ctx, dir, pageSize)

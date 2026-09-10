@@ -94,7 +94,6 @@ type Reader struct {
 	closed               bool
 	turnsReader          *Reader
 	records              *recordCache
-	reverseTurnsReader   *Reader
 	skipEmptyAccessRules bool
 	landmarkReaders      []*Reader
 	version              string
@@ -126,10 +125,6 @@ func (r *Reader) Close() error {
 		err = errors.Join(err, reader.Close())
 	}
 	r.landmarkReaders = nil
-	if r.reverseTurnsReader != nil {
-		err = errors.Join(err, r.reverseTurnsReader.Close())
-		r.reverseTurnsReader = nil
-	}
 	if r.turnsReader != nil {
 		err = errors.Join(err, r.turnsReader.Close())
 		r.turnsReader = nil

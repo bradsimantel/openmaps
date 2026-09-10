@@ -8,15 +8,15 @@ import (
 	"sync"
 )
 
-const CandidateProfile = "osm-scout-public-auto-v1"
+const Profile = "osm-scout-public-auto-v1"
 
-var ErrBusy = errors.New("candidate routing concurrency budget exhausted")
-var ErrClosed = errors.New("candidate closed")
+var ErrBusy = errors.New("service routing concurrency budget exhausted")
+var ErrClosed = errors.New("service closed")
 var ErrUnreachable = errors.New("unreachable under the retained graph and supported profile")
 var ErrUnsnappable = errors.New("unsnappable within 100 metres")
 var ErrQueryBudget = errors.New("query label budget exhausted")
 
-type CandidateMetadata struct {
+type ServiceMetadata struct {
 	Search    string `json:"search"`
 	Snapshot  string `json:"snapshot"`
 	Profile   string `json:"profile"`
@@ -25,14 +25,14 @@ type CandidateMetadata struct {
 	Timestamp string `json:"package_timestamp"`
 	Dataset   uint64 `json:"dataset_id"`
 }
-type candidateSnapshot struct {
-	metadata  CandidateMetadata
+type serviceSnapshot struct {
+	metadata  ServiceMetadata
 	available chan *Router
 	readers   []*Router
 	leases    sync.WaitGroup
 }
 
-func (s *candidateSnapshot) close() error {
+func (s *serviceSnapshot) close() error {
 	if s == nil {
 		return nil
 	}
@@ -44,35 +44,35 @@ func (s *candidateSnapshot) close() error {
 	return err
 }
 
-// Candidate owns an immutable generation and a fixed pool of independent,
+// Service owns an immutable generation and a fixed pool of independent,
 // single-owner readers. A lease covers response encoding as well as routing.
 // Replace serializes old/new overlap and retires old readers after their leases.
-type Candidate struct {
+type Service struct {
 	mu          sync.Mutex
 	replacement sync.Mutex
-	snapshot    *candidateSnapshot
+	snapshot    *serviceSnapshot
 	closed      bool
 	workers     int
 	cacheBytes  int64
 	reloadError string
 	slots       chan struct{}
 }
-type CandidateLease struct {
-	Router    *Router
-	Metadata  CandidateMetadata
-	snapshot  *candidateSnapshot
-	once      sync.Once
-	candidate *Candidate
+type Lease struct {
+	Router   *Router
+	Metadata ServiceMetadata
+	snapshot *serviceSnapshot
+	once     sync.Once
+	service  *Service
 }
 
-func (l *CandidateLease) Close() {
-	l.once.Do(func() { l.snapshot.available <- l.Router; l.snapshot.leases.Done(); l.candidate.slots <- struct{}{} })
+func (l *Lease) Close() {
+	l.once.Do(func() { l.snapshot.available <- l.Router; l.snapshot.leases.Done(); l.service.slots <- struct{}{} })
 }
-func OpenCandidate(ctx context.Context, dir string, workers int, cacheBytes int64) (*Candidate, error) {
+func OpenService(ctx context.Context, dir string, workers int, cacheBytes int64) (*Service, error) {
 	if workers < 1 || workers > 4 || cacheBytes < pageSize || cacheBytes > 128<<20 {
-		return nil, errors.New("candidate supports 1..4 readers, 64 KiB..128 MiB cache each")
+		return nil, errors.New("service supports 1..4 readers, 64 KiB..128 MiB cache each")
 	}
-	c := &Candidate{workers: workers, cacheBytes: cacheBytes, slots: make(chan struct{}, workers)}
+	c := &Service{workers: workers, cacheBytes: cacheBytes, slots: make(chan struct{}, workers)}
 	for i := 0; i < workers; i++ {
 		c.slots <- struct{}{}
 	}
@@ -81,7 +81,7 @@ func OpenCandidate(ctx context.Context, dir string, workers int, cacheBytes int6
 	}
 	return c, nil
 }
-func (c *Candidate) Replace(ctx context.Context, dir string) error {
+func (c *Service) Replace(ctx context.Context, dir string) error {
 	c.replacement.Lock()
 	defer c.replacement.Unlock()
 	c.mu.Lock()
@@ -94,7 +94,7 @@ func (c *Candidate) Replace(ctx context.Context, dir string) error {
 	if err != nil {
 		return err
 	}
-	next := &candidateSnapshot{available: make(chan *Router, c.workers)}
+	next := &serviceSnapshot{available: make(chan *Router, c.workers)}
 	ok := false
 	defer func() {
 		if !ok {
@@ -126,11 +126,12 @@ func (c *Candidate) Replace(ctx context.Context, dir string) error {
 			landmarkHash = r.landmarks.fingerprint
 			search = "astar-directed-landmarks-v2"
 		}
+		// Preserve the versioned hash domain so existing snapshot IDs stay stable.
 		fingerprint := hexSum([]byte("scout-candidate-v2\n" + r.Reader.preparedSHA + "\n" + r.routingSHA + "\n" + r.potentialSHA + "\n" + landmarkHash))
 		if i == 0 {
-			next.metadata = CandidateMetadata{Timestamp: r.Reader.preparedTimestamp, Dataset: r.Reader.preparedDataset, Snapshot: fingerprint, Profile: CandidateProfile, Note: ProfileNote, Directory: abs, Search: search}
+			next.metadata = ServiceMetadata{Timestamp: r.Reader.preparedTimestamp, Dataset: r.Reader.preparedDataset, Snapshot: fingerprint, Profile: Profile, Note: ProfileNote, Directory: abs, Search: search}
 		} else if fingerprint != next.metadata.Snapshot {
-			err := errors.New("candidate files changed between worker loads")
+			err := errors.New("service files changed between worker loads")
 			c.setReloadError(err)
 			return err
 		}
@@ -147,13 +148,13 @@ func (c *Candidate) Replace(ctx context.Context, dir string) error {
 	ok = true
 	return previous.close()
 }
-func (c *Candidate) setReloadError(err error) {
+func (c *Service) setReloadError(err error) {
 	c.RecordSelectionError(err)
 }
 
 // RecordSelectionError exposes a failed selection-file read/parse while keeping
 // the current immutable snapshot available. Passing nil clears the diagnostic.
-func (c *Candidate) RecordSelectionError(err error) {
+func (c *Service) RecordSelectionError(err error) {
 	c.mu.Lock()
 	c.reloadError = ""
 	if err != nil {
@@ -161,7 +162,7 @@ func (c *Candidate) RecordSelectionError(err error) {
 	}
 	c.mu.Unlock()
 }
-func (c *Candidate) Acquire() (*CandidateLease, error) {
+func (c *Service) Acquire() (*Lease, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed || c.snapshot == nil {
@@ -176,21 +177,21 @@ func (c *Candidate) Acquire() (*CandidateLease, error) {
 	select {
 	case r := <-s.available:
 		s.leases.Add(1)
-		return &CandidateLease{Router: r, Metadata: s.metadata, snapshot: s, candidate: c}, nil
+		return &Lease{Router: r, Metadata: s.metadata, snapshot: s, service: c}, nil
 	default:
 		c.slots <- struct{}{}
 		return nil, ErrBusy
 	}
 }
-func (c *Candidate) Status() (CandidateMetadata, string) {
+func (c *Service) Status() (ServiceMetadata, string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.snapshot == nil {
-		return CandidateMetadata{}, c.reloadError
+		return ServiceMetadata{}, c.reloadError
 	}
 	return c.snapshot.metadata, c.reloadError
 }
-func (c *Candidate) Close() error {
+func (c *Service) Close() error {
 	c.replacement.Lock()
 	defer c.replacement.Unlock()
 	c.mu.Lock()

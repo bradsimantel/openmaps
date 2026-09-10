@@ -287,6 +287,9 @@ source-backed regional cases, concurrent replacement and measured resource use.
 These SQLite routing designs have been retired; [Scout](docs/routing-scout.md)
 describes the current architecture.
 
+The [local deployment guide](docs/deployment.md) describes the Go-supervised
+national and regional services, graceful restarts and retained rollback commands.
+
 ## Current limitations and next work
 
 - Limited geography and English request options; no global/IP bias, spatial or
