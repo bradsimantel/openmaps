@@ -68,7 +68,7 @@
       ]
     },
     {
-      "source": "fixture:way",
+      "source": "fixture:segment",
       "source_id": "1",
       "release": "fixture-v1",
       "priority": 100,
@@ -95,7 +95,7 @@
       ]
     },
     {
-      "source": "fixture:way",
+      "source": "fixture:segment",
       "source_id": "2",
       "release": "fixture-v1",
       "priority": 100,

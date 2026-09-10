@@ -114,12 +114,6 @@ func FetchSources(ctx context.Context, m Manifest, dir string, rewriteExports bo
 	}
 	for index, input := range m.Inputs {
 		path := filepath.Join(dir, input.File)
-		if strings.HasSuffix(input.File, ".osm.pbf") {
-			if e := download(ctx, input.URL, path, input.SHA256); e != nil {
-				return m, e
-			}
-			continue
-		}
 		if _, e := os.Stat(path); e == nil && !rewriteExports {
 			if e = Verify(path, input.SHA256); e != nil {
 				return m, e
@@ -357,7 +351,7 @@ func parquetFeature(row map[string]any, schema *parquet.Schema) (map[string]any,
 	if !ok {
 		return nil, fmt.Errorf("expected binary WKB geometry")
 	}
-	point, e := pointWKB([]byte(geometry))
+	decoded, e := geometryWKB([]byte(geometry))
 	if e != nil {
 		return nil, e
 	}
@@ -369,23 +363,49 @@ func parquetFeature(row map[string]any, schema *parquet.Schema) (map[string]any,
 		}
 		props[name] = parquetJSON(row[name], field)
 	}
-	return map[string]any{"type": "Feature", "geometry": map[string]any{"type": "Point", "coordinates": point}, "properties": props}, nil
+	return map[string]any{"type": "Feature", "geometry": decoded, "properties": props}, nil
 }
-func pointWKB(b []byte) ([2]float64, error) {
-	var point [2]float64
-	if len(b) != 21 || (b[0] != 0 && b[0] != 1) {
-		return point, fmt.Errorf("expected 2D WKB Point")
+func geometryWKB(b []byte) (map[string]any, error) {
+	if len(b) < 5 || (b[0] != 0 && b[0] != 1) {
+		return nil, fmt.Errorf("expected 2D WKB Point or LineString")
 	}
 	var order binary.ByteOrder = binary.LittleEndian
 	if b[0] == 0 {
 		order = binary.BigEndian
 	}
-	if order.Uint32(b[1:5]) != 1 {
-		return point, fmt.Errorf("expected WKB Point type")
+	switch geometryType := order.Uint32(b[1:5]); geometryType {
+	case 1:
+		if len(b) != 21 {
+			return nil, fmt.Errorf("invalid 2D WKB Point length")
+		}
+		point := [2]float64{math.Float64frombits(order.Uint64(b[5:13])), math.Float64frombits(order.Uint64(b[13:21]))}
+		if !validLocationCoordinates(point) {
+			return nil, fmt.Errorf("invalid WKB Point coordinate")
+		}
+		return map[string]any{"type": "Point", "coordinates": point}, nil
+	case 2:
+		if len(b) < 9 {
+			return nil, fmt.Errorf("invalid 2D WKB LineString length")
+		}
+		count := uint64(order.Uint32(b[5:9]))
+		if count < 2 || count > uint64((len(b)-9)/16) || 9+16*count != uint64(len(b)) {
+			return nil, fmt.Errorf("invalid 2D WKB LineString coordinates")
+		}
+		points := make([][2]float64, int(count))
+		for i := range points {
+			offset := 9 + i*16
+			points[i] = [2]float64{math.Float64frombits(order.Uint64(b[offset : offset+8])), math.Float64frombits(order.Uint64(b[offset+8 : offset+16]))}
+			if !validLocationCoordinates(points[i]) {
+				return nil, fmt.Errorf("invalid WKB LineString coordinate")
+			}
+		}
+		return map[string]any{"type": "LineString", "coordinates": points}, nil
+	default:
+		return nil, fmt.Errorf("unsupported 2D WKB geometry type: %d", geometryType)
 	}
-	point[0] = math.Float64frombits(order.Uint64(b[5:13]))
-	point[1] = math.Float64frombits(order.Uint64(b[13:21]))
-	return point, nil
+}
+func validLocationCoordinates(point [2]float64) bool {
+	return !math.IsNaN(point[0]) && !math.IsNaN(point[1]) && !math.IsInf(point[0], 0) && !math.IsInf(point[1], 0) && point[0] >= -180 && point[0] <= 180 && point[1] >= -90 && point[1] <= 90
 }
 
 // Keep Arrow's map-as-pairs representation used in existing source records.

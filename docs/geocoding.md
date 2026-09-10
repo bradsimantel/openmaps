@@ -5,6 +5,9 @@ Open Maps implements a limited **Google Geocoding API v3 HTTP JSON** surface at
 using their existing public IDs and source coordinates. It does not geocode
 business names, interpolate addresses or return street/locality fallbacks.
 Places autocomplete and details remain separate operations.
+Their street results now come from Overture Transportation segments; forward and
+reverse geocoding continue to use only Overture address points and do not use
+street-segment geometry as an address fallback.
 
 ## Requests and responses
 

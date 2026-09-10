@@ -143,8 +143,8 @@ func (s *Store) Autocomplete(ctx context.Context, input string) ([]Entity, error
 		if err != nil {
 			return nil, err
 		}
-		// Ways retain individual stable identities; collapse repeated street labels
-		// only in suggestions, using the first ranked way as representative.
+		// Segments retain individual stable identities; collapse repeated street
+		// labels only in suggestions, using the first ranked segment as representative.
 		if e.Kind == "street" {
 			k := Normalize(e.Name)
 			if seenStreets[k] {

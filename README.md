@@ -12,8 +12,8 @@ Both show source precision and preserve ambiguous identities. It uses real regio
 imports, not demo data embedded in the client.
 
 Repeatable snapshot builds, identity review, comparison, live selection and rollback
-are implemented in the [Newport refresh workflow](docs/refresh.md). The original
-August data remains the baseline; the second pinned release is a historical July
+are implemented in the [Newport refresh workflow](docs/refresh.md). Overture
+2026-08-19.0 remains the baseline release; the second pin is a historical July
 rehearsal, not a newer Overture release.
 
 **Scout is the sole routing backend.** Go reads pinned Scout Valhalla 3.4.0
@@ -47,8 +47,12 @@ go run ./cmd/basemap
 go run ./cmd/server
 ```
 
-The pipeline is Go code in this repository. If a C compiler or zlib headers are
-unavailable, prefix Go commands with `CGO_ENABLED=0` to use pure Go PBF decoding.
+The acquisition, GeoParquet decoding, normalization and SQLite build pipeline is
+Go code in this repository.
+The importer intentionally refuses to overwrite a database. A local
+`data/openmaps.sqlite` built before the Transportation change recorded in
+[historical log 0038](docs/log/0038-overture-transportation-street-import.md)
+must be archived or removed before running the default import command.
 
 Open **http://127.0.0.1:8080**. Try `White Horse`, `50 Bellevue`, `Thames`, or
 `Newport`. Click a suggestion; keyboard users can press Down from the input and
@@ -69,8 +73,8 @@ and unverified off-road gaps. Routes outside the Newport basemap can still be
 returned, although the local basemap has no tiles there.
 
 `data/` is ignored by Git.
-The OSM regional PBF is about 52 MB; canonical Overture subsets and SQLite add
-further local storage. The Protomaps cutout is about 3.8 MB. Internet is required
+The four canonical regional Overture exports and catalog are about 12 MB; SQLite
+adds about 34 MB. The Protomaps cutout is about 3.8 MB. Internet is required
 for initial downloads, esm.sh browser libraries and Protomaps-hosted fonts/sprites.
 Lookup APIs
 and local basemap tile requests work without external services after import.
@@ -158,7 +162,7 @@ independent of the Newport lookup rectangle.
 | Businesses and POIs | Overture Places 2026-08-19.0 | 2,173 |
 | Standalone address points | Overture Addresses 2026-08-19.0, NAD-derived | 8,545 |
 | Settlements and administrative context | Overture Divisions 2026-08-19.0 | 4 |
-| Named street ways | Geofabrik Rhode Island OSM PBF 2026-08-01 | 880 |
+| Named road segments | Overture Transportation 2026-08-19.0 | 1,621 |
 
 51 explicitly closed businesses are excluded from autocomplete but retain details.
 There are 1,181 conservative business/address links and three area-parent links.
@@ -168,7 +172,36 @@ The four areas include available parents outside the launch rectangle.
 duplicate labels, relationships, coverage gaps and the decision to defer a
 supplemental source. It distinguishes address points from business address
 strings and area label points from boundaries. `data/audit.json` is regenerated
-by the import adapter.
+by the import adapter and records Transportation segment selection separately
+from imported street counts.
+
+The [Overture Transportation](https://docs.overturemaps.org/guides/transportation/)
+export contains all 4,463 segments whose source bounding box
+intersects the launch rectangle. Import then requires `subtype=road`, a nonempty
+primary name and an actual centerline intersection with the inclusive rectangle.
+This retains 1,621 named road segments; 2,835 unnamed roads and seven non-road
+segments remain in the pinned source artifact but are not Places street entities.
+Every retained segment keeps its own `overture:segment` source ID and public ID,
+even when many segments have the same name. Autocomplete may collapse equal
+labels in its five suggestions, but details always identifies one segment, not a
+merged or complete street.
+
+Street aliases include `names.common` values and `names.rules` values. The full
+raw feature retains language, variant, geometric range, side and perspective
+scope that the search index itself cannot express. A street's displayed point is
+the distance midpoint of the portions of its centerline inside the rectangle:
+edges are clipped to the closed rectangle, their spherical lengths are summed,
+and the midpoint is linearly interpolated in WGS84 longitude/latitude. It is a
+search marker for that segment, not an address, entrance, routing snap or claim
+about the whole named street.
+
+The retired direct OSM import produced 880 named ways with 541 distinct primary
+labels. Overture produces more, shorter segments but 535 distinct primary labels,
+so record counts are not a coverage target. Its primary labels omit six former
+labels: `Clematis`, `Hammet Place`, `Katzman Place`, `Linden`, and `Willow` remain
+searchable as scoped aliases on other named segments; `Colbert Plaza` is absent
+from the pinned Transportation subset. No new primary label appears. This is a
+meaningful source-model difference, not evidence that every road gained coverage.
 
 [Source locks](imports/newport.lock.json) record versions, URLs, bounds,
 checksums and attribution references. The [normalized bundle checksum](imports/newport.bundle.sha256)
@@ -196,7 +229,7 @@ are never used as lookup data. Upstream notices are linked on the demo's
 
 ```text
 cmd/server/         Go HTTP service
-cmd/prepare/        Pinned acquisition, regional normalization and audit
+cmd/prepare/        Pinned Overture acquisition, normalization and selection audit
 cmd/import/         Checksum-verified SQLite builder
 cmd/scout-acquire/  Complete provider metadata, selection, resumable downloads
 cmd/scout-prepare/  Immutable routing graph and index publication
@@ -225,7 +258,7 @@ One Go service reads SQLite with FTS5. Geocoding loads an immutable address inde
 from the same read-only snapshot; reverse lookup scans the small regional set.
 Routing-enabled snapshots also load an immutable directed graph and turn-restriction
 index. Activation replaces all available domains together. The owned Go import pipeline uses
-`parquet-go` for cloud GeoParquet and `paulmach/osm` for PBF decoding; provider
+`parquet-go` for cloud GeoParquet and decodes Overture Point and LineString WKB; provider
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
@@ -246,7 +279,8 @@ go vet ./...
 
 These cover API response shapes and errors, masks, search ranking, accents,
 street abbreviations, repeated street labels, distinct repeated address labels,
-closed-place behavior, dateline coordinates, multilingual Parquet and PBF parsing,
+closed-place behavior, dateline coordinates, multilingual Point and LineString
+GeoParquet parsing, Transportation selection and clipped representative points,
 HTTP range validation, cancellation, checksums,
 relationships, rejected imports, stable IDs across reordered/released imports,
 and source enrichment/replacement without changing existing IDs. Refresh tests cover
@@ -305,8 +339,10 @@ national and regional services, graceful restarts and retained rollback commands
   retained verbatim in Places. Geocoding supports
   8,407 of 8,545 source labels; 138 nonstandard forms remain excluded from both
   geocoding directions. Coverage and source positional accuracy are not certified.
-- Streets are source ways, with a representative vertex. Area locations are
-  labels. Neither means an entrance, rooftop guarantee, boundary or routing snap.
+- Streets are individual Overture road segments, with a representative point on
+  the in-region part of their centerline. Equal names are not merged into a
+  street-wide identity. Area locations are labels. Neither means an entrance,
+  rooftop guarantee, boundary or routing snap.
 - Freshness follows pinned snapshots. Refreshes support reviewed one-to-one
   provider ID replacements and retain uncertain splits/merges as distinct IDs.
   No scheduling or automatic release discovery is implemented. Retain source

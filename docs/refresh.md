@@ -8,10 +8,15 @@ with identity history; `compare` validates it and produces the review artifact.
 There is no release discovery, scheduler, background downloader or automatic
 identity matching.
 
-The original August snapshot remains the default demo and retained baseline.
+The default source lock and demo select **Overture 2026-08-19.0** for all four
+lookup inputs. Generated databases from the former direct street import are not
+compatible refresh baselines and should be rebuilt without identity migration.
 The checked-in second source lock selects **Overture 2026-07-22.0**, with the same
-Geofabrik 2026-08-01 streets and region. This is an intentionally older historical
-rehearsal: August was already the latest Overture release when it was prepared.
+region and Overture Transportation release as its other Overture inputs. This is
+an intentionally older historical rehearsal: August was already the latest
+Overture release when it was prepared. The original rehearsal used the now-retired
+Geofabrik street input; its logs remain historical, while the maintained lock and
+bundle checksum now rebuild all lookup domains from Overture 2026-07-22.0.
 See the [historical investigation](log/0004-newport-refresh-investigation.md) and
 [historical verification](log/0005-newport-refresh-verification.md).
 
@@ -240,7 +245,8 @@ OPENMAPS_REPLACEMENTS="$PWD/imports/newport-2026-07-22.replacements.json" \
 
 For a new release, copy the source lock to a new named file, explicitly select
 releases and unchanged or deliberately reviewed bounds, and obtain trusted
-catalog/PBF hashes. Use the existing maintainer `prepare -write-lock` operation
+catalog and regional GeoParquet-export hashes. Use the existing maintainer
+`prepare -write-lock` operation
 only to establish the new export and bundle hashes; independently fetch again
 without that flag. Build, inspect churn, establish replacements, rebuild to a
 new candidate path, compare and review before selecting it. Never use

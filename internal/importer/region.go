@@ -25,17 +25,18 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 	}
 	features := map[string][]overtureFeature{}
 	releases := map[string]string{}
-	var streetInput *Input
+	var transportationInput *Input
 	for _, input := range m.Inputs {
-		if strings.HasSuffix(input.File, ".osm.pbf") {
-			if streetInput != nil {
-				return fail(fmt.Errorf("multiple OSM extracts are not supported"))
+		kind := sourceKind(input.URL)
+		if kind == "segment" {
+			if transportationInput != nil {
+				return fail(fmt.Errorf("multiple Overture Transportation segment inputs are not supported"))
 			}
-			copy := input
-			streetInput = &copy
+			inputCopy := input
+			transportationInput = &inputCopy
+			releases[kind] = input.Release
 			continue
 		}
-		kind := sourceKind(input.URL)
 		if kind == "" {
 			return fail(fmt.Errorf("unsupported source: %s", input.URL))
 		}
@@ -49,8 +50,8 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 		features[kind] = fs
 		releases[kind] = input.Release
 	}
-	if len(features) != 3 || streetInput == nil {
-		return fail(fmt.Errorf("places, addresses, divisions and OSM streets are required"))
+	if len(features) != 3 || transportationInput == nil {
+		return fail(fmt.Errorf("Overture places, addresses, divisions and transportation segments are required"))
 	}
 	sourceFeatures := map[string]overtureFeature{}
 	for _, kind := range []string{"place", "address"} {
@@ -96,7 +97,10 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 			b.Relationships = append(b.Relationships, Relationship{From: r.Key(), To: "overture:division:" + parent, Kind: "parent_area", Evidence: "Overture parent_division_id"})
 		}
 	}
-	streets, osmAddresses, e := readStreets(ctx, filepath.Join(dataDir, streetInput.File), streetInput.Release, m.BBox)
+	if e := ctx.Err(); e != nil {
+		return fail(e)
+	}
+	streets, transportation, e := readTransportation(ctx, filepath.Join(dataDir, transportationInput.File), transportationInput.Release, m.BBox)
 	if e != nil {
 		return fail(e)
 	}
@@ -156,13 +160,8 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 			streetNames[recordName(r)] = true
 		}
 	}
-	overlap := 0
-	for _, tags := range osmAddresses {
-		if len(addresses[normalizeAddress(tags["addr:housenumber"]+" "+tags["addr:street"])]) > 0 {
-			overlap++
-		}
-	}
-	audit := map[string]any{"raw_counts": rawCounts, "imported_counts": counts, "linked_business_addresses": linked, "ambiguous_business_addresses": ambiguous, "osm_address_nodes": len(osmAddresses), "osm_address_labels_also_in_overture": overlap, "unique_street_names": len(streetNames)}
+	rawCounts["segment"] = transportation.Segments
+	audit := map[string]any{"raw_counts": rawCounts, "imported_counts": counts, "linked_business_addresses": linked, "ambiguous_business_addresses": ambiguous, "transportation_selection": transportation, "unique_street_names": len(streetNames)}
 	for _, kind := range []string{"place", "address"} {
 		labels := map[string]int{}
 		completeness := map[string]int{}
@@ -209,7 +208,7 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 	return b, audit, ctx.Err()
 }
 func sourceKind(url string) string {
-	for _, kind := range []string{"place", "address", "division"} {
+	for _, kind := range []string{"place", "address", "division", "segment"} {
 		if strings.Contains(url, "/type="+kind+"/") {
 			return kind
 		}

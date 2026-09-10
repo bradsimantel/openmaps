@@ -19,13 +19,31 @@ import (
 	"time"
 
 	"github.com/parquet-go/parquet-go"
-	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func testFeature(id string, properties map[string]any) map[string]any {
 	properties["id"] = id
 	properties["sources"] = []any{map[string]any{"dataset": "synthetic", "record_id": id, "property": ""}}
 	return map[string]any{"type": "Feature", "geometry": map[string]any{"type": "Point", "coordinates": []float64{-71.31, 41.49}}, "properties": properties}
+}
+func testSegment(id, subtype, name string, coordinates [][2]float64, aliases ...string) map[string]any {
+	rules := []any{}
+	for _, alias := range aliases {
+		rules = append(rules, map[string]any{"value": alias, "variant": "alternate"})
+	}
+	common := [][]string{{"en", name}}
+	if name == "Example Street" {
+		common = append(common, []string{"es", "Calle Ejemplo"})
+	}
+	return map[string]any{
+		"type":     "Feature",
+		"geometry": map[string]any{"type": "LineString", "coordinates": coordinates},
+		"properties": map[string]any{
+			"id": id, "subtype": subtype,
+			"names":   map[string]any{"primary": name, "common": common, "rules": rules},
+			"sources": []any{map[string]any{"dataset": "synthetic-roads", "record_id": "road-" + id, "property": ""}},
+		},
+	}
 }
 func regionFixture(t *testing.T) (Manifest, string) {
 	t.Helper()
@@ -35,8 +53,15 @@ func regionFixture(t *testing.T) (Manifest, string) {
 		"place":    {testFeature("bakery", map[string]any{"names": map[string]any{"primary": "Fixture Bakery", "common": [][]string{{"en", "Bread Shop"}, {"fr", "Boulangerie"}}}, "addresses": []any{map[string]any{"freeform": "26 Example St", "postcode": "02840"}}, "websites": []string{"https://example.org"}}), testFeature("phantom", map[string]any{"names": map[string]any{"primary": "Phantom Business"}, "addresses": []any{map[string]any{"freeform": "99 Phantom Street", "postcode": "02840"}}})},
 		"address":  {testFeature("address-a", map[string]any{"number": "26", "street": "Example Street", "postcode": "02840", "country": "US"})},
 		"division": {testFeature("town", map[string]any{"names": map[string]any{"primary": "Fixture Town"}, "subtype": "locality", "parent_division_id": "absent-country"})},
+		"segment": {
+			testSegment("road-a", "road", "Example Street", [][2]float64{{-71.34, 41.48}, {-71.30, 41.48}}, "Old Example Road"),
+			testSegment("road-b", "road", "", [][2]float64{{-71.32, 41.49}, {-71.31, 41.49}}),
+			testSegment("road-c", "road", "Example Street", [][2]float64{{-71.32, 41.50}, {-71.31, 41.50}}),
+			testSegment("rail-a", "rail", "Fixture Railway", [][2]float64{{-71.32, 41.49}, {-71.31, 41.49}}),
+			testSegment("outside", "road", "Outside Road", [][2]float64{{-71.40, 41.49}, {-71.39, 41.49}}),
+		},
 	}
-	for _, kind := range []string{"place", "address", "division"} {
+	for _, kind := range []string{"place", "address", "division", "segment"} {
 		name := kind + ".geojson"
 		if e := WriteJSON(filepath.Join(dir, name), map[string]any{"type": "FeatureCollection", "features": fixtures[kind]}); e != nil {
 			t.Fatal(e)
@@ -44,12 +69,6 @@ func regionFixture(t *testing.T) (Manifest, string) {
 		hash, _ := Checksum(filepath.Join(dir, name))
 		m.Inputs = append(m.Inputs, Input{File: name, SHA256: hash, Release: "fixture-v1", URL: "s3://fixture/type=" + kind + "/", Attribution: "synthetic"})
 	}
-	pbf := filepath.Join(dir, "streets.osm.pbf")
-	if e := os.WriteFile(pbf, tinyPBF(false), 0600); e != nil {
-		t.Fatal(e)
-	}
-	hash, _ := Checksum(pbf)
-	m.Inputs = append(m.Inputs, Input{File: filepath.Base(pbf), SHA256: hash, Release: "fixture-v1", URL: "https://example.org/streets.osm.pbf", Attribution: "synthetic"})
 	return m, dir
 }
 func TestPrepareProviderRecordsAndAmbiguity(t *testing.T) {
@@ -58,20 +77,33 @@ func TestPrepareProviderRecordsAndAmbiguity(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(b.Records) != 5 || len(b.Relationships) != 1 || b.Relationships[0].To != "overture:address:address-a" {
+	if len(b.Records) != 6 || len(b.Relationships) != 1 || b.Relationships[0].To != "overture:address:address-a" {
 		t.Fatalf("unexpected import: %+v", b)
 	}
-	if a["osm_address_nodes"] != 2 || a["osm_address_labels_also_in_overture"] != 1 {
-		t.Fatalf("business-only address inflated overlap: %v", a)
+	selection, ok := a["transportation_selection"].(transportationSelection)
+	if !ok || selection != (transportationSelection{Segments: 5, NamedRoads: 2, UnnamedRoads: 1, NonRoads: 1, OutsideGeometry: 1}) {
+		t.Fatalf("unexpected transportation selection: %#v", a["transportation_selection"])
 	}
-	var bakery Record
+	var bakery, road Record
 	for _, r := range b.Records {
 		if r.SourceID == "bakery" {
 			bakery = r
 		}
+		if r.SourceID == "road-a" {
+			road = r
+		}
 	}
 	if !bytes.Contains(bakery.Raw, []byte(`"record_id":"bakery"`)) || string(bakery.Attributes["aliases"]) != `["Boulangerie","Bread Shop"]` {
 		t.Fatalf("lost upstream identity/aliases: %+v", bakery)
+	}
+	if road.Source != "overture:segment" || !bytes.Contains(road.Raw, []byte(`"record_id":"road-road-a"`)) || !bytes.Contains(road.Raw, []byte(`"coordinates":[[-71.34,41.48],[-71.3,41.48]]`)) || string(road.Attributes["aliases"]) != `["Calle Ejemplo","Old Example Road"]` || string(road.Attributes["location"]) != `{"lat":41.48,"lng":-71.315}` || road.Key() != "overture:segment:road-a" {
+		t.Fatalf("lost transportation identity, provenance, or aliases: %+v", road)
+	}
+	if len(road.Attributions) != 1 || road.Attributions[0].Provider != "© OpenStreetMap contributors, Overture Maps Foundation" {
+		t.Fatalf("lost transportation attribution: %+v", road.Attributions)
+	}
+	if PublicID(road.Key()) != "om_07531994ffec36df496da5a8b2555933" {
+		t.Fatal("street public ID is not deterministic")
 	}
 	rebuilt, _, e := Prepare(context.Background(), m, dir, map[string]string{})
 	if e != nil || !reflect.DeepEqual(b, rebuilt) {
@@ -89,22 +121,37 @@ func TestPrepareProviderRecordsAndAmbiguity(t *testing.T) {
 	}
 	m.Inputs[1].SHA256, _ = Checksum(path)
 	b, a, e = Prepare(context.Background(), m, dir, nil)
-	if e != nil || len(b.Relationships) != 0 || len(b.Records) != 6 || a["ambiguous_business_addresses"] != 1 {
+	if e != nil || len(b.Relationships) != 0 || len(b.Records) != 7 || a["ambiguous_business_addresses"] != 1 {
 		t.Fatal("ambiguity handling", a, e)
 	}
 }
-func TestStreetMissingNodesFailAndCancellation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "missing.osm.pbf")
-	if e := os.WriteFile(path, tinyPBF(true), 0600); e != nil {
-		t.Fatal(e)
-	}
-	if _, _, e := readStreets(context.Background(), path, "v1", [4]float64{-72, 41, -71, 42}); e == nil || !strings.Contains(e.Error(), "missing node") {
-		t.Fatal(e)
-	}
+func TestPreparationCancellation(t *testing.T) {
+	m, dir := regionFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, e := readStreets(ctx, path, "v1", [4]float64{-72, 41, -71, 42}); e == nil {
+	if _, _, e := Prepare(ctx, m, dir, nil); e == nil {
 		t.Fatal("ignored cancellation")
+	}
+}
+func TestTransportationRepresentativeCoordinateBoundaries(t *testing.T) {
+	bounds := [4]float64{-1, -1, 1, 1}
+	for _, tc := range []struct {
+		name   string
+		points [][2]float64
+		want   [2]float64
+		ok     bool
+	}{
+		{"inside", [][2]float64{{-0.5, 0}, {0.5, 0}}, [2]float64{0, 0}, true},
+		{"crossing", [][2]float64{{-2, 0}, {2, 0}}, [2]float64{0, 0}, true},
+		{"boundary", [][2]float64{{-2, 1}, {0, 1}}, [2]float64{-0.5, 1}, true},
+		{"outside", [][2]float64{{-2, 2}, {2, 2}}, [2]float64{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := representativeCoordinate(tc.points, bounds)
+			if ok != tc.ok || math.Abs(got[0]-tc.want[0]) > 1e-9 || math.Abs(got[1]-tc.want[1]) > 1e-9 {
+				t.Fatalf("got %v,%v want %v,%v", got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 func TestDistanceAndBounds(t *testing.T) {
@@ -177,6 +224,48 @@ func TestParquetNamesAndCoordinates(t *testing.T) {
 		t.Fatal("lost float32 source precision", string(b))
 	}
 }
+func TestParquetLineString(t *testing.T) {
+	type row struct {
+		ID       string `parquet:"id"`
+		Geometry []byte `parquet:"geometry"`
+		Subtype  string `parquet:"subtype"`
+	}
+	wkb := make([]byte, 9+2*16)
+	wkb[0] = 1
+	binary.LittleEndian.PutUint32(wkb[1:], 2)
+	binary.LittleEndian.PutUint32(wkb[5:], 2)
+	for i, point := range [][2]float64{{-71.33, 41.47}, {-71.29, 41.51}} {
+		offset := 9 + i*16
+		binary.LittleEndian.PutUint64(wkb[offset:], math.Float64bits(point[0]))
+		binary.LittleEndian.PutUint64(wkb[offset+8:], math.Float64bits(point[1]))
+	}
+	var buf bytes.Buffer
+	writer := parquet.NewGenericWriter[row](&buf)
+	if _, e := writer.Write([]row{{ID: "segment", Geometry: wkb, Subtype: "road"}}); e != nil {
+		t.Fatal(e)
+	}
+	if e := writer.Close(); e != nil {
+		t.Fatal(e)
+	}
+	pf, e := parquet.OpenFile(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if e != nil {
+		t.Fatal(e)
+	}
+	r := parquet.NewGenericReader[any](pf)
+	defer r.Close()
+	rows := make([]any, 1)
+	if _, e = r.Read(rows); e != nil && e != io.EOF {
+		t.Fatal(e)
+	}
+	feature, e := parquetFeature(rows[0].(map[string]any), pf.Schema())
+	if e != nil {
+		t.Fatal(e)
+	}
+	geometry := feature["geometry"].(map[string]any)
+	if geometry["type"] != "LineString" || !reflect.DeepEqual(geometry["coordinates"], [][2]float64{{-71.33, 41.47}, {-71.29, 41.51}}) {
+		t.Fatalf("unexpected geometry: %#v", geometry)
+	}
+}
 func TestRangeReaderAndDownloadPublication(t *testing.T) {
 	data := []byte("PAR1synthetic immutable parquet content")
 	sum := sha256.Sum256(data)
@@ -232,54 +321,4 @@ func TestRangeReaderAndDownloadPublication(t *testing.T) {
 	if e = download(context.Background(), server.URL, path, digest); e != nil || gets != before {
 		t.Fatal("verified cache made network request", e)
 	}
-}
-
-// tinyPBF emits a deterministic, synthetic fixture using protobuf wire helpers;
-// it is not an alternate production PBF parser or writer.
-func tinyPBF(missing bool) []byte {
-	fieldBytes := func(n protowire.Number, b []byte) []byte {
-		return protowire.AppendBytes(protowire.AppendTag(nil, n, protowire.BytesType), b)
-	}
-	varint := func(n protowire.Number, v uint64) []byte {
-		return protowire.AppendVarint(protowire.AppendTag(nil, n, protowire.VarintType), v)
-	}
-	packed := func(n protowire.Number, values ...uint64) []byte {
-		var b []byte
-		for _, v := range values {
-			b = protowire.AppendVarint(b, v)
-		}
-		return fieldBytes(n, b)
-	}
-	block := func(kind string, raw []byte) []byte {
-		blob := fieldBytes(1, raw)
-		header := append(fieldBytes(1, []byte(kind)), varint(3, uint64(len(blob)))...)
-		out := make([]byte, 4)
-		binary.BigEndian.PutUint32(out, uint32(len(header)))
-		return append(append(out, header...), blob...)
-	}
-	var table []byte
-	for _, s := range []string{"", "highway", "residential", "name", "Example Street", "addr:housenumber", "26", "addr:street", "99", "Phantom Street"} {
-		table = append(table, fieldBytes(1, []byte(s))...)
-	}
-	ids, lats, lons := []uint64{protowire.EncodeZigZag(1)}, []uint64{protowire.EncodeZigZag(414900000)}, []uint64{protowire.EncodeZigZag(-713100000)}
-	tags := []uint64{5, 6, 7, 4, 0}
-	if !missing {
-		ids = append(ids, protowire.EncodeZigZag(1))
-		lats = append(lats, 0)
-		lons = append(lons, protowire.EncodeZigZag(1))
-		tags = append(tags, 5, 8, 7, 9, 0)
-	}
-	dense := packed(1, ids...)
-	dense = append(dense, packed(8, lats...)...)
-	dense = append(dense, packed(9, lons...)...)
-	dense = append(dense, packed(10, tags...)...)
-	nodes := fieldBytes(2, dense)
-	way := varint(1, 1)
-	way = append(way, packed(2, 1, 3)...)
-	way = append(way, packed(3, 2, 4)...)
-	way = append(way, packed(8, protowire.EncodeZigZag(1), protowire.EncodeZigZag(1))...)
-	primitive := fieldBytes(1, table)
-	primitive = append(primitive, fieldBytes(2, nodes)...)
-	primitive = append(primitive, fieldBytes(2, fieldBytes(3, way))...)
-	return append(block("OSMHeader", append(fieldBytes(4, []byte("OsmSchema-V0.6")), fieldBytes(4, []byte("DenseNodes"))...)), block("OSMData", primitive)...)
 }

@@ -114,7 +114,7 @@ func TestInvalidImportNeverPublishes(t *testing.T) {
 	}{
 		{"duplicate source", func(b *importer.Bundle) { b.Records = append(b.Records, b.Records[0]) }},
 		{"dangling relationship", func(b *importer.Bundle) { b.Relationships[0].To = "absent" }},
-		{"wrong relationship kind", func(b *importer.Bundle) { b.Relationships[0].To = "fixture:way:1" }},
+		{"wrong relationship kind", func(b *importer.Bundle) { b.Relationships[0].To = "fixture:segment:1" }},
 		{"cross kind merge", func(b *importer.Bundle) { b.Identities["fixture:address:26"] = "fixture:place:tavern" }},
 		{"missing longitude", func(b *importer.Bundle) { b.Records[0].Attributes["location"] = json.RawMessage(`{"lat":41}`) }},
 		{"invalid latitude", func(b *importer.Bundle) { b.Records[0].Attributes["location"] = json.RawMessage(`{"lat":91,"lng":0}`) }},
