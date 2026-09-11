@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"openmaps/internal/api"
 	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
@@ -54,7 +57,24 @@ func TestNewportParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	legacyHTTP := api.Handler{Places: legacyPlaces, Geocoding: legacyGeocoding}
+	candidateHTTP := api.Handler{Places: candidate, Geocoding: candidate}
+	compareHTTP := func(method, target, body, mask string) {
+		t.Helper()
+		want := request(legacyHTTP, method, target, body, mask)
+		got := request(candidateHTTP, method, target, body, mask)
+		for _, header := range []string{"Content-Type", "Allow"} {
+			if got.Header().Get(header) != want.Header().Get(header) {
+				t.Fatalf("%s %s header %s differs: DuckDB=%q SQLite=%q", method, target, header, got.Header().Get(header), want.Header().Get(header))
+			}
+		}
+		if got.Code != want.Code || got.Body.String() != want.Body.String() {
+			t.Fatalf("%s %s differs\nDuckDB: %d %s\nSQLite: %d %s", method, target, got.Code, got.Body.String(), want.Code, want.Body.String())
+		}
+	}
 	for _, check := range importer.NewportPlacesQueryChecks() {
+		body, _ := json.Marshal(map[string]string{"input": check.Input})
+		compareHTTP(http.MethodPost, "/v1/places:autocomplete", string(body), "")
 		want, queryErr := legacyPlaces.Autocomplete(ctx, check.Input)
 		if queryErr != nil {
 			t.Fatal(queryErr)
@@ -64,6 +84,7 @@ func TestNewportParity(t *testing.T) {
 			t.Fatalf("autocomplete %q differs: %v\nDuckDB: %+v\nlegacy: %+v", check.Input, queryErr, got, want)
 		}
 		for _, entity := range want {
+			compareHTTP(http.MethodGet, "/v1/places/"+entity.ID, "", "*")
 			detail, detailErr := candidate.Details(ctx, entity.ID)
 			if detailErr != nil || !reflect.DeepEqual(detail, entity) {
 				t.Fatalf("details %s differs: %v\nDuckDB: %+v\nlegacy: %+v", entity.ID, detailErr, detail, entity)
@@ -85,6 +106,7 @@ func TestNewportParity(t *testing.T) {
 	}
 	for _, test := range suite.Cases {
 		if test.Address != "" {
+			compareHTTP(http.MethodGet, "/maps/api/geocode/json?address="+url.QueryEscape(test.Address), "", "")
 			want, wantErr := legacyGeocoding.Forward(ctx, test.Address)
 			got, gotErr := candidate.Forward(ctx, test.Address)
 			if errorString(gotErr) != errorString(wantErr) || !reflect.DeepEqual(got, want) {
@@ -92,6 +114,7 @@ func TestNewportParity(t *testing.T) {
 			}
 		}
 		if len(test.LatLng) == 2 {
+			compareHTTP(http.MethodGet, fmt.Sprintf("/maps/api/geocode/json?latlng=%g%%2C%g", test.LatLng[0], test.LatLng[1]), "", "")
 			point := places.Location{Lat: test.LatLng[0], Lng: test.LatLng[1]}
 			want, wantErr := legacyGeocoding.Reverse(ctx, point)
 			got, gotErr := candidate.Reverse(ctx, point)
@@ -100,6 +123,9 @@ func TestNewportParity(t *testing.T) {
 			}
 		}
 	}
+	compareHTTP(http.MethodPost, "/v1/places:autocomplete", `{"input":"White","locationBias":{"circle":{"center":{"latitude":41.49,"longitude":-71.31},"radius":100}}}`, "")
+	compareHTTP(http.MethodGet, "/maps/api/geocode/json?address=50+Bellevue+Avenue&units=imperial", "", "")
+	compareHTTP(http.MethodGet, "/v1/places/om_missing", "", "*")
 }
 
 func errorString(err error) string {

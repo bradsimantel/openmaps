@@ -29,6 +29,7 @@ func run() error {
 	identities := flag.String("identities", "", "optional permanent source identity mappings JSON")
 	fetch := flag.Bool("fetch", false, "download missing pinned source files")
 	acceptSourceUpdate := flag.Bool("accept-reviewed-source-update", false, "maintainer operation: replace reviewed source exports and accept their checksums")
+	acceptNormalizationUpdate := flag.Bool("accept-reviewed-normalization-update", false, "maintainer operation: accept a reviewed normalized-output checksum change without changing source pins")
 	flag.Parse()
 	if *acceptSourceUpdate && !*fetch {
 		return fmt.Errorf("-accept-reviewed-source-update requires -fetch")
@@ -73,7 +74,7 @@ func run() error {
 	}
 	sum := sha256.Sum256(append(encoded, '\n'))
 	digest := hex.EncodeToString(sum[:])
-	if !*acceptSourceUpdate {
+	if !*acceptSourceUpdate && !*acceptNormalizationUpdate {
 		if digest != expected {
 			return fmt.Errorf("normalized bundle checksum mismatch: got %s; outputs were not published", digest)
 		}
@@ -85,7 +86,7 @@ func run() error {
 	if e = importer.WriteJSON(filepath.Join(*data, "audit.json"), audit); e != nil {
 		return e
 	}
-	if *acceptSourceUpdate {
+	if *acceptSourceUpdate || *acceptNormalizationUpdate {
 		m.BundleSHA256 = digest
 		if e = importer.WriteJSON(*config, m); e != nil {
 			return e

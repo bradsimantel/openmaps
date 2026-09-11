@@ -80,7 +80,7 @@ This is a subset, not a complete Google response schema:
 No rooftop, entrance, building containment, unit, viewport, geometry bounds,
 plus code or administrative component is invented. Raw source records, winning
 attribute provenance and existing business/address relationships remain in
-SQLite unchanged; geocoding does not merge or infer relationships. The runtime
+normalized Parquet unchanged; geocoding does not merge or infer relationships. The runtime
 uses normalized entity labels for matching. At load time, an importer adapter
 projects components from the retained source selected by the `address` attribute's
 provenance. Its result IDs
@@ -150,19 +150,19 @@ shows the selected address. The details show distance, precision and uncertainty
 Typing a new input clears the preceding result and markers. Empty, unsupported
 and out-of-coverage outcomes do not leave a stale address selected.
 
-At startup, `internal/geocoding` loads supported address labels from a read-only
-SQLite connection into an immutable map for forward lookups and a slice for
-reverse scans. At this scale (~8,500 points), a scan needs no spatial index.
-It requires a valid non-dateline manifest `bbox`. There are no schema changes,
-new source imports, migrations, sidecar databases or writes to retained snapshots.
-Deployment reload opens Places and geocoding before replacing their handler.
+At startup, the lookup reader opens a read-only DuckDB catalog with a sorted
+exact-address projection and deterministic 0.001-degree reverse grid. It follows
+Parquet evidence locators only for selected results and applies the exact
+spherical-distance check and 100-metre limit in Go. It requires a valid
+non-dateline manifest `bbox`. Deployment reload verifies and opens Places and
+geocoding before replacing their handler.
 Scout routing uses independently selected prepared tiles in the same service.
 The Routes API may call this same exact forward matcher for an address waypoint,
 but requires exactly one result; no-match and ambiguity fail explicitly instead
 of choosing a candidate. It passes the unchanged source address coordinate to
 Scout, which has no source-backed address association and performs its ordinary
 road snap. Geocoding identity, ambiguity and source precision are unchanged.
-Lookup requests carry `X-OpenMaps-Lookup-Snapshot` in deployment mode. Activation
+Lookup requests carry `X-OpenMaps-Lookup-Snapshot` in direct and selection modes. Activation
 and rollback use the [refresh workflow](refresh.md); see
 [Scout routing](routing-scout.md).
 

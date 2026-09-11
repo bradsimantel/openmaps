@@ -3,8 +3,9 @@
 ## Project context
 
 Read `README.md` for the product scope and intended architecture. Open Maps is a
-Google Maps API replacement built with Go and SQLite, with MapLibre GL JS and
-Protomaps for map display. The current focus is places, geocoding, and routing.
+Google Maps API replacement built with Go, normalized Parquet and a compact
+DuckDB serving catalog, with MapLibre GL JS and Protomaps for map display. The
+current focus is places, geocoding, and routing.
 
 Keep documentation clear about what is implemented, what is planned, and what
 remains undecided. Do not present a proposal as an established project decision.
@@ -30,7 +31,7 @@ remains undecided. Do not present a proposal as an established project decision.
   use types appropriate to the domain rather than depend on Google wire formats.
 - Places autocomplete may return businesses, addresses, streets, and geographic
   areas. Do not restrict it to businesses because of the package name.
-- Places and geocoding may share SQLite records and indexes. Start with queries
+- Places and geocoding may share normalized records and serving projections. Start with queries
   in the package that owns the operation; extract shared code when actual usage
   makes its responsibility clear.
 - Keep routing independent of text search and address resolution. The API layer

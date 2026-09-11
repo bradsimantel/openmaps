@@ -31,5 +31,15 @@ jobs:
           internal/routing/testdata/scout-bremen/lock.json
       - name: Test
         run: go test ./...
+      - name: Race-test production lookup
+        run: go test -race ./internal/placesgeocoding/...
       - name: Vet
         run: go vet ./...
+      - name: Build and smoke-test native Linux CGO deployment binaries
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go build -o /tmp/openmaps-server ./cmd/server
+          go build -o /tmp/places-geocoding-import ./cmd/places-geocoding-import
+          /tmp/openmaps-server -help
+          /tmp/places-geocoding-import -help

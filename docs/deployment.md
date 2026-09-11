@@ -1,25 +1,25 @@
 # Local deployment
 
-Open Maps can run one or more loopback instances of the unified `cmd/server`
-binary. Each instance needs explicit paths for its Places/geocoding selection,
-routing snapshot or selection, basemap archive and public files. The repository
-does not assert that any service is currently running and does not contain an
-installed launchd configuration.
+Open Maps runs as one Go service with independently selected lookup, routing and
+basemap artifacts. Places/geocoding uses an immutable generation directory:
+normalized Parquet is authoritative and `serving.duckdb` is a derived lookup
+catalog. There is no compact-SQLite runtime or automatic fallback.
 
-The September 2026 ports, launchd labels, binaries, rollback scripts and retained
-release directories are historical deployment evidence, recorded in the
-[Scout cutover log](log/0036-scout-deployment-cutover.md). Do not treat those
-machine-local paths as a reusable configuration.
+## Native build requirements
 
-## Start and inspect an instance
+DuckDB requires CGO and a native C/C++ toolchain. Build on the deployment
+platform (or use a correctly configured CGO cross-toolchain); `CGO_ENABLED=0`
+is unsupported. CI builds and smoke-tests the Linux deployment binaries with
+CGO enabled. DuckDB itself is linked into the executable and no DuckDB extension
+files are deployed.
 
 Build a new executable rather than replacing one used by a running process:
 
 ```sh
-go build -o data/openmaps-server-next ./cmd/server
+CGO_ENABLED=1 go build -o data/openmaps-server-next ./cmd/server
 
 data/openmaps-server-next \
-  -deployment data/deployment.json \
+  -lookup-selection data/lookup-selection.json \
   -routing-snapshot data/scout-prepared \
   -routing-selection data/routing-selection.json \
   -tiles data/newport.pmtiles \
@@ -29,46 +29,46 @@ data/openmaps-server-next \
 curl -fsS http://127.0.0.1:8080/healthz
 ```
 
-`-deployment` selects Places/geocoding SQLite snapshots.
+`-lookup-selection` is the default. `-lookup GENERATION -lookup-selection ''`
+opens one verified generation directly for smoke testing. A missing, corrupt or
+incompatible lookup artifact fails startup; it never selects SQLite.
 `-routing-selection` independently watches a JSON document containing
-`{"directory":"prepared-directory"}`; relative directories resolve beside that
-document. `-routing-snapshot` supplies the verified initial routing snapshot.
-The server defaults to four concurrent routing requests and a 128 MiB graph-page
-cache per reader. Use `-routing-concurrency` and `-routing-cache-mib` to change
-those bounded settings.
+`{"directory":"prepared-directory"}`. The server defaults to four concurrent
+routing requests, four read-only DuckDB connections, one DuckDB thread per
+connection, and a 128 MiB routing graph-page cache per reader.
 
-Healthy responses report `lookup_snapshot` for the Places/geocoding selection and
-`routing_candidate` for the routing snapshot. `routing_candidate` remains the
-established compatibility name. Lookup responses carry
+Health reports the lookup manifest reference and last rejected lookup reload,
+plus the independent routing identity. Lookup responses carry
 `X-OpenMaps-Lookup-Snapshot`.
 
-## Supervision and graceful shutdown
+## Activation and rollback
 
-`cmd/scout-run-bounded` can supervise a compiled server, sample its RSS and free
-disk, and write a distinct resource report for each process lifetime. It does not
-install or manage launchd jobs. If launchd or another process manager is used,
-keep its configuration outside generated data and record the exact executable,
-arguments, resource limits and restart policy.
+Build, compare and review a new lookup generation as described in
+[the refresh guide](refresh.md). Activation changes only the synced selection
+document. The live server verifies and opens the new generation before swapping
+it into service; a failed reload leaves the old generation active and degrades
+health with the exact error. Request leases prevent the old generation from
+closing while an API or routing-coordinate-resolution request still uses it.
 
-For a graceful planned stop, signal the server process with SIGTERM. It drains
-HTTP requests for up to 35 seconds. Signalling the resource supervisor instead
-uses its resource-abort path and a five-second grace period. Avoid forced process
-replacement during traffic.
+Rollback selects the previously verified generation:
 
-## Update and rollback
+```sh
+go run ./cmd/places-geocoding-refresh rollback \
+  -selection data/lookup-selection.json
+```
 
-Build into a new release path. Before changing a service definition or routing
-selection, verify its binaries against the maintained national cases, full HTTP
-responses, lookup suites, basemap byte ranges and snapshot replacement on an
-unused loopback port. Never rewrite prepared graph payloads, selected SQLite
-files or an executing binary.
+Never modify or remove a selected generation. Retain at least the current and
+previous directories and their manifests. A rollback does not rebuild an index
+or copy artifact bytes.
 
-Retain the previous executable, service definition, lookup and routing selection
-documents, prepared snapshots and completed resource reports. Rollback should
-restore those explicit retained inputs; it must not depend on a dated path from a
-historical log. Confirm health and both snapshot identities after every update or
-rollback.
+## Graceful shutdown
 
-This is a local user-session deployment. System-wide startup before login,
-automatic failure recovery, remote exposure and production orchestration are not
-configured by this repository.
+SIGTERM drains HTTP requests for up to 35 seconds, then closes lookup and routing
+readers. `cmd/scout-run-bounded` can supervise a compiled server and record RSS
+and free disk, but it does not install a service manager. Remote exposure,
+authentication, automatic failure recovery and system-wide startup are outside
+this repository's current deployment scope.
+
+The September 2026 launchd paths and ports remain historical evidence in the
+[Scout cutover log](log/0036-scout-deployment-cutover.md); they are not reusable
+configuration.

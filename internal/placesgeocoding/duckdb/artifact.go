@@ -1,9 +1,12 @@
-// Package duckdb builds and reads the non-default Parquet plus DuckDB lookup
-// candidate. The production server continues to use its SQLite snapshot.
+// Package duckdb builds, verifies, selects and reads production Places and
+// geocoding generations: normalized immutable Parquet plus a derived DuckDB
+// serving catalog.
 package duckdb
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
@@ -17,13 +20,15 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/zstd"
 
-	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
 )
 
 //go:embed schema.sql
 var schema string
+
+//go:embed schema-sharded.sql
+var shardedSchema string
 
 //go:embed postings.sql
 var postingsSQL string
@@ -38,6 +43,7 @@ const (
 	SourcesName        = "source-records.parquet"
 	ProvenanceName     = "attribute-provenance.parquet"
 	RelationshipsName  = "relationships.parquet"
+	RejectionsName     = "rejections.parquet"
 	MetadataName       = "metadata.parquet"
 	maxRowsPerRowGroup = 32768
 	postingChunk       = 32768
@@ -45,151 +51,26 @@ const (
 
 type File struct {
 	Name   string `json:"name"`
+	Role   string `json:"role"`
 	SHA256 string `json:"sha256"`
 	Rows   int    `json:"rows"`
 }
 
 type Manifest struct {
-	Schema          int    `json:"schema"`
-	CoordinateOrder string `json:"coordinate_order"`
-	Files           []File `json:"files"`
+	Schema           int    `json:"schema"`
+	CoordinateOrder  string `json:"coordinate_order"`
+	NormalizedSHA256 string `json:"normalized_sha256"`
+	Files            []File `json:"files"`
 }
 
-type locator struct {
-	entityGroup, entityRow           int
-	sourceStart, sourceCount         int
-	provenanceStart, provenanceCount int
-}
-
-// Build writes a checksum-addressed immutable candidate directory. Search,
-// address, and spatial serving structures are derived from entities.parquet by
-// DuckDB rather than from the in-memory resolved bundle.
-func Build(ctx context.Context, path string, bundle importer.Bundle) (err error) {
-	resolved, err := importer.Resolve(bundle)
-	if err != nil {
+// Build is retained for small deterministic fixtures and the SQLite oracle.
+// Production commands use BuildJSON, whose decoder and resolver are streaming.
+func Build(ctx context.Context, path string, bundle importer.Bundle) error {
+	var input bytes.Buffer
+	if err := json.NewEncoder(&input).Encode(bundle); err != nil {
 		return err
 	}
-	var scope importer.Manifest
-	if err = json.Unmarshal(resolved.Manifest, &scope); err != nil {
-		return err
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return err
-	}
-	if _, err = os.Stat(abs); err == nil {
-		return fmt.Errorf("output exists; choose a new artifact directory")
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err = os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
-		return err
-	}
-	temp, err := os.MkdirTemp(filepath.Dir(abs), ".duckdb-*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			_ = os.RemoveAll(temp)
-		}
-	}()
-
-	locators := make(map[string]locator, len(resolved.Entities))
-	for i, entity := range resolved.Entities {
-		locators[entity.ID] = locator{entityGroup: i / maxRowsPerRowGroup, entityRow: i % maxRowsPerRowGroup}
-	}
-	sources := make([]sourceRow, 0, len(resolved.Sources))
-	for _, source := range resolved.Sources {
-		l := locators[source.EntityID]
-		if l.sourceCount == 0 {
-			l.sourceStart = len(sources)
-		}
-		l.sourceCount++
-		locators[source.EntityID] = l
-		r := source.Record
-		sources = append(sources, sourceRow{
-			EntityID: source.EntityID, SourceKey: r.Key(), Source: r.Source,
-			SourceID: r.SourceID, Release: r.Release, Priority: int64(r.Priority),
-			Attributes: encode(r.Attributes), Paths: encode(r.Paths), Raw: string(r.Raw),
-		})
-	}
-	provenance := make([]provenanceRow, 0, len(resolved.Provenance))
-	for _, p := range resolved.Provenance {
-		l := locators[p.EntityID]
-		if l.provenanceCount == 0 {
-			l.provenanceStart = len(provenance)
-		}
-		l.provenanceCount++
-		locators[p.EntityID] = l
-		provenance = append(provenance, provenanceRow{p.EntityID, p.Attribute, p.SourceKey, p.SourcePath})
-	}
-	entities := make([]entityRow, 0, len(resolved.Entities))
-	for _, entity := range resolved.Entities {
-		l := locators[entity.ID]
-		addressKey, addressContext := "", ""
-		if entity.Kind == "address" && inside(entity.Location, scope.BBox) {
-			addressKey, addressContext, _ = geocoding.AddressIndex(entity.Name, entity.Address)
-		}
-		entities = append(entities, entityRow{
-			ID: entity.ID, Kind: entity.Kind, Name: entity.Name,
-			NormalizedName: entity.NormalizedName, Address: entity.Address,
-			NormalizedAddress: places.Normalize(entity.Address),
-			NormalizedAliases: places.Normalize(strings.Join(entity.Aliases, " ")),
-			Website:           entity.Website, Subtype: entity.Subtype,
-			Lat: entity.Location.Lat, Lng: entity.Location.Lng, Closed: entity.Closed,
-			Attributions: encode(entity.Attributions), EntityGroup: int64(l.entityGroup),
-			EntityRow: int64(l.entityRow), SourceStart: int64(l.sourceStart),
-			SourceCount: int64(l.sourceCount), ProvenanceStart: int64(l.provenanceStart),
-			ProvenanceCount: int64(l.provenanceCount), AddressKey: addressKey,
-			AddressContext: addressContext,
-		})
-	}
-	relationships := make([]relationshipRow, 0, len(resolved.Relationships))
-	for _, r := range resolved.Relationships {
-		relationships = append(relationships, relationshipRow{r.FromID, r.ToID, r.Kind, r.Evidence})
-	}
-	metadata := []metadataRow{
-		{Key: "identities", Value: encode(resolved.Identities)},
-		{Key: "source_manifest", Value: string(resolved.Manifest)},
-	}
-	files := []struct {
-		name  string
-		rows  int
-		write func(string) error
-	}{
-		{EntitiesName, len(entities), func(path string) error { return writeParquet(path, entities) }},
-		{SourcesName, len(sources), func(path string) error { return writeParquet(path, sources) }},
-		{ProvenanceName, len(provenance), func(path string) error { return writeParquet(path, provenance) }},
-		{RelationshipsName, len(relationships), func(path string) error { return writeParquet(path, relationships) }},
-		{MetadataName, len(metadata), func(path string) error { return writeParquet(path, metadata) }},
-	}
-	manifest := Manifest{Schema: 1, CoordinateOrder: "longitude,latitude"}
-	for _, file := range files {
-		if err = file.write(filepath.Join(temp, file.name)); err != nil {
-			return err
-		}
-		digest, e := importer.Checksum(filepath.Join(temp, file.name))
-		if e != nil {
-			return e
-		}
-		manifest.Files = append(manifest.Files, File{Name: file.name, SHA256: digest, Rows: file.rows})
-	}
-	if err = buildIndex(ctx, filepath.Join(temp, IndexName), filepath.Join(temp, EntitiesName), len(entities), resolved.Manifest, resolved.Identities); err != nil {
-		return err
-	}
-	digest, err := importer.Checksum(filepath.Join(temp, IndexName))
-	if err != nil {
-		return err
-	}
-	manifest.Files = append(manifest.Files, File{Name: IndexName, SHA256: digest, Rows: len(entities)})
-	if err = importer.WriteJSON(filepath.Join(temp, ManifestName), manifest); err != nil {
-		return err
-	}
-	if _, err = Verify(temp); err != nil {
-		return err
-	}
-	return os.Rename(temp, abs)
+	return BuildJSON(ctx, path, &input)
 }
 
 func encode(v any) string {
@@ -224,6 +105,14 @@ func buildIndex(ctx context.Context, path, entitiesPath string, entityCount int,
 }
 
 func buildIndexWithMemoryLimit(ctx context.Context, path, entitiesPath string, entityCount int, sourceManifest json.RawMessage, identities map[string]string, memoryLimit string) error {
+	return buildIndexJSONWithMemoryLimit(ctx, path, entitiesPath, entityCount, sourceManifest, encode(identities), memoryLimit, schema)
+}
+
+func buildIndexJSON(ctx context.Context, path, entitiesPath string, entityCount int, sourceManifest json.RawMessage, identitiesJSON string) error {
+	return buildIndexJSONWithMemoryLimit(ctx, path, entitiesPath, entityCount, sourceManifest, identitiesJSON, "256MB", shardedSchema)
+}
+
+func buildIndexJSONWithMemoryLimit(ctx context.Context, path, entitiesPath string, entityCount int, sourceManifest json.RawMessage, identitiesJSON, memoryLimit, schemaSQL string) error {
 	spill := filepath.Join(filepath.Dir(path), "duckdb-spill")
 	dsn := path + "?threads=4&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
 	db, err := sql.Open("duckdb", dsn)
@@ -235,11 +124,11 @@ func buildIndexWithMemoryLimit(ctx context.Context, path, entitiesPath string, e
 	if _, err = db.ExecContext(ctx, "SET autoinstall_known_extensions=false; SET autoload_known_extensions=false"); err != nil {
 		return err
 	}
-	preparedSchema := strings.ReplaceAll(schema, "?", sqlString(entitiesPath))
+	preparedSchema := strings.ReplaceAll(schemaSQL, "?", sqlString(entitiesPath))
 	if _, err = db.ExecContext(ctx, preparedSchema); err != nil {
 		return err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO metadata VALUES ('schema_version','1'),('source_manifest',?),('identities',?)", string(sourceManifest), encode(identities)); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO metadata VALUES ('schema_version','2'),('source_manifest',?),('identities',?)", string(sourceManifest), identitiesJSON); err != nil {
 		return err
 	}
 	statement, err := db.PrepareContext(ctx, postingsSQL)
@@ -283,16 +172,26 @@ func Verify(path string) (Manifest, error) {
 	if err = json.Unmarshal(raw, &manifest); err != nil {
 		return manifest, err
 	}
-	if manifest.Schema != 1 || manifest.CoordinateOrder != "longitude,latitude" || len(manifest.Files) != 6 {
+	if manifest.Schema != 2 || manifest.CoordinateOrder != "longitude,latitude" || len(manifest.NormalizedSHA256) != 64 || len(manifest.Files) < 7 {
 		return manifest, fmt.Errorf("unsupported DuckDB manifest")
 	}
-	expected := map[string]bool{EntitiesName: true, SourcesName: true, ProvenanceName: true, RelationshipsName: true, MetadataName: true, IndexName: true}
+	roleOrder := map[string]int{"entities": 0, "sources": 1, "provenance": 2, "relationships": 3, "rejections": 4, "metadata": 5, "serving": 6}
+	roleBase := map[string]string{"entities": EntitiesName, "sources": SourcesName, "provenance": ProvenanceName, "relationships": RelationshipsName, "rejections": RejectionsName, "metadata": MetadataName, "serving": IndexName}
+	roleCounts := map[string]int{}
 	seen := map[string]bool{}
 	entityRows := 0
+	var logical bytes.Buffer
+	lastRole := -1
 	for _, file := range manifest.Files {
-		if !expected[file.Name] || seen[file.Name] || filepath.Base(file.Name) != file.Name || file.Rows < 0 {
+		order, known := roleOrder[file.Role]
+		base := roleBase[file.Role]
+		stem, ext := strings.TrimSuffix(base, filepath.Ext(base)), filepath.Ext(base)
+		validName := file.Name == base || strings.HasPrefix(file.Name, stem+"-") && strings.HasSuffix(file.Name, ext)
+		if !known || order < lastRole || !validName || seen[file.Name] || filepath.Base(file.Name) != file.Name || file.Rows < 0 {
 			return manifest, fmt.Errorf("invalid DuckDB artifact file: %s", file.Name)
 		}
+		lastRole = order
+		roleCounts[file.Role]++
 		if err = importer.Verify(filepath.Join(path, file.Name), file.SHA256); err != nil {
 			return manifest, fmt.Errorf("verify %s: %w", file.Name, err)
 		}
@@ -312,10 +211,31 @@ func Verify(path string) (Manifest, error) {
 				return manifest, fmt.Errorf("invalid %s row count: %v", file.Name, e)
 			}
 		}
-		if file.Name == EntitiesName {
-			entityRows = file.Rows
+		if file.Role == "entities" {
+			entityRows += file.Rows
+		}
+		if file.Role != "serving" {
+			fmt.Fprintf(&logical, "%s\x00%s\x00%s\x00%d\n", file.Role, file.Name, file.SHA256, file.Rows)
 		}
 		seen[file.Name] = true
+	}
+	for role := range roleOrder {
+		if roleCounts[role] == 0 || (role == "metadata" || role == "serving") && roleCounts[role] != 1 {
+			return manifest, fmt.Errorf("missing or duplicated %s artifact", role)
+		}
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return manifest, err
+	}
+	for _, entry := range entries {
+		if entry.Name() != ManifestName && !seen[entry.Name()] {
+			return manifest, fmt.Errorf("unmanifested artifact file: %s", entry.Name())
+		}
+	}
+	logicalDigest := sha256.Sum256(logical.Bytes())
+	if fmt.Sprintf("%x", logicalDigest) != manifest.NormalizedSHA256 {
+		return manifest, fmt.Errorf("normalized generation checksum mismatch")
 	}
 	db, err := openDatabase(filepath.Join(path, IndexName))
 	if err != nil {
@@ -323,10 +243,10 @@ func Verify(path string) (Manifest, error) {
 	}
 	defer db.Close()
 	var version string
-	if err = db.QueryRow("SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); err != nil || version != "1" {
+	if err = db.QueryRow("SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); err != nil || version != "2" {
 		return manifest, fmt.Errorf("DuckDB index schema: %s: %v", version, err)
 	}
-	var locators, searchRows, badPostings, badAddresses, spatialRows int
+	var locators, searchRows, badPostings, uncoveredSearch, badPrefixHeads, badAddresses, spatialRows int
 	if err = db.QueryRow("SELECT count(*) FROM entity_locator").Scan(&locators); err != nil {
 		return manifest, err
 	}
@@ -335,6 +255,11 @@ func Verify(path string) (Manifest, error) {
 	}
 	if locators != entityRows || searchRows != entityRows {
 		return manifest, fmt.Errorf("DuckDB entity coverage: parquet=%d locator=%d search=%d", entityRows, locators, searchRows)
+	}
+	for _, file := range manifest.Files {
+		if file.Role == "serving" && file.Rows != entityRows {
+			return manifest, fmt.Errorf("DuckDB serving row count: got %d want %d", file.Rows, entityRows)
+		}
 	}
 	var duplicateLocators, duplicateSearchRows, mismatchedEntities int
 	if err = db.QueryRow("SELECT count(*)-count(DISTINCT id) FROM entity_locator").Scan(&duplicateLocators); err != nil {
@@ -359,6 +284,20 @@ WHERE s.id IS NULL OR l.id IS NULL OR s.kind<>l.kind`).Scan(&mismatchedEntities)
 	if badPostings != 0 {
 		return manifest, fmt.Errorf("DuckDB posting integrity: %d", badPostings)
 	}
+	if err = db.QueryRow(`SELECT count(*) FROM search_entities e LEFT JOIN postings p USING(entity_seq)
+WHERE p.entity_seq IS NULL`).Scan(&uncoveredSearch); err != nil {
+		return manifest, err
+	}
+	if uncoveredSearch != 0 {
+		return manifest, fmt.Errorf("DuckDB search coverage: %d", uncoveredSearch)
+	}
+	if err = db.QueryRow(`SELECT count(*) FROM short_prefix_head h LEFT JOIN search_entities e USING(entity_seq)
+WHERE e.entity_seq IS NULL`).Scan(&badPrefixHeads); err != nil {
+		return manifest, err
+	}
+	if badPrefixHeads != 0 {
+		return manifest, fmt.Errorf("DuckDB prefix-head integrity: %d", badPrefixHeads)
+	}
 	if err = db.QueryRow(`SELECT count(*) FROM address_lookup a LEFT JOIN entity_locator e ON e.id=a.entity_id WHERE e.id IS NULL OR e.kind<>'address'`).Scan(&badAddresses); err != nil {
 		return manifest, err
 	}
@@ -375,10 +314,17 @@ WHERE s.id IS NULL OR l.id IS NULL OR s.kind<>l.kind`).Scan(&mismatchedEntities)
 	if spatialRows != addressRows {
 		return manifest, fmt.Errorf("DuckDB spatial coverage: address=%d spatial=%d", addressRows, spatialRows)
 	}
-	var duplicateSources, badSources, badProvenance, badRelationships, indexes int
-	sourcesPath := filepath.Join(path, SourcesName)
-	provenancePath := filepath.Join(path, ProvenanceName)
-	relationshipsPath := filepath.Join(path, RelationshipsName)
+	var expectedAddresses int
+	if err = db.QueryRow(`SELECT count(*) FROM read_parquet(?) WHERE kind='address' AND address_key<>''`, filepath.Join(path, "entities*.parquet")).Scan(&expectedAddresses); err != nil {
+		return manifest, err
+	}
+	if addressRows != expectedAddresses {
+		return manifest, fmt.Errorf("DuckDB exact-address coverage: expected=%d actual=%d", expectedAddresses, addressRows)
+	}
+	var duplicateSources, badSources, badProvenance, badRelationships, duplicateRelationships, duplicateRejections, invalidRejections, indexes int
+	sourcesPath := filepath.Join(path, "source-records*.parquet")
+	provenancePath := filepath.Join(path, "attribute-provenance*.parquet")
+	relationshipsPath := filepath.Join(path, "relationships*.parquet")
 	if err = db.QueryRow(`SELECT count(*)-count(DISTINCT source_key) FROM read_parquet(?)`, sourcesPath).Scan(&duplicateSources); err != nil {
 		return manifest, err
 	}
@@ -392,6 +338,16 @@ LEFT JOIN entity_locator e ON e.id=s.entity_id WHERE e.id IS NULL`, sourcesPath)
 	if badSources != 0 {
 		return manifest, fmt.Errorf("DuckDB source integrity: %d", badSources)
 	}
+	var sourceRows, locatedSources, provenanceRows, locatedProvenance int
+	if err = db.QueryRow(`SELECT count(*) FROM read_parquet(?)`, sourcesPath).Scan(&sourceRows); err != nil {
+		return manifest, err
+	}
+	if err = db.QueryRow(`SELECT coalesce(sum(source_count),0) FROM entity_locator`).Scan(&locatedSources); err != nil {
+		return manifest, err
+	}
+	if sourceRows != locatedSources {
+		return manifest, fmt.Errorf("DuckDB source locator coverage: parquet=%d located=%d", sourceRows, locatedSources)
+	}
 	if err = db.QueryRow(`SELECT count(*) FROM read_parquet(?) p
 LEFT JOIN entity_locator e ON e.id=p.entity_id
 LEFT JOIN read_parquet(?) s ON s.entity_id=p.entity_id AND s.source_key=p.source_key
@@ -401,6 +357,15 @@ WHERE e.id IS NULL OR s.source_key IS NULL`, provenancePath, sourcesPath).Scan(&
 	if badProvenance != 0 {
 		return manifest, fmt.Errorf("DuckDB provenance integrity: %d", badProvenance)
 	}
+	if err = db.QueryRow(`SELECT count(*) FROM read_parquet(?)`, provenancePath).Scan(&provenanceRows); err != nil {
+		return manifest, err
+	}
+	if err = db.QueryRow(`SELECT coalesce(sum(provenance_count),0) FROM entity_locator`).Scan(&locatedProvenance); err != nil {
+		return manifest, err
+	}
+	if provenanceRows != locatedProvenance {
+		return manifest, fmt.Errorf("DuckDB provenance locator coverage: parquet=%d located=%d", provenanceRows, locatedProvenance)
+	}
 	if err = db.QueryRow(`SELECT count(*) FROM read_parquet(?) r
 LEFT JOIN entity_locator f ON f.id=r.from_id
 LEFT JOIN entity_locator t ON t.id=r.to_id
@@ -409,6 +374,24 @@ WHERE f.id IS NULL OR t.id IS NULL`, relationshipsPath).Scan(&badRelationships);
 	}
 	if badRelationships != 0 {
 		return manifest, fmt.Errorf("DuckDB relationship integrity: %d", badRelationships)
+	}
+	if err = db.QueryRow(`SELECT count(*)-count(DISTINCT (from_id,to_id,kind)) FROM read_parquet(?)`, relationshipsPath).Scan(&duplicateRelationships); err != nil {
+		return manifest, err
+	}
+	if duplicateRelationships != 0 {
+		return manifest, fmt.Errorf("DuckDB duplicate relationships: %d", duplicateRelationships)
+	}
+	if err = db.QueryRow(`SELECT count(*)-count(DISTINCT (source_key,reason)) FROM read_parquet(?)`, filepath.Join(path, "rejections*.parquet")).Scan(&duplicateRejections); err != nil {
+		return manifest, err
+	}
+	if duplicateRejections != 0 {
+		return manifest, fmt.Errorf("DuckDB duplicate rejections: %d", duplicateRejections)
+	}
+	if err = db.QueryRow(`SELECT count(*) FROM read_parquet(?) WHERE source_key='' OR reason='' OR NOT json_valid(raw)`, filepath.Join(path, "rejections*.parquet")).Scan(&invalidRejections); err != nil {
+		return manifest, err
+	}
+	if invalidRejections != 0 {
+		return manifest, fmt.Errorf("DuckDB invalid rejections: %d", invalidRejections)
 	}
 	if err = db.QueryRow("SELECT count(*) FROM duckdb_indexes()").Scan(&indexes); err != nil {
 		return manifest, err

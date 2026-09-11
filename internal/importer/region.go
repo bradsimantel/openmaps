@@ -16,7 +16,7 @@ import (
 // Prepare is offline and verifies all inputs before parsing any source data.
 // Scheduling or accepting a new release never implicitly changes its pins.
 func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[string]string) (Bundle, map[string]any, error) {
-	b := Bundle{Schema: 1, Manifest: rawValue(m), Identities: identities, Records: []Record{}, Relationships: []Relationship{}}
+	b := Bundle{Schema: 1, Manifest: rawValue(m), Identities: identities, Records: []Record{}, Relationships: []Relationship{}, Rejections: []Rejection{}}
 	fail := func(e error) (Bundle, map[string]any, error) { return b, nil, e }
 	for _, input := range m.Inputs {
 		if e := Verify(filepath.Join(dataDir, input.File), input.SHA256); e != nil {
@@ -57,6 +57,7 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 	for _, kind := range []string{"place", "address"} {
 		for _, f := range features[kind] {
 			if !inside(f.Geometry.Coordinates, m.BBox) {
+				b.Rejections = append(b.Rejections, Rejection{SourceKey: "overture:" + kind + ":" + f.Props.ID, Reason: "outside_manifest_bounds", Raw: f.Raw})
 				continue
 			}
 			r, e := overtureRecord(f, kind, releases[kind])
@@ -97,14 +98,20 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 			b.Relationships = append(b.Relationships, Relationship{From: r.Key(), To: "overture:division:" + parent, Kind: "parent_area", Evidence: "Overture parent_division_id"})
 		}
 	}
+	for id, division := range divisions {
+		if !selected[id] {
+			b.Rejections = append(b.Rejections, Rejection{SourceKey: "overture:division:" + id, Reason: "outside_manifest_hierarchy", Raw: division.Raw})
+		}
+	}
 	if e := ctx.Err(); e != nil {
 		return fail(e)
 	}
-	streets, transportation, e := readTransportation(ctx, filepath.Join(dataDir, transportationInput.File), transportationInput.Release, m.BBox)
+	streets, transportationRejections, transportation, e := readTransportation(ctx, filepath.Join(dataDir, transportationInput.File), transportationInput.Release, m.BBox)
 	if e != nil {
 		return fail(e)
 	}
 	b.Records = append(b.Records, streets...)
+	b.Rejections = append(b.Rejections, transportationRejections...)
 	addresses := map[string][]Record{}
 	for _, r := range b.Records {
 		if r.Kind == "address" {
@@ -148,7 +155,14 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 		}
 		return a.To < c.To
 	})
+	sort.Slice(b.Rejections, func(i, j int) bool {
+		if b.Rejections[i].SourceKey != b.Rejections[j].SourceKey {
+			return b.Rejections[i].SourceKey < b.Rejections[j].SourceKey
+		}
+		return b.Rejections[i].Reason < b.Rejections[j].Reason
+	})
 	counts := map[string]int{}
+	rejectedCounts := map[string]int{}
 	streetNames := map[string]bool{}
 	rawCounts := map[string]int{}
 	for kind, fs := range features {
@@ -160,8 +174,11 @@ func Prepare(ctx context.Context, m Manifest, dataDir string, identities map[str
 			streetNames[recordName(r)] = true
 		}
 	}
+	for _, rejection := range b.Rejections {
+		rejectedCounts[rejection.Reason]++
+	}
 	rawCounts["segment"] = transportation.Segments
-	audit := map[string]any{"raw_counts": rawCounts, "imported_counts": counts, "linked_business_addresses": linked, "ambiguous_business_addresses": ambiguous, "transportation_selection": transportation, "unique_street_names": len(streetNames)}
+	audit := map[string]any{"raw_counts": rawCounts, "imported_counts": counts, "rejected_counts": rejectedCounts, "linked_business_addresses": linked, "ambiguous_business_addresses": ambiguous, "transportation_selection": transportation, "unique_street_names": len(streetNames)}
 	for _, kind := range []string{"place", "address"} {
 		labels := map[string]int{}
 		completeness := map[string]int{}

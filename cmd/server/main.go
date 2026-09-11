@@ -9,21 +9,18 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
 	"openmaps/internal/api"
-	"openmaps/internal/geocoding"
-	"openmaps/internal/places"
-	"openmaps/internal/placesgeocoding/snapshots"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 	"openmaps/internal/routing"
 )
 
 type configuration struct {
-	routingSnapshot, routingSelection, db, deployment, listen, public, tiles string
-	routingConcurrency                                                       int
-	routingCache                                                             int64
+	routingSnapshot, routingSelection, lookup, lookupSelection, listen, public, tiles string
+	routingConcurrency                                                                int
+	routingCache                                                                      int64
 }
 
 func main() {
@@ -31,8 +28,8 @@ func main() {
 	flag.StringVar(&c.routingSnapshot, "routing-snapshot", "", "prepared routing snapshot directory")
 	flag.StringVar(&c.routingSelection, "routing-selection", "", "JSON routing selection file, independent of lookup selection")
 	flag.Int64Var(&c.routingCache, "routing-cache-mib", 128, "graph page payload per reader, 1..128 MiB; index caches are additional")
-	flag.StringVar(&c.db, "db", "data/openmaps.sqlite", "lookup SQLite database; empty disables lookup")
-	flag.StringVar(&c.deployment, "deployment", "", "lookup refresh deployment state; supersedes -db")
+	flag.StringVar(&c.lookup, "lookup", "", "verified Parquet/DuckDB lookup generation directory; empty disables direct lookup")
+	flag.StringVar(&c.lookupSelection, "lookup-selection", "data/lookup-selection.json", "JSON lookup-generation selection; empty uses -lookup")
 	flag.StringVar(&c.listen, "listen", "127.0.0.1:8080", "HTTP listen address")
 	flag.StringVar(&c.public, "public", "public", "public files directory")
 	flag.StringVar(&c.tiles, "tiles", "data/newport.pmtiles", "local Protomaps archive")
@@ -89,31 +86,28 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 	fail := func(err error) (http.Handler, func(), error) { cleanup(); return nil, nil, err }
 	lookupAPI := api.Handler{}
 	var lookup http.Handler = lookupAPI
-	var live *snapshots.LiveHandler
-	if c.deployment != "" {
+	var live *placeduckdb.LiveHandler
+	var directReference placeduckdb.Reference
+	if c.lookupSelection != "" {
 		var err error
-		live, err = snapshots.Open(ctx, c.deployment)
+		live, err = placeduckdb.OpenLiveHandler(c.lookupSelection)
 		if err != nil {
 			return fail(err)
 		}
 		closers = append(closers, func() { live.Close() })
 		lookup = live
-	} else if c.db != "" {
-		dbPath, err := filepath.Abs(c.db)
-		if err != nil {
-			return fail(err)
-		}
-		store, err := places.Open(dbPath)
+	} else if c.lookup != "" {
+		store, err := placeduckdb.Open(c.lookup)
 		if err != nil {
 			return fail(err)
 		}
 		closers = append(closers, func() { store.Close() })
-		geocoder, err := geocoding.Open(ctx, dbPath)
+		directReference, err = placeduckdb.Describe(c.lookup)
 		if err != nil {
 			return fail(err)
 		}
-		lookupAPI = api.Handler{Places: store, Geocoding: geocoder}
-		lookup = lookupAPI
+		lookupAPI = api.Handler{Places: store, Geocoding: store}
+		lookup = snapshotHeader(lookupAPI, directReference.SHA256)
 	}
 	var router *routing.Service
 	if c.routingSnapshot != "" {
@@ -135,6 +129,8 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 	var routeHandler http.Handler = routeAPI
 	if live != nil {
 		routeHandler = live.Routes(router)
+	} else if directReference.SHA256 != "" {
+		routeHandler = snapshotHeader(routeAPI, directReference.SHA256)
 	}
 	mux.Handle("/directions/", api.RoutingAdmission(routeHandler, c.routingConcurrency))
 	mux.Handle("/v1/", lookup)
@@ -145,16 +141,18 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 			w.WriteHeader(405)
 			return
 		}
-		health := map[string]any{"status": "ok", "routing_available": router != nil, "routing_duration_available": router != nil, "lookup_available": c.db != "" || live != nil}
+		health := map[string]any{"status": "ok", "routing_available": router != nil, "routing_duration_available": router != nil, "lookup_available": c.lookup != "" || live != nil}
 		status := 200
 		if live != nil {
-			lookupSnapshot, errorText := live.Status(r.Context())
+			lookupSnapshot, errorText := live.Status()
 			health["lookup_snapshot"] = lookupSnapshot
 			if errorText != "" {
 				health["error"] = errorText
 				health["status"] = "degraded"
 				status = 503
 			}
+		} else if c.lookup != "" {
+			health["lookup_snapshot"] = directReference
 		}
 		if router != nil {
 			meta, reloadError := router.Status()
@@ -178,4 +176,11 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 	})
 	mux.Handle("/", http.FileServer(http.Dir(c.public)))
 	return mux, cleanup, nil
+}
+
+func snapshotHeader(next http.Handler, checksum string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-OpenMaps-Lookup-Snapshot", checksum)
+		next.ServeHTTP(w, r)
+	})
 }

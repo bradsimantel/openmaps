@@ -1,5 +1,5 @@
-// places-geocoding-refresh builds, compares, selects and rolls back immutable
-// Places/geocoding snapshots.
+// places-geocoding-refresh builds, compares, reviews, activates and rolls back
+// immutable Places/geocoding Parquet/DuckDB generations.
 package main
 
 import (
@@ -9,165 +9,169 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"openmaps/internal/importer"
-	"openmaps/internal/placesgeocoding/snapshots"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
+type review struct {
+	ReportSHA256 string `json:"report_sha256"`
+	Reviewer     string `json:"reviewer"`
+	Reason       string `json:"reason"`
+}
+
 func main() {
-	if e := run(); e != nil {
-		log.Fatal(e)
+	if err := run(); err != nil {
+		log.Fatal(err)
 	}
 }
-func readJSON(path string, v any) error {
-	f, e := os.Open(path)
-	if e != nil {
-		return e
+
+func readJSON(path string, value any) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
 	}
-	defer f.Close()
-	d := json.NewDecoder(f)
-	d.DisallowUnknownFields()
-	return d.Decode(v)
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(value)
 }
+
 func run() error {
 	if len(os.Args) < 2 {
 		return fmt.Errorf("usage: places-geocoding-refresh build|compare|review|init|activate|rollback|status [flags]")
 	}
 	command := os.Args[1]
-	f := flag.NewFlagSet(command, flag.ContinueOnError)
-	baseline := f.String("baseline", "data/openmaps.sqlite", "retained baseline database")
-	candidate := f.String("candidate", "", "candidate database (build refuses existing output)")
-	bundle := f.String("bundle", "", "normalized input bundle")
-	config := f.String("config", "", "Places and geocoding source configuration for the input bundle")
-	replacements := f.String("replacements", "", "optional reviewed one-to-one replacements JSON")
-	queries := f.String("queries", "", "optional Places search expectations JSON")
-	report := f.String("report", "data/refresh-report.json", "full deterministic comparison JSON")
-	review := f.String("review", "", "review JSON bound to report SHA-256")
-	reviewer := f.String("reviewer", "", "person or agent recording the review")
-	reason := f.String("reason", "", "review findings, including treatment of uncertainty")
-	state := f.String("state", "data/deployment.json", "local deployment state")
-	if e := f.Parse(os.Args[2:]); e != nil {
-		return e
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	baseline := flags.String("baseline", "", "verified baseline generation; compare defaults to the selected current generation")
+	candidate := flags.String("candidate", "", "candidate generation directory (build refuses an existing directory)")
+	bundle := flags.String("bundle", "data/newport.json", "normalized provider-record stream")
+	config := flags.String("config", "config/places-geocoding.json", "Places/geocoding source configuration")
+	queries := flags.String("queries", "", "optional autocomplete expectations JSON")
+	reportPath := flags.String("report", "data/refresh-report.json", "deterministic generation comparison JSON")
+	reviewPath := flags.String("review", "", "review JSON bound to the comparison report")
+	reviewer := flags.String("reviewer", "", "person or agent recording the review")
+	reason := flags.String("reason", "", "review findings and treatment of uncertain changes")
+	selectionPath := flags.String("selection", "data/lookup-selection.json", "atomic lookup-generation selection")
+	if err := flags.Parse(os.Args[2:]); err != nil {
+		return err
 	}
-	if f.NArg() != 0 {
+	if flags.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments")
 	}
 	ctx := context.Background()
 	switch command {
 	case "build":
-		if *candidate == "" || *bundle == "" || *config == "" {
-			return fmt.Errorf("build requires -candidate, -bundle and -config")
+		if *candidate == "" {
+			return fmt.Errorf("build requires -candidate")
 		}
-		manifest, e := importer.ReadManifest(*config)
-		if e != nil {
-			return e
+		manifest, err := importer.ReadManifest(*config)
+		if err != nil {
+			return err
 		}
-		if e = importer.Verify(*bundle, manifest.BundleSHA256); e != nil {
-			return e
+		if err = importer.Verify(*bundle, manifest.BundleSHA256); err != nil {
+			return err
 		}
-		var b importer.Bundle
-		if e = readJSON(*bundle, &b); e != nil {
-			return e
+		file, err := os.Open(*bundle)
+		if err != nil {
+			return err
 		}
-		base, e := importer.ReadSnapshot(ctx, *baseline)
-		if e != nil {
-			return e
+		defer file.Close()
+		if err = placeduckdb.BuildJSON(ctx, *candidate, file); err != nil {
+			return err
 		}
-		decisions := []importer.Replacement{}
-		if *replacements != "" {
-			if e = readJSON(*replacements, &decisions); e != nil {
-				return e
-			}
-		}
-		b, history, e := importer.Reconcile(b, base, decisions)
-		if e != nil {
-			return e
-		}
-		abs, e := filepath.Abs(*candidate)
-		if e != nil {
-			return e
-		}
-		temp, e := os.CreateTemp(filepath.Dir(abs), ".refresh-*.sqlite")
-		if e != nil {
-			return e
-		}
-		name := temp.Name()
-		temp.Close()
-		os.Remove(name)
-		defer os.Remove(name)
-		if e = importer.Build(ctx, name, b); e != nil {
-			return e
-		}
-		if e = importer.SaveRefreshMetadata(name, history, decisions, manifest.BundleSHA256); e != nil {
-			return e
-		}
-		if _, e = importer.ReadSnapshot(ctx, name); e != nil {
-			return e
-		}
-		if e = os.Link(name, abs); e != nil {
-			return e
-		}
-		fmt.Println("Built", abs)
+		fmt.Println("Built", *candidate)
 	case "compare":
 		if *candidate == "" {
 			return fmt.Errorf("compare requires -candidate")
 		}
+		if *baseline == "" {
+			selection, err := placeduckdb.ReadSelection(*selectionPath)
+			if err != nil {
+				return err
+			}
+			*baseline = selection.Current.Path
+		}
 		checks := importer.NewportPlacesQueryChecks()
 		if *queries != "" {
-			if e := readJSON(*queries, &checks); e != nil {
-				return e
+			if err := readJSON(*queries, &checks); err != nil {
+				return err
 			}
 		}
-		r, e := importer.Compare(ctx, *baseline, *candidate, checks)
-		if e != nil {
-			return e
+		report, err := placeduckdb.Compare(ctx, *baseline, *candidate, checks)
+		if err != nil {
+			return err
 		}
-		if e = importer.WriteJSON(*report, r); e != nil {
-			return e
+		if err = importer.WriteJSON(*reportPath, report); err != nil {
+			return err
 		}
-		sum, e := importer.Checksum(*report)
-		if e != nil {
-			return e
+		sum, err := importer.Checksum(*reportPath)
+		if err != nil {
+			return err
 		}
-		summary := map[string]any{"report": *report, "report_sha256": sum, "before": r.BeforeCounts, "after": r.AfterCounts, "continuing_ids": r.ContinuingIDs, "added": len(r.Added), "removed": len(r.Removed), "changed": len(r.Changed), "relationships_added": len(r.RelationshipsAdded), "relationships_removed": len(r.RelationshipsRemoved), "review_matches": len(r.ReviewMatches), "violations": r.Violations}
+		summary := map[string]any{"report": *reportPath, "report_sha256": sum, "before": report.BeforeCounts, "after": report.AfterCounts, "added": report.Added, "removed": report.Removed, "changed": report.Changed, "relationships_added": report.RelationshipsAdded, "relationships_removed": report.RelationshipsRemoved, "violations": report.Violations}
 		out, _ := json.MarshalIndent(summary, "", "  ")
 		fmt.Println(string(out))
-		if len(r.Violations) > 0 {
+		if len(report.Violations) != 0 {
 			return fmt.Errorf("candidate failed validation; see report")
 		}
 	case "review":
-		if *review == "" || strings.TrimSpace(*reviewer) == "" || strings.TrimSpace(*reason) == "" {
+		if *reviewPath == "" || strings.TrimSpace(*reviewer) == "" || strings.TrimSpace(*reason) == "" {
 			return fmt.Errorf("review requires -review, -reviewer and -reason after inspecting the report")
 		}
-		var r importer.Report
-		if e := readJSON(*report, &r); e != nil {
-			return e
+		var report placeduckdb.Comparison
+		if err := readJSON(*reportPath, &report); err != nil {
+			return err
 		}
-		if r.Schema != 1 || len(r.Violations) != 0 || len(r.Queries) == 0 {
+		if report.Schema != 1 || len(report.Violations) != 0 || len(report.Queries) == 0 {
 			return fmt.Errorf("cannot review a failed or unchecked candidate")
 		}
-		sum, e := importer.Checksum(*report)
-		if e != nil {
-			return e
+		sum, err := importer.Checksum(*reportPath)
+		if err != nil {
+			return err
 		}
-		return importer.WriteJSON(*review, snapshots.Review{ReportSHA256: sum, Reviewer: *reviewer, Reason: *reason})
+		return importer.WriteJSON(*reviewPath, review{ReportSHA256: sum, Reviewer: *reviewer, Reason: *reason})
 	case "init":
-		return snapshots.Init(ctx, *state, *baseline)
+		if *baseline == "" {
+			return fmt.Errorf("init requires -baseline")
+		}
+		return placeduckdb.InitializeSelection(*selectionPath, *baseline)
 	case "activate":
-		if *candidate == "" || *review == "" {
+		if *candidate == "" || *reviewPath == "" {
 			return fmt.Errorf("activate requires -candidate and -review")
 		}
-		return snapshots.Activate(ctx, *state, *candidate, *report, *review)
-	case "rollback":
-		return snapshots.Rollback(ctx, *state)
-	case "status":
-		s, e := snapshots.Read(*state)
-		if e != nil {
-			return e
+		var report placeduckdb.Comparison
+		if err := readJSON(*reportPath, &report); err != nil {
+			return err
 		}
-		out, _ := json.MarshalIndent(s, "", "  ")
+		var approved review
+		if err := readJSON(*reviewPath, &approved); err != nil {
+			return err
+		}
+		if approved.Reviewer == "" || approved.Reason == "" || importer.Verify(*reportPath, approved.ReportSHA256) != nil || report.Schema != 1 || len(report.Violations) != 0 || len(report.Queries) == 0 {
+			return fmt.Errorf("comparison is not validly reviewed")
+		}
+		selection, err := placeduckdb.ReadSelection(*selectionPath)
+		if err != nil {
+			return err
+		}
+		candidateReference, err := placeduckdb.Describe(*candidate)
+		if err != nil {
+			return err
+		}
+		if selection.Current != report.Baseline || candidateReference != report.Candidate {
+			return fmt.Errorf("reviewed comparison does not match current and candidate generations")
+		}
+		return placeduckdb.ActivateSelection(*selectionPath, *candidate)
+	case "rollback":
+		return placeduckdb.RollbackSelection(*selectionPath)
+	case "status":
+		selection, err := placeduckdb.ReadSelection(*selectionPath)
+		if err != nil {
+			return err
+		}
+		out, _ := json.MarshalIndent(selection, "", "  ")
 		fmt.Println(string(out))
 	default:
 		return fmt.Errorf("unknown places-geocoding-refresh command %q", command)

@@ -1,10 +1,9 @@
-// places-geocoding-duckdb builds the non-default Parquet plus DuckDB candidate.
-// The production server continues to use its SQLite snapshot.
+// places-geocoding-duckdb builds a production Parquet plus DuckDB generation.
+// places-geocoding-import is the normal Newport command and also selects it.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -22,7 +21,7 @@ func main() {
 }
 
 func run() error {
-	bundlePath := flag.String("bundle", "data/newport.json", "normalized regional bundle")
+	bundlePath := flag.String("bundle", "data/newport.json", "deterministic provider-record stream")
 	configPath := flag.String("config", "config/places-geocoding.json", "pinned Places and geocoding source configuration")
 	out := flag.String("out", "data/openmaps-duckdb", "new output artifact directory")
 	flag.Parse()
@@ -41,13 +40,7 @@ func run() error {
 		return err
 	}
 	defer f.Close()
-	var bundle importer.Bundle
-	decoder := json.NewDecoder(f)
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(&bundle); err != nil {
-		return err
-	}
-	if err = placeduckdb.Build(context.Background(), *out, bundle); err != nil {
+	if err = placeduckdb.BuildJSON(context.Background(), *out, f); err != nil {
 		return err
 	}
 	manifestOut, err := placeduckdb.Verify(*out)

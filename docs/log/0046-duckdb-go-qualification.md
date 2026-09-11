@@ -1,5 +1,11 @@
 # DuckDB Go lookup qualification
 
+> **Historical note:** The separately authorized
+> [production migration](0047-duckdb-places-geocoding-migration.md) completed
+> the cutover and removed the compact-SQLite path. Statements below that the
+> production runtime remains SQLite describe this qualification's original
+> scope, not the current architecture.
+
 | Field | Value |
 | --- | --- |
 | Date | 2026-09-11 |

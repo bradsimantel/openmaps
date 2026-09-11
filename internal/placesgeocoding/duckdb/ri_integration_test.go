@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -99,6 +100,30 @@ func TestRhodeIslandServingIndex(t *testing.T) {
 		if !reflect.DeepEqual(ids, want) {
 			t.Fatalf("%q ids differ\ngot:  %v\nwant: %v", query, ids, want)
 		}
+	}
+	var rankTables int
+	if err = db.QueryRow(`SELECT count(*) FROM information_schema.tables
+WHERE table_name IN ('rank_entities','entity_ranks')`).Scan(&rankTables); err != nil || rankTables != 0 {
+		t.Fatalf("serving catalog retained a complete rank table: count=%d err=%v", rankTables, err)
+	}
+	planRows, err := db.Query(`EXPLAIN ANALYZE SELECT p.entity_seq
+FROM tokens t JOIN postings p USING(token_id)
+WHERE t.token>='main' AND t.token<'maio'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan strings.Builder
+	for planRows.Next() {
+		var key, value string
+		if err = planRows.Scan(&key, &value); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(value)
+	}
+	planRows.Close()
+	planText := strings.ToLower(plan.String())
+	if !strings.Contains(planText, "postings") || !strings.Contains(planText, "token") || !strings.Contains(planText, "main") || !strings.Contains(planText, "maio") {
+		t.Fatalf("token-prefix plan lost its selective sorted range:\n%s", plan.String())
 	}
 
 	queries := []string{"ma", "white horse", "main street", "providence", "50 bellevue", "dunkin", "rhode island", "zzzzz missing"}

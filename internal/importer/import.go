@@ -1,5 +1,6 @@
-// Package importer builds SQLite from normalized records produced by concrete
-// source adapters. It never translates Google wire types.
+// Package importer owns provider adaptation, identity/conflict rules and the
+// retained SQLite compatibility oracle. Production artifacts are written by
+// internal/placesgeocoding/duckdb. It never translates Google wire types.
 package importer
 
 import (
@@ -42,12 +43,18 @@ type Relationship struct {
 	Kind     string `json:"kind"`
 	Evidence string `json:"evidence"`
 }
+type Rejection struct {
+	SourceKey string          `json:"source_key"`
+	Reason    string          `json:"reason"`
+	Raw       json.RawMessage `json:"raw"`
+}
 type Bundle struct {
 	Schema        int               `json:"schema"`
 	Manifest      json.RawMessage   `json:"manifest"`
 	Identities    map[string]string `json:"identities"`
 	Records       []Record          `json:"records"`
 	Relationships []Relationship    `json:"relationships"`
+	Rejections    []Rejection       `json:"rejections,omitempty"`
 }
 
 // ResolvedEntity is one provider-independent entity after identity and
@@ -91,8 +98,7 @@ func validLocation(p places.Location) bool {
 }
 
 // normalize applies the identity, conflict, provenance and relationship rules
-// once so the existing SQLite writer and experimental artifact writers cannot
-// silently disagree about the logical snapshot.
+// for the retained SQLite oracle and small tests.
 func normalize(b Bundle) (ResolvedBundle, error) {
 	var out ResolvedBundle
 	var scope Manifest
@@ -255,6 +261,108 @@ func normalize(b Bundle) (ResolvedBundle, error) {
 // storage format. Artifact writers use it to share the production import rules.
 func Resolve(b Bundle) (ResolvedBundle, error) {
 	return normalize(b)
+}
+
+// ResolveEntityGroup applies the maintained attribute conflict and provenance
+// rules to one identity group. Streaming artifact builders call it with one
+// externally sorted group at a time, so memory is bounded by the number of
+// source records contributing to a single public entity rather than the size
+// of the snapshot.
+func ResolveEntityGroup(id string, records []Record) (ResolvedEntity, []ResolvedSource, []ResolvedProvenance, error) {
+	var entity ResolvedEntity
+	if id == "" || len(records) == 0 {
+		return entity, nil, nil, fmt.Errorf("empty entity group")
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].Priority != records[j].Priority {
+			return records[i].Priority > records[j].Priority
+		}
+		return records[i].Key() < records[j].Key()
+	})
+	values := map[string]json.RawMessage{}
+	winners := map[string]Record{}
+	attrs := []places.Attribution{}
+	attrSeen := map[string]bool{}
+	seenSources := map[string]bool{}
+	for _, r := range records {
+		if r.Source == "" || r.SourceID == "" || r.Release == "" || len(r.Raw) == 0 || len(r.Attributions) == 0 {
+			return entity, nil, nil, fmt.Errorf("incomplete provenance: %s", r.Key())
+		}
+		if seenSources[r.Key()] {
+			return entity, nil, nil, fmt.Errorf("duplicate source key: %s", r.Key())
+		}
+		seenSources[r.Key()] = true
+		if r.Kind != records[0].Kind {
+			return entity, nil, nil, fmt.Errorf("cross-kind identity merge: %s", id)
+		}
+		for k, v := range r.Attributes {
+			switch k {
+			case "name", "address", "website", "subtype", "location", "closed", "aliases":
+			default:
+				return entity, nil, nil, fmt.Errorf("unknown normalized attribute: %s", k)
+			}
+			if string(v) == "null" || string(v) == `""` || string(v) == "[]" {
+				continue
+			}
+			if r.Paths[k] == "" {
+				return entity, nil, nil, fmt.Errorf("missing attribute provenance: %s %s", r.Key(), k)
+			}
+			if _, ok := values[k]; !ok {
+				values[k] = v
+				winners[k] = r
+			}
+		}
+		for _, a := range r.Attributions {
+			key := serialized(a)
+			if !attrSeen[key] {
+				attrs = append(attrs, a)
+				attrSeen[key] = true
+			}
+		}
+	}
+	var name, address, website, subtype string
+	var point places.Location
+	var closed bool
+	var aliases []string
+	for key, dst := range map[string]any{"name": &name, "address": &address, "website": &website, "subtype": &subtype, "location": &point, "closed": &closed, "aliases": &aliases} {
+		if value, ok := values[key]; ok {
+			if err := json.Unmarshal(value, dst); err != nil {
+				return entity, nil, nil, fmt.Errorf("attribute %s: %w", key, err)
+			}
+		}
+	}
+	if strings.TrimSpace(name) == "" || values["location"] == nil || !validLocation(point) {
+		return entity, nil, nil, fmt.Errorf("invalid name/location: %s", id)
+	}
+	var coordinates struct {
+		Lat *float64 `json:"lat"`
+		Lng *float64 `json:"lng"`
+	}
+	if err := json.Unmarshal(values["location"], &coordinates); err != nil || coordinates.Lat == nil || coordinates.Lng == nil {
+		return entity, nil, nil, fmt.Errorf("location requires both lat and lng: %s", id)
+	}
+	if website != "" {
+		u, err := url.Parse(website)
+		if err != nil || u.Host == "" || u.Scheme != "http" && u.Scheme != "https" {
+			return entity, nil, nil, fmt.Errorf("invalid website: %s", id)
+		}
+	}
+	entity = ResolvedEntity{ID: id, Kind: records[0].Kind, Name: name, NormalizedName: places.Normalize(name), Address: address, Website: website, Subtype: subtype, Location: point, Closed: closed, Attributions: attrs, Aliases: aliases}
+	sources := make([]ResolvedSource, 0, len(records))
+	for _, record := range records {
+		sources = append(sources, ResolvedSource{EntityID: id, Record: record})
+	}
+	keys := make([]string, 0, len(winners))
+	for key := range winners {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	provenance := make([]ResolvedProvenance, 0, len(keys))
+	for _, attribute := range keys {
+		record := winners[attribute]
+		provenance = append(provenance, ResolvedProvenance{EntityID: id, Attribute: attribute, SourceKey: record.Key(), SourcePath: record.Paths[attribute]})
+	}
+	return entity, sources, provenance, nil
 }
 
 // Build creates a new database, refusing to overwrite anything. The command

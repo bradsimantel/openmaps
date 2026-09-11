@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"openmaps/internal/importer"
-	"openmaps/internal/placesgeocoding/snapshots"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 	"openmaps/internal/routing"
 )
 
@@ -43,8 +43,8 @@ func serviceFixture(t *testing.T) (configuration, string) {
 	t.Helper()
 	root := t.TempDir()
 	bundle := routingLookupBundle(t)
-	db := filepath.Join(root, "lookup.sqlite")
-	if e := importer.Build(context.Background(), db, bundle); e != nil {
+	lookup := filepath.Join(root, "lookup")
+	if e := placeduckdb.Build(context.Background(), lookup, bundle); e != nil {
 		t.Fatal(e)
 	}
 	raw, e := os.ReadFile("../../internal/routing/testdata/scout/lock.json")
@@ -68,7 +68,7 @@ func serviceFixture(t *testing.T) (configuration, string) {
 	}
 	tiles := filepath.Join(root, "map.pmtiles")
 	os.WriteFile(tiles, []byte("0123456789"), 0600)
-	return configuration{db: db, routingSnapshot: dirs[0], routingConcurrency: 2, routingCache: 1, tiles: tiles, public: "../../public", routingSelection: filepath.Join(root, "selection.json")}, dirs[1]
+	return configuration{lookup: lookup, routingSnapshot: dirs[0], routingConcurrency: 2, routingCache: 1, tiles: tiles, public: "../../public", routingSelection: filepath.Join(root, "selection.json")}, dirs[1]
 }
 func TestUnifiedServiceLookupTilesAndRoutingReplacement(t *testing.T) {
 	c, second := serviceFixture(t)
@@ -76,7 +76,7 @@ func TestUnifiedServiceLookupTilesAndRoutingReplacement(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	c.db, e = filepath.Rel(wd, c.db)
+	c.lookup, e = filepath.Rel(wd, c.lookup)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -241,8 +241,8 @@ func (w *blockedHTTPWriter) Write(p []byte) (int, error) {
 func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 	c, _ := serviceFixture(t)
 	c.routingSelection = ""
-	base := c.db
-	candidate := filepath.Join(filepath.Dir(base), "lookup-next.sqlite")
+	base := c.lookup
+	candidate := filepath.Join(filepath.Dir(base), "lookup-next")
 	bundle := routingLookupBundle(t)
 	for index, location := range map[int]map[string]float64{
 		0: {"lat": 53.08, "lng": 8.75},
@@ -250,14 +250,14 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 	} {
 		bundle.Records[index].Attributes["location"], _ = json.Marshal(location)
 	}
-	if err := importer.Build(context.Background(), candidate, bundle); err != nil {
+	if err := placeduckdb.Build(context.Background(), candidate, bundle); err != nil {
 		t.Fatal(err)
 	}
-	state := filepath.Join(filepath.Dir(base), "deployment.json")
-	if err := snapshots.Init(context.Background(), state, base); err != nil {
+	state := filepath.Join(filepath.Dir(base), "selection.json")
+	if err := placeduckdb.InitializeSelection(state, base); err != nil {
 		t.Fatal(err)
 	}
-	c.deployment = state
+	c.lookupSelection = state
 	h, closeHandler, err := newService(context.Background(), c)
 	if err != nil {
 		t.Fatal(err)
@@ -278,14 +278,11 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 		close(firstDone)
 	}()
 	<-first.entered
-	nextFile, err := snapshots.Describe(candidate)
+	nextFile, err := placeduckdb.Describe(candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = snapshots.Change(state, func(s *snapshots.Selection) error {
-		s.Current = nextFile
-		return nil
-	}); err != nil {
+	if err = placeduckdb.ActivateSelection(state, candidate); err != nil {
 		t.Fatal(err)
 	}
 	second := httptest.NewRecorder()
@@ -303,11 +300,11 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 	close(first.release)
 	<-firstDone
 	<-secondDone
-	baseFile, err := snapshots.Describe(base)
+	baseFile, err := placeduckdb.Describe(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := func(response *httptest.ResponseRecorder, file snapshots.Reference, originLng, destinationLng float64) {
+	check := func(response *httptest.ResponseRecorder, file placeduckdb.Reference, originLng, destinationLng float64) {
 		t.Helper()
 		var result struct {
 			Openmaps struct {

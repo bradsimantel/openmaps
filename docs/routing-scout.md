@@ -222,10 +222,11 @@ go run ./cmd/server -routing-snapshot data/scout-prepared-next \
   -routing-concurrency 2 -listen 127.0.0.1:8106
 ```
 
-Use an unused loopback port. `-db` (default `data/openmaps.sqlite`) or
-`-deployment` supplies lookup data alongside Scout; `-db ''` explicitly disables
-lookup for a routing-only service. The normal server always serves basemap files.
-`-deployment` selects only lookup SQLite; `-routing-selection` selects only routing.
+Use an unused loopback port. `-lookup-selection` (default
+`data/lookup-selection.json`) or `-lookup` supplies a verified Parquet/DuckDB
+lookup generation alongside Scout; `-lookup-selection '' -lookup ''` explicitly
+disables lookup for a routing-only service. The normal server always serves
+basemap files. Lookup selection and `-routing-selection` remain independent.
 Neither selection changes the other's identity or resets routing admission.
 It implements the same explicit coordinate, Open Maps Place ID and exact-address
 request subset and response masks at `POST /directions/v2:computeRoutes`; Google
@@ -348,7 +349,7 @@ go run ./cmd/scout-coverage \
 
 go test ./...
 go vet ./...
-go test -race ./cmd/server ./internal/api ./internal/placesgeocoding/snapshots \
+go test -race ./cmd/server ./internal/api ./internal/placesgeocoding/duckdb \
   ./internal/importer/scout ./internal/routing/... ./internal/supervisor
 OPENMAPS_SCOUT_DIR="$PWD/data/valhalla-scout" \
 OPENMAPS_SCOUT_PREPARED="$PWD/data/scout-national-20260909/regional-indexed" \

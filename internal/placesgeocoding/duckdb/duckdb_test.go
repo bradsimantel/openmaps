@@ -1,6 +1,7 @@
 package duckdb_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -330,4 +331,53 @@ func TestSelectionReplacementRollbackAndConcurrentLeases(t *testing.T) {
 		t.Fatal("activated corrupt generation")
 	}
 	assertStatus(http.StatusOK)
+	manifestChecksum, err := importer.Checksum(filepath.Join(corrupt, placeduckdb.ManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	badReference := placeduckdb.Reference{Path: corrupt, SHA256: manifestChecksum}
+	if err = importer.WriteJSON(state, placeduckdb.Selection{Schema: 1, Current: badReference, Previous: &firstReference}); err != nil {
+		t.Fatal(err)
+	}
+	assertStatus(http.StatusOK)
+	current, reloadError := handler.Status()
+	if current != firstReference || reloadError == "" {
+		t.Fatalf("corrupt reload did not retain and report the active generation: current=%+v error=%q", current, reloadError)
+	}
+}
+
+func TestMissingShardInterruptedBuildAndGenerationComparison(t *testing.T) {
+	bundle := fixture(t)
+	root := t.TempDir()
+	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
+	if err := placeduckdb.Build(context.Background(), first, bundle); err != nil {
+		t.Fatal(err)
+	}
+	if err := placeduckdb.Build(context.Background(), second, bundle); err != nil {
+		t.Fatal(err)
+	}
+	comparison, err := placeduckdb.Compare(context.Background(), first, second, []importer.QueryCheck{{Input: "White", FirstID: importer.PublicID("fixture:place:tavern")}})
+	if err != nil || len(comparison.Violations) != 0 || comparison.Added != 0 || comparison.Removed != 0 || comparison.Changed != 0 {
+		t.Fatalf("identical generation comparison failed: %+v: %v", comparison, err)
+	}
+	missing := filepath.Join(root, "missing-source.parquet")
+	if err = os.Rename(filepath.Join(second, placeduckdb.SourcesName), missing); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = placeduckdb.Open(second); err == nil {
+		t.Fatal("opened generation with missing source shard")
+	}
+	raw, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	interrupted := filepath.Join(root, "interrupted")
+	if err = placeduckdb.BuildJSON(ctx, interrupted, bytes.NewReader(raw)); err == nil {
+		t.Fatal("completed a canceled build")
+	}
+	if _, err = os.Stat(interrupted); !os.IsNotExist(err) {
+		t.Fatalf("interrupted generation was published: %v", err)
+	}
 }

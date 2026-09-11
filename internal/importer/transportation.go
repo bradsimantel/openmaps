@@ -44,11 +44,12 @@ type transportationSelection struct {
 	OutsideGeometry int `json:"outside_geometry_segments"`
 }
 
-func readTransportation(ctx context.Context, path, release string, bounds [4]float64) ([]Record, transportationSelection, error) {
+func readTransportation(ctx context.Context, path, release string, bounds [4]float64) ([]Record, []Rejection, transportationSelection, error) {
 	var selection transportationSelection
+	rejections := []Rejection{}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, selection, err
+		return nil, nil, selection, err
 	}
 	defer f.Close()
 	var doc struct {
@@ -56,46 +57,49 @@ func readTransportation(ctx context.Context, path, release string, bounds [4]flo
 		Features []json.RawMessage `json:"features"`
 	}
 	if err = json.NewDecoder(f).Decode(&doc); err != nil {
-		return nil, selection, err
+		return nil, nil, selection, err
 	}
 	if doc.Type != "FeatureCollection" {
-		return nil, selection, fmt.Errorf("expected FeatureCollection")
+		return nil, nil, selection, fmt.Errorf("expected FeatureCollection")
 	}
 	records := make([]Record, 0, len(doc.Features))
 	seen := map[string]bool{}
 	for _, raw := range doc.Features {
 		if err = ctx.Err(); err != nil {
-			return nil, selection, err
+			return nil, nil, selection, err
 		}
 		var feature transportationFeature
 		feature.Raw = raw
 		if err = json.Unmarshal(raw, &feature); err != nil {
-			return nil, selection, err
+			return nil, nil, selection, err
 		}
 		if err = json.Unmarshal(feature.Properties, &feature.Props); err != nil {
-			return nil, selection, err
+			return nil, nil, selection, err
 		}
 		if feature.Type != "Feature" || feature.Geometry.Type != "LineString" || feature.Props.ID == "" || seen[feature.Props.ID] || !validLineString(feature.Geometry.Coordinates) {
-			return nil, selection, fmt.Errorf("invalid or duplicate Overture transportation segment: %s", feature.Props.ID)
+			return nil, nil, selection, fmt.Errorf("invalid or duplicate Overture transportation segment: %s", feature.Props.ID)
 		}
 		seen[feature.Props.ID] = true
 		selection.Segments++
 		if feature.Props.Subtype != "road" {
 			selection.NonRoads++
+			rejections = append(rejections, Rejection{SourceKey: "overture:segment:" + feature.Props.ID, Reason: "non_road_segment", Raw: feature.Raw})
 			continue
 		}
 		if strings.TrimSpace(feature.Props.Names.Primary) == "" {
 			selection.UnnamedRoads++
+			rejections = append(rejections, Rejection{SourceKey: "overture:segment:" + feature.Props.ID, Reason: "missing_primary_name", Raw: feature.Raw})
 			continue
 		}
 		location, ok := representativeCoordinate(feature.Geometry.Coordinates, bounds)
 		if !ok {
 			selection.OutsideGeometry++
+			rejections = append(rejections, Rejection{SourceKey: "overture:segment:" + feature.Props.ID, Reason: "outside_manifest_geometry", Raw: feature.Raw})
 			continue
 		}
 		aliases, err := transportationAliases(feature.Props)
 		if err != nil {
-			return nil, selection, fmt.Errorf("transportation names %s: %w", feature.Props.ID, err)
+			return nil, nil, selection, fmt.Errorf("transportation names %s: %w", feature.Props.ID, err)
 		}
 		selection.NamedRoads++
 		records = append(records, Record{
@@ -121,7 +125,7 @@ func readTransportation(ctx context.Context, path, release string, bounds [4]flo
 			}},
 		})
 	}
-	return records, selection, nil
+	return records, rejections, selection, nil
 }
 
 func validLineString(points [][2]float64) bool {

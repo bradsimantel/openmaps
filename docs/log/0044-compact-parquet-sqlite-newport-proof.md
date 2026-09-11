@@ -2,8 +2,8 @@
 
 > **Historical note:** The larger autocomplete gate identified here was later
 > passed by the [DuckDB token-prefix proof](0045-duckdb-token-prefix-proof.md).
-> This Newport artifact remains the complete API-parity proof, not the current
-> preferred serving candidate.
+> The later [production migration](0047-duckdb-places-geocoding-migration.md)
+> repeated the API parity gate and removed this experimental command/package.
 
 | Field | Value |
 | --- | --- |

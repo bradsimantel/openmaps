@@ -18,8 +18,10 @@ type entityRow struct {
 	EntityRow         int64   `parquet:"entity_row"`
 	SourceStart       int64   `parquet:"source_start"`
 	SourceCount       int64   `parquet:"source_count"`
+	SourceFile        string  `parquet:"source_file"`
 	ProvenanceStart   int64   `parquet:"provenance_start"`
 	ProvenanceCount   int64   `parquet:"provenance_count"`
+	ProvenanceFile    string  `parquet:"provenance_file"`
 	AddressKey        string  `parquet:"address_key"`
 	AddressContext    string  `parquet:"address_context"`
 }

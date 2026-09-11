@@ -10,6 +10,7 @@ import (
 
 	"openmaps/internal/api"
 	"openmaps/internal/importer"
+	"openmaps/internal/routing"
 )
 
 type Reference struct {
@@ -137,9 +138,8 @@ func RollbackSelection(path string) error {
 	})
 }
 
-// LiveHandler is the non-default DuckDB snapshot lease proof. It verifies and
-// opens a replacement before swapping, and closes the old generation only
-// after in-flight readers release the shared lease.
+// LiveHandler verifies and opens a replacement before swapping, and closes the
+// old generation only after in-flight readers release the shared lease.
 type LiveHandler struct {
 	mu        sync.RWMutex
 	reloadMu  sync.Mutex
@@ -147,6 +147,7 @@ type LiveHandler struct {
 	statePath string
 	current   Reference
 	store     *Store
+	lastError string
 }
 
 func OpenLiveHandler(statePath string) (*LiveHandler, error) {
@@ -191,8 +192,26 @@ func (handler *LiveHandler) reload() error {
 }
 
 func (handler *LiveHandler) ServeHTTP(w http.ResponseWriter, request *http.Request) {
+	handler.serveHTTP(w, request, nil)
+}
+
+// Routes resolves every non-coordinate waypoint against one lookup-generation
+// lease and retains that lease until the routing response has been encoded.
+func (handler *LiveHandler) Routes(router *routing.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		handler.serveHTTP(w, request, router)
+	})
+}
+
+func (handler *LiveHandler) serveHTTP(w http.ResponseWriter, request *http.Request, router *routing.Service) {
 	if handler.reloadMu.TryLock() {
-		_ = handler.reload()
+		err := handler.reload()
+		handler.mu.Lock()
+		handler.lastError = ""
+		if err != nil {
+			handler.lastError = err.Error()
+		}
+		handler.mu.Unlock()
 		handler.reloadMu.Unlock()
 	}
 	handler.mu.RLock()
@@ -201,7 +220,8 @@ func (handler *LiveHandler) ServeHTTP(w http.ResponseWriter, request *http.Reque
 		http.Error(w, "Places data unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	api.Handler{Places: handler.store, Geocoding: handler.store}.ServeHTTP(w, request)
+	w.Header().Set("X-OpenMaps-Lookup-Snapshot", handler.current.SHA256)
+	api.Handler{Places: handler.store, Geocoding: handler.store, Routing: router}.ServeHTTP(w, request)
 }
 
 func (handler *LiveHandler) Close() error {
@@ -223,4 +243,21 @@ func (handler *LiveHandler) Current() Reference {
 	handler.mu.RLock()
 	defer handler.mu.RUnlock()
 	return handler.current
+}
+
+// Status reports the active immutable generation and the last rejected reload.
+func (handler *LiveHandler) Status() (Reference, string) {
+	if handler.reloadMu.TryLock() {
+		err := handler.reload()
+		handler.mu.Lock()
+		handler.lastError = ""
+		if err != nil {
+			handler.lastError = err.Error()
+		}
+		handler.mu.Unlock()
+		handler.reloadMu.Unlock()
+	}
+	handler.mu.RLock()
+	defer handler.mu.RUnlock()
+	return handler.current, handler.lastError
 }

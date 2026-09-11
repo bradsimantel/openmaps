@@ -15,12 +15,12 @@ import (
 )
 
 func TestDownloadedNewportWaypointFlows(t *testing.T) {
-	db := os.Getenv("OPENMAPS_LOOKUP_DB")
+	lookup := os.Getenv("OPENMAPS_LOOKUP_GENERATION")
 	prepared := os.Getenv("OPENMAPS_SCOUT_PREPARED")
-	if db == "" || prepared == "" {
-		t.Skip("set OPENMAPS_LOOKUP_DB and OPENMAPS_SCOUT_PREPARED; no downloads")
+	if lookup == "" || prepared == "" {
+		t.Skip("set OPENMAPS_LOOKUP_GENERATION and OPENMAPS_SCOUT_PREPARED; no downloads")
 	}
-	handler, closeHandler, err := newService(context.Background(), configuration{db: db, routingSnapshot: prepared, routingConcurrency: 1, routingCache: 64, public: "../../public"})
+	handler, closeHandler, err := newService(context.Background(), configuration{lookup: lookup, routingSnapshot: prepared, routingConcurrency: 1, routingCache: 64, public: "../../public"})
 	if err != nil {
 		t.Fatal(err)
 	}

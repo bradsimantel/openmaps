@@ -1,19 +1,17 @@
-// places-geocoding-import builds the shared Places/geocoding SQLite snapshot.
+// places-geocoding-import builds and selects the immutable normalized-Parquet
+// plus DuckDB Places/geocoding generation.
 package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
 
 	"openmaps/internal/importer"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
 func main() {
@@ -22,11 +20,19 @@ func main() {
 	}
 }
 func run() error {
-	bundle := flag.String("bundle", "data/newport.json", "normalized regional bundle")
-	db := flag.String("db", "data/openmaps.sqlite", "output (must not already exist)")
+	bundle := flag.String("bundle", "data/newport.json", "deterministic provider-record stream")
+	out := flag.String("out", "data/openmaps-duckdb", "new immutable generation directory")
+	selection := flag.String("selection", "data/lookup-selection.json", "selection to initialize or activate; empty builds without selecting")
 	config := flag.String("config", "config/places-geocoding.json", "pinned Places and geocoding source configuration")
 	flag.Parse()
 	manifest, err := importer.ReadManifest(*config)
+	if err != nil {
+		return err
+	}
+	if err = importer.Verify(*bundle, manifest.BundleSHA256); err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(*out)
 	if err != nil {
 		return err
 	}
@@ -35,50 +41,35 @@ func run() error {
 		return err
 	}
 	defer file.Close()
-	hash := sha256.New()
-	if _, err = io.Copy(hash, file); err != nil {
+	if err = placeduckdb.BuildJSON(context.Background(), abs, file); err != nil {
 		return err
 	}
-	if hex.EncodeToString(hash.Sum(nil)) != manifest.BundleSHA256 {
-		return fmt.Errorf("bundle checksum mismatch")
-	}
-	if _, err = file.Seek(0, 0); err != nil {
-		return err
-	}
-	var b importer.Bundle
-	dec := json.NewDecoder(file)
-	dec.DisallowUnknownFields()
-	if err = dec.Decode(&b); err != nil {
-		return err
-	}
-	var scope importer.Manifest
-	if err = json.Unmarshal(b.Manifest, &scope); err != nil {
-		return err
-	}
-	if _, err = os.Stat(*db); err == nil {
-		return fmt.Errorf("output exists; choose a new -db path")
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	abs, err := filepath.Abs(*db)
+	artifact, err := placeduckdb.Verify(abs)
 	if err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(filepath.Dir(abs), "openmaps-import-*.sqlite")
-	if err != nil {
-		return err
+	if *selection != "" {
+		if _, readErr := placeduckdb.ReadSelection(*selection); os.IsNotExist(readErr) {
+			err = placeduckdb.InitializeSelection(*selection, abs)
+		} else if readErr != nil {
+			return readErr
+		} else {
+			err = placeduckdb.ActivateSelection(*selection, abs)
+		}
+		if err != nil {
+			return err
+		}
 	}
-	name := temp.Name()
-	temp.Close()
-	os.Remove(name)
-	defer os.Remove(name)
-	if err = importer.Build(context.Background(), name, b); err != nil {
-		return err
+	entities := 0
+	for _, item := range artifact.Files {
+		if item.Name == placeduckdb.EntitiesName {
+			entities = item.Rows
+		}
 	}
-	// Link publishes atomically and refuses a destination created concurrently.
-	if err = os.Link(name, abs); err != nil {
-		return err
+	fmt.Printf("Built %d entities into %s", entities, abs)
+	if *selection != "" {
+		fmt.Printf(" and selected it in %s", *selection)
 	}
-	fmt.Printf("Imported %d source records into %s\n", len(b.Records), abs)
+	fmt.Println()
 	return nil
 }

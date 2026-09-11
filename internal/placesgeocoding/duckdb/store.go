@@ -21,10 +21,8 @@ import (
 
 type Store struct {
 	db            *sql.DB
-	entities      *os.File
-	entityParquet *parquet.File
-	sources       *os.File
-	provenance    *os.File
+	files         map[string]*os.File
+	entityParquet map[string]*parquet.File
 	bounds        [4]float64
 }
 
@@ -64,8 +62,10 @@ func Open(path string) (_ *Store, err error) {
 // immutable file twice before a generation becomes visible.
 func openVerified(path string, manifest Manifest) (_ *Store, err error) {
 	counts := map[string]int{}
+	roles := map[string]string{}
 	for _, file := range manifest.Files {
 		counts[file.Name] = file.Rows
+		roles[file.Name] = file.Role
 	}
 	openParquet := func(name string) (*os.File, *parquet.File, error) {
 		f, e := os.Open(filepath.Join(path, name))
@@ -88,26 +88,30 @@ func openVerified(path string, manifest Manifest) (_ *Store, err error) {
 		}
 		return f, pf, nil
 	}
-	s := &Store{}
+	s := &Store{files: map[string]*os.File{}, entityParquet: map[string]*parquet.File{}}
 	defer func() {
 		if err != nil {
 			_ = s.Close()
 		}
 	}()
-	if s.entities, s.entityParquet, err = openParquet(EntitiesName); err != nil {
-		return nil, err
-	}
-	if s.sources, _, err = openParquet(SourcesName); err != nil {
-		return nil, err
-	}
-	if s.provenance, _, err = openParquet(ProvenanceName); err != nil {
-		return nil, err
+	for name, role := range roles {
+		if role != "entities" && role != "sources" && role != "provenance" {
+			continue
+		}
+		file, pf, openErr := openParquet(name)
+		if openErr != nil {
+			return nil, openErr
+		}
+		s.files[name] = file
+		if role == "entities" {
+			s.entityParquet[name] = pf
+		}
 	}
 	if s.db, err = openDatabase(filepath.Join(path, IndexName)); err != nil {
 		return nil, err
 	}
 	var version, rawManifest string
-	if err = s.db.QueryRow("SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); err != nil || version != "1" {
+	if err = s.db.QueryRow("SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); err != nil || version != "2" {
 		return nil, fmt.Errorf("DuckDB index missing or unsupported schema: %v", err)
 	}
 	if err = s.db.QueryRow("SELECT value FROM metadata WHERE key='source_manifest'").Scan(&rawManifest); err != nil {
@@ -132,14 +136,8 @@ func (s *Store) Close() error {
 	if s.db != nil {
 		closers = append(closers, s.db)
 	}
-	if s.entities != nil {
-		closers = append(closers, s.entities)
-	}
-	if s.sources != nil {
-		closers = append(closers, s.sources)
-	}
-	if s.provenance != nil {
-		closers = append(closers, s.provenance)
+	for _, file := range s.files {
+		closers = append(closers, file)
 	}
 	for _, closer := range closers {
 		if err := closer.Close(); err != nil && first == nil {
@@ -162,14 +160,16 @@ func entityFromRow(row entityRow) (places.Entity, error) {
 }
 
 func (s *Store) Details(ctx context.Context, id string) (places.Entity, error) {
+	var fileName string
 	var group, row int
-	if err := s.db.QueryRowContext(ctx, "SELECT entity_row_group,entity_row FROM entity_locator WHERE id=?", id).Scan(&group, &row); err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT entity_file,entity_row_group,entity_row FROM entity_locator WHERE id=?", id).Scan(&fileName, &group, &row); err != nil {
 		return places.Entity{}, err
 	}
-	if group < 0 || group >= len(s.entityParquet.RowGroups()) {
+	entityFile := s.entityParquet[fileName]
+	if entityFile == nil || group < 0 || group >= len(entityFile.RowGroups()) {
 		return places.Entity{}, fmt.Errorf("invalid entity row group for %s", id)
 	}
-	reader := parquet.NewGenericRowGroupReader[entityRow](s.entityParquet.RowGroups()[group])
+	reader := parquet.NewGenericRowGroupReader[entityRow](entityFile.RowGroups()[group])
 	defer reader.Close()
 	if err := reader.SeekToRow(int64(row)); err != nil {
 		return places.Entity{}, err
@@ -189,17 +189,23 @@ func (s *Store) Evidence(ctx context.Context, id string) (Evidence, error) {
 	if err != nil {
 		return Evidence{}, err
 	}
+	var sourceFile, provenanceFile string
 	var sourceStart, sourceCount, provenanceStart, provenanceCount int
-	if err = s.db.QueryRowContext(ctx, `SELECT source_start,source_count,provenance_start,provenance_count
-FROM entity_locator WHERE id=?`, id).Scan(&sourceStart, &sourceCount, &provenanceStart, &provenanceCount); err != nil {
+	if err = s.db.QueryRowContext(ctx, `SELECT source_file,source_start,source_count,provenance_file,provenance_start,provenance_count
+FROM entity_locator WHERE id=?`, id).Scan(&sourceFile, &sourceStart, &sourceCount, &provenanceFile, &provenanceStart, &provenanceCount); err != nil {
 		return Evidence{}, err
 	}
 	sourceRows := make([]sourceRow, sourceCount)
-	if err = readAt(s.sources, sourceStart, sourceRows); err != nil {
+	sourceHandle := s.files[sourceFile]
+	provenanceHandle := s.files[provenanceFile]
+	if sourceHandle == nil || provenanceHandle == nil {
+		return Evidence{}, fmt.Errorf("evidence locator references missing shard for %s", id)
+	}
+	if err = readAt(sourceHandle, sourceStart, sourceRows); err != nil {
 		return Evidence{}, err
 	}
 	provenanceRows := make([]provenanceRow, provenanceCount)
-	if err = readAt(s.provenance, provenanceStart, provenanceRows); err != nil {
+	if err = readAt(provenanceHandle, provenanceStart, provenanceRows); err != nil {
 		return Evidence{}, err
 	}
 	out := Evidence{Entity: entity, Sources: make([]Source, 0, len(sourceRows)), Attributes: make([]AttributeProvenance, 0, len(provenanceRows))}

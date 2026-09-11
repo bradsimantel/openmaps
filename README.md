@@ -1,7 +1,8 @@
 # Open Maps
 
-Open Maps is a Go and SQLite replacement for selected Google Maps HTTP API
-operations, with MapLibre GL JS and Protomaps for display.
+Open Maps is a Go replacement for selected Google Maps HTTP API operations,
+with immutable normalized Parquet, a compact DuckDB serving catalog, MapLibre
+GL JS and Protomaps.
 
 **Places and Newport geocoding work:** autocomplete businesses, standalone addresses,
 streets and areas in downtown Newport, Rhode Island; retrieve details using the
@@ -28,14 +29,14 @@ The explicit `osm-scout-public-auto-v1` profile excludes ferries and destination
 access and cannot reproduce discarded source tags or verify the exact OSM cutoff.
 Scout still receives coordinates only: the API layer can resolve Open Maps place
 IDs and exact supported address strings through the selected lookup snapshot before
-calling it. Places and geocoding remain available in the same service. Lookup SQLite
-and routing snapshots have independent selection and lifetime. Acquisition,
+calling it. Places and geocoding remain available in the same service. Lookup
+generations and routing snapshots have independent selection and lifetime. Acquisition,
 preparation and verification run with Go tools; Python and Valhalla's routing engine
 are not required.
 
 ## Run the Newport demo
 
-Prerequisite: Go **1.26.1+**. Allow several minutes for first-time tool and data
+Prerequisites: Go **1.26.1+**, CGO, and a native C/C++ toolchain. Allow several minutes for first-time tool and data
 downloads. All commands below run from the repository root. No API keys,
 Docker, external database server or system SQLite installation are required.
 
@@ -49,12 +50,11 @@ go run ./cmd/basemap
 go run ./cmd/server
 ```
 
-The acquisition, GeoParquet decoding, normalization and SQLite build pipeline is
-Go code in this repository.
-The importer intentionally refuses to overwrite a database. A local
-`data/openmaps.sqlite` built before the Transportation change recorded in
-[historical log 0038](docs/log/0038-overture-transportation-street-import.md)
-must be archived or removed before running the default import command.
+The acquisition, GeoParquet decoding, normalization, deterministic Parquet and
+DuckDB serving-index build pipeline is Go code in this repository. The importer
+refuses to overwrite a generation directory and atomically initializes or
+advances `data/lookup-selection.json`. DuckDB build and runtime disable extension
+autoload and use no downloadable extensions.
 
 Open **http://127.0.0.1:8080**. Try `White Horse`, `50 Bellevue`, `Thames`, or
 `Newport`. Click a suggestion; keyboard users can press Down from the input and
@@ -77,8 +77,9 @@ and excludes traffic and unverified off-road gaps. Routes outside the Newport
 basemap can still be returned, although the local basemap has no tiles there.
 
 `data/` is ignored by Git.
-The four canonical regional Overture exports and catalog are about 12 MB; SQLite
-adds about 34 MB. The Protomaps cutout is about 3.8 MB. Internet is required
+The four canonical regional Overture exports and catalog are about 12 MB; the
+normalized Parquet plus DuckDB lookup generation is about 10 MB. The Protomaps
+cutout is about 3.8 MB. Internet is required
 for initial downloads, esm.sh browser libraries and Protomaps-hosted fonts/sprites.
 Lookup APIs
 and local basemap tile requests work without external services after import.
@@ -95,17 +96,20 @@ archive the verified local inputs for long-term rebuilds. A download or checksum
 failure never falls back to a newer dataset. Normal setup must not use
 `-accept-reviewed-source-update` or edit expected checksums to bypass a mismatch.
 
-Already have source files? Rebuild offline into a **new** database:
+Already have source files? Rebuild offline into a **new** generation:
 
 ```sh
 go run ./cmd/places-geocoding-prepare
-go run ./cmd/places-geocoding-import -db data/openmaps-next.sqlite
-go run ./cmd/server -db data/openmaps-next.sqlite -listen 127.0.0.1:8081
+go run ./cmd/places-geocoding-import -out data/openmaps-next -selection data/lookup-next.json
+go run ./cmd/server -lookup-selection data/lookup-next.json -listen 127.0.0.1:8081
 ```
 
-The import refuses to overwrite an existing database. Stop the earlier service
-before reusing its port. The service defaults to loopback and supports `-db`,
-`-listen`, `-public` and `-tiles`; `go run ./cmd/server -help` lists defaults.
+The import refuses to overwrite an existing generation. Stop the earlier service
+before reusing its port. The service defaults to loopback and supports `-lookup`,
+`-lookup-selection`, `-listen`, `-public` and `-tiles`;
+`go run ./cmd/server -help` lists defaults. `-lookup` opens one verified
+generation directly; selection mode is the default and provides live activation
+and rollback. Verification or open failure is fatal—there is no SQLite fallback.
 
 ## Supported API
 
@@ -209,7 +213,7 @@ from the pinned Transportation subset. No new primary label appears. This is a
 meaningful source-model difference, not evidence that every road gained coverage.
 
 [The Places/geocoding config](config/places-geocoding.json) records versions, URLs, bounds,
-source checksums, the normalized bundle checksum and attribution references. The
+source checksums, the deterministic provider-record stream checksum and attribution references. The
 Go importer verifies all of them. Each entity keeps source-qualified identifiers,
 original records and attribute provenance. Public IDs derive from permanent
 identity anchors, independent of row IDs, import order or mutable attributes.
@@ -236,9 +240,8 @@ are never used as lookup data. Upstream notices are linked on the demo's
 ```text
 cmd/server/         Go HTTP service
 cmd/places-geocoding-prepare/ Pinned Overture acquisition, normalization and selection audit
-cmd/places-geocoding-import/ Checksum-verified Places/geocoding SQLite builder
-cmd/places-geocoding-compact/ Non-default Parquet plus compact SQLite proof builder
-cmd/places-geocoding-duckdb/ Non-default Parquet plus DuckDB qualification builder
+cmd/places-geocoding-import/ Streaming normalized Parquet and DuckDB generation builder/selector
+cmd/places-geocoding-duckdb/ Direct production generation builder used for controlled builds
 cmd/scout-acquire/  Complete provider metadata, selection, resumable downloads
 cmd/scout-prepare/  Immutable routing graph and index publication
 cmd/scout-landmarks/ Directed landmark construction and safe extension
@@ -257,15 +260,14 @@ internal/api/       Google request/response translation and errors
 internal/importer/  Source adapters, schema, identity history and refresh comparison
 internal/importer/scout/ Provider acquisition, receipts and preparation handoff
 internal/importer/addressdata/ Retained provider address decoding
-internal/placesgeocoding/snapshots/ Atomic Places/geocoding selection and live handler replacement
-internal/placesgeocoding/compact/ Experimental verified artifact builder and reader
-internal/placesgeocoding/duckdb/ Qualified non-default artifact, reader and snapshot-lease proof
+internal/placesgeocoding/duckdb/ Production artifact, reader, comparison, selection and snapshot leases
 config/            Pinned Places/geocoding, routing and basemap inputs
 public/            Browser ES modules and styles; libraries loaded from esm.sh
 ```
 
-One Go service reads SQLite with FTS5. Geocoding loads an immutable address index
-from the same read-only snapshot; reverse lookup scans the small regional set.
+One Go service reads a compact DuckDB catalog and normalized Parquet evidence.
+The catalog owns the sorted token dictionary, posting lists, short-prefix heads,
+exact-address projection, deterministic spatial grid and Parquet locators.
 Lookup activation replaces Places and geocoding together. Routing independently
 loads an immutable graph and turn-restriction index from its own snapshot. The owned Go import pipeline uses
 `parquet-go` for cloud GeoParquet and decodes Overture Point and LineString WKB; provider
@@ -273,17 +275,14 @@ parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
 
-The compact lookup path is an experimental, non-default proof and is not wired
-into `cmd/server` or snapshot selection. It writes normalized provenance to
-Parquet and only serving projections and locators to SQLite. See the
-[historical Newport proof](docs/log/0044-compact-parquet-sqlite-newport-proof.md)
-for its measured scope. The later bounded
+The removed compact-SQLite lookup path remains documented only as the
+[historical Newport proof](docs/log/0044-compact-parquet-sqlite-newport-proof.md).
+The later bounded
 [DuckDB token-prefix proof](docs/log/0045-duckdb-token-prefix-proof.md) and
 [Go qualification](docs/log/0046-duckdb-go-qualification.md) met the regional
 correctness, resource, concurrency and deployment gates. Normalized Parquet
 plus an immutable DuckDB serving catalog is therefore the recommended lookup
-architecture for a future migration, not the implementation selected by the
-production server today.
+architecture selected by the production server.
 Routing remains independent of text search and address resolution. The API holds
 one lookup snapshot lease while resolving both endpoints, then gives Scout WGS84
 coordinates. Scout uses bounded graph pages and directed landmark A*, preserving
