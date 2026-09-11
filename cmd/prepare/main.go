@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"openmaps/internal/importer"
@@ -25,37 +24,40 @@ func main() {
 }
 func run() error {
 	data := flag.String("data", "data", "source cache and output directory")
-	manifest := flag.String("manifest", "imports/newport.lock.json", "pinned regional source manifest")
-	identities := flag.String("identities", "imports/identities.json", "permanent source identity mappings")
-	checksum := flag.String("checksum", "imports/newport.bundle.sha256", "expected normalized bundle checksum")
+	config := flag.String("config", "config/places-geocoding.json", "pinned Places and geocoding source configuration")
+	identities := flag.String("identities", "", "optional permanent source identity mappings JSON")
 	fetch := flag.Bool("fetch", false, "download missing pinned source files")
-	writeLock := flag.Bool("write-lock", false, "maintainer operation: accept reviewed exports and bundle checksums")
+	updateConfig := flag.Bool("update-config", false, "maintainer operation: accept reviewed exports and bundle checksum")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	m, e := importer.ReadManifest(*manifest)
+	m, e := importer.ReadManifest(*config)
 	if e != nil {
 		return e
 	}
+	expected := m.BundleSHA256
+	m.BundleSHA256 = ""
 	if e = os.MkdirAll(*data, 0755); e != nil {
 		return e
 	}
 	if *fetch {
-		m, e = importer.FetchSources(ctx, m, *data, *writeLock)
+		m, e = importer.FetchSources(ctx, m, *data, *updateConfig)
 		if e != nil {
 			return e
 		}
 	}
-	raw, e := os.ReadFile(*identities)
-	if e != nil {
-		return e
-	}
 	ids := map[string]string{}
-	if e = json.Unmarshal(raw, &ids); e != nil {
-		return e
-	}
-	if ids == nil {
-		return fmt.Errorf("identities must be an object")
+	if *identities != "" {
+		raw, e := os.ReadFile(*identities)
+		if e != nil {
+			return e
+		}
+		if e = json.Unmarshal(raw, &ids); e != nil {
+			return e
+		}
+		if ids == nil {
+			return fmt.Errorf("identities must be an object")
+		}
 	}
 	bundle, audit, e := importer.Prepare(ctx, m, *data, ids)
 	if e != nil {
@@ -67,12 +69,8 @@ func run() error {
 	}
 	sum := sha256.Sum256(append(encoded, '\n'))
 	digest := hex.EncodeToString(sum[:])
-	if !*writeLock {
-		expected, e := os.ReadFile(*checksum)
-		if e != nil {
-			return e
-		}
-		if digest != strings.TrimSpace(string(expected)) {
+	if !*updateConfig {
+		if digest != expected {
 			return fmt.Errorf("normalized bundle checksum mismatch: got %s; outputs were not published", digest)
 		}
 	}
@@ -83,11 +81,9 @@ func run() error {
 	if e = importer.WriteJSON(filepath.Join(*data, "audit.json"), audit); e != nil {
 		return e
 	}
-	if *writeLock {
-		if e = importer.WriteJSON(*manifest, m); e != nil {
-			return e
-		}
-		if e = os.WriteFile(*checksum, []byte(digest+"\n"), 0644); e != nil {
+	if *updateConfig {
+		m.BundleSHA256 = digest
+		if e = importer.WriteJSON(*config, m); e != nil {
 			return e
 		}
 	}

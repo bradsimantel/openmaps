@@ -32,7 +32,7 @@ reproducibility are not independently attested provenance.
 
 ## Inputs and construction
 
-The repository lock `imports/valhalla-scout-national.lock.json` pins **647 packages,
+The routing config `config/routing.json` pins **647 packages,
 9,192,382,849 compressed bytes**, catalog/digest/directory metadata, source
 attribution and the observed `2026-06-20_07:12` generation. Actual tile layout is
 3.4.0, dataset ID 183131145. The full manifest has 2,930 packages; 34 are absent
@@ -86,7 +86,7 @@ coarse state footprints. This is not a legal boundary mask, a source-road census
 or a guarantee that an entirely absent disconnected network was discovered.
 The Attu/Shemya positive checks demonstrate why dependency closure alone was
 insufficient. The actual case coordinates are retained in
-`imports/scout-national-cases.json`.
+`internal/routing/qualification/testdata/national-cases.json`.
 
 The full final source audit scanned all tiles in **270.110 seconds**, sampled
 peak RSS **371,539,968 bytes**, child-reported maximum **429,522,944 bytes**, with
@@ -166,7 +166,7 @@ Run from the repository root. The retained acquisition directory is necessary to
 reproduce this exact generation if the provider has since rotated its files.
 The maintained [acquisition/preparation commands](../routing-scout.md#acquisition-and-preparation)
 show pin validation, a fresh rebuild, all derived indexes and landmark construction
-with `imports/scout-national-landmarks-extended.json`. A fresh full graph plus
+with `internal/routing/qualification/testdata/national-landmarks.json`. A fresh full graph plus
 vectors needs roughly 33.4 GB additional logical payload **and** the 32 GiB
 reserve; the host does not currently have room for another ordinary full copy.
 The verified copy-on-write extension fits without deleting earlier evidence.
@@ -185,7 +185,7 @@ python3 scripts/scout-run-bounded.py --root data/scout-national-20260909 \
   data/scout-national-20260909/scout-verify-complete \
   -prepared data/scout-national-20260909/national-aleutian-prepared \
   -landmarks data/scout-national-20260909/national-aleutian-prepared/landmarks \
-  -cases imports/scout-national-cases.json
+  -cases internal/routing/qualification/testdata/national-cases.json
 
 python3 scripts/scout-http-verify.py \
   --offline data/scout-national-20260909/national-complete-all.jsonl \
@@ -205,7 +205,7 @@ recorded outside-target defects:
 ```sh
 data/scout-national-20260909/routing-valhalla \
   -prepared data/scout-national-20260909/national-aleutian-prepared \
-  -audit -audit-snaps imports/scout-national-snap-probes.json -cache-mib 128
+  -audit -audit-snaps internal/routing/qualification/testdata/national-snap-probes.json -cache-mib 128
 
 python3 scripts/scout-coverage.py \
   --boundaries data/scout-national-20260909/cb_2025_us_state_500k.zip \

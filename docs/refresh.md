@@ -8,36 +8,35 @@ with identity history; `compare` validates it and produces the review artifact.
 There is no release discovery, scheduler, background downloader or automatic
 identity matching.
 
-The default source lock and demo select **Overture 2026-08-19.0** for all four
-lookup inputs. Generated databases from the former direct street import are not
-compatible refresh baselines and should be rebuilt without identity migration.
-The checked-in second source lock selects **Overture 2026-07-22.0**, with the same
+The default Places/geocoding config and demo select **Overture 2026-08-19.0**
+for all four source inputs. Generated databases from the former direct street
+import are not compatible refresh baselines and should be rebuilt without
+identity migration.
+The historical candidate config selects **Overture 2026-07-22.0**, with the same
 region and Overture Transportation release as its other Overture inputs. This is
 an intentionally older historical rehearsal: August was already the latest
 Overture release when it was prepared. The original rehearsal used the now-retired
-Geofabrik street input; its logs remain historical, while the maintained lock and
-bundle checksum now rebuild all lookup domains from Overture 2026-07-22.0.
+Geofabrik street input; its logs remain historical, while the retained candidate
+config now rebuilds all lookup domains from Overture 2026-07-22.0.
 See the [historical investigation](log/0004-newport-refresh-investigation.md) and
 [historical verification](log/0005-newport-refresh-verification.md).
 
 ## Build and validate
 
-Run from the repository root. Retain `data/openmaps.sqlite` and its original
-inputs, `imports/newport.lock.json`, `imports/newport.bundle.sha256` and
-`imports/identities.json`. Do not overwrite them to prepare a refresh. Basemap
-pins and tiles are independent and do not change with this lookup refresh.
+Run from the repository root. Retain `data/openmaps.sqlite`, its original inputs,
+and `config/places-geocoding.json`. Do not overwrite them to prepare a refresh.
+Basemap pins and tiles are independent and do not change with this data refresh.
 
 ```sh
 go run ./cmd/prepare -fetch \
-  -manifest imports/newport-2026-07-22.lock.json \
-  -data data/newport-2026-07-22 \
-  -checksum imports/newport-2026-07-22.bundle.sha256
+  -config docs/log/0004-newport-refresh-candidate.json \
+  -data data/newport-2026-07-22
 
 go run ./cmd/refresh build \
   -baseline data/openmaps.sqlite \
   -bundle data/newport-2026-07-22/newport.json \
-  -checksum imports/newport-2026-07-22.bundle.sha256 \
-  -replacements imports/newport-2026-07-22.replacements.json \
+  -config docs/log/0004-newport-refresh-candidate.json \
+  -replacements docs/log/0004-newport-refresh-replacements.json \
   -candidate data/newport-2026-07-22/openmaps-reviewed.sqlite
 
 go run ./cmd/refresh compare \
@@ -67,10 +66,12 @@ The comparison contains:
 Validation checks SQLite integrity and foreign keys, source-derived public IDs,
 identity history, complete normalized FTS content and row coverage, expected
 first results or empty results, and details for every returned candidate
-suggestion. `imports/newport.queries.json` holds the deterministic representative
-expectations. Review all result positions as well as the first result: a passing
-check is a smoke test, not a coverage or accuracy certification. Raw source
-records and winning attribute provenance remain in each SQLite snapshot.
+suggestion. The deterministic representative expectations are defined by
+`importer.NewportPlacesQueryChecks`; pass `-queries PATH` to compare against a
+different JSON query set. Review all result positions as well as the first
+result: a passing check is a smoke test, not a coverage or accuracy
+certification. Raw source records and winning attribute provenance remain in
+each SQLite snapshot.
 
 ## Identity and disappearance rules
 
@@ -101,7 +102,7 @@ The new key gets the old entity's permanent anchor, even if that anchor's source
 record is no longer present. Evidence and the cumulative history are stored in
 candidate metadata; relationships are rebuilt against resolved public IDs.
 The input bundle checksum remains recorded separately from this effective
-identity mapping. Keep replacement files with the source locks; a replacement
+identity mapping. Keep replacement files with the source config; a replacement
 is an assertion for the compared snapshots, not a reusable fuzzy rule.
 
 Splits and merges are handled conservatively. Surviving keys keep their own IDs;
@@ -238,19 +239,19 @@ To reproduce all logical candidate rows from archived inputs, use absolute paths
 OPENMAPS_BASELINE="$PWD/data/openmaps.sqlite" \
 OPENMAPS_CANDIDATE="$PWD/data/newport-2026-07-22/openmaps-reviewed.sqlite" \
 OPENMAPS_BUNDLE="$PWD/data/newport-2026-07-22/newport.json" \
-OPENMAPS_CHECKSUM="$PWD/imports/newport-2026-07-22.bundle.sha256" \
-OPENMAPS_REPLACEMENTS="$PWD/imports/newport-2026-07-22.replacements.json" \
+OPENMAPS_CONFIG="$PWD/docs/log/0004-newport-refresh-candidate.json" \
+OPENMAPS_REPLACEMENTS="$PWD/docs/log/0004-newport-refresh-replacements.json" \
   go test -tags=integration ./internal/importer -run TestRefreshRebuild -count=1 -v
 ```
 
-For a new release, copy the source lock to a new named file, explicitly select
-releases and unchanged or deliberately reviewed bounds, and obtain trusted
+For a new release, copy the Places/geocoding config to a new named file,
+explicitly select releases and unchanged or deliberately reviewed bounds, and obtain trusted
 catalog and regional GeoParquet-export hashes. Use the existing maintainer
-`prepare -write-lock` operation
+`prepare -update-config` operation
 only to establish the new export and bundle hashes; independently fetch again
 without that flag. Build, inspect churn, establish replacements, rebuild to a
 new candidate path, compare and review before selecting it. Never use
-`-write-lock` to bypass an unexpected mismatch in an established pin.
+`-update-config` to bypass an unexpected mismatch in an established pin.
 
 ## Independent routing snapshots
 

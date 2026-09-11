@@ -90,17 +90,17 @@ are still verified by graph preparation before publication. Acquisition metadata
 validation alone does not certify those bytes or source-road completeness.
 
 To reproduce the pinned snapshot from its retained acquisition directory, copy
-the repository lock into that directory under a new plan name, then prepare into
+the routing config into that directory under a new plan name, then prepare into
 a new output directory. The root must retain the three pinned metadata files,
 `packages/` and `receipts/`:
 
 ```sh
-cp imports/valhalla-scout-national.lock.json data/scout-national-20260909/locked-acquisition.json
+cp config/routing.json data/scout-national-20260909/pinned-acquisition.json
 go build -o data/scout-prepare ./cmd/scout-prepare
 go run ./cmd/scout-run-bounded --root data/scout-national-20260909 \
   --report data/scout-national-20260909/rebuild.resources.json \
   data/scout-prepare -root data/scout-national-20260909 \
-  -plan locked-acquisition.json -out data/scout-rebuilt
+  -plan pinned-acquisition.json -out data/scout-rebuilt
 
 data/scout-prepare -root data/scout-national-20260909 -out data/scout-rebuilt -turns-only
 data/scout-prepare -root data/scout-national-20260909 -out data/scout-rebuilt -potential-only
@@ -110,9 +110,9 @@ data/scout-prepare -root data/scout-national-20260909 -out data/scout-rebuilt -r
 Apply the same supervisor to each construction phase. Rebuilds need additional
 space for the new graph and landmarks **plus** the disk reserve. To reacquire
 missing packages from this generation, `scout-acquire fetch --root ... --plan
-locked-acquisition.json` checks the complete pinned provider metadata and rejects
+pinned-acquisition.json` checks the complete pinned provider metadata and rejects
 changes. If the provider has rotated the generation, use retained verified inputs;
-do not change the lock to bypass rejection.
+do not change the config to bypass rejection.
 
 For a new generation, from the repository root:
 
@@ -243,7 +243,7 @@ go run ./cmd/scout-run-bounded --root data/scout-next \
   --report data/scout-next/landmarks.resources.json \
   data/scout-landmarks -prepared data/scout-prepared-next \
   -out data/scout-prepared-next/landmarks \
-  -seeds imports/scout-national-landmarks-extended.json
+  -seeds internal/routing/qualification/testdata/national-landmarks.json
 ```
 
 A completed subset can be published without changing the resumable build:
@@ -338,7 +338,7 @@ go run ./cmd/scout-run-bounded -root data/scout-national-20260909 \
   -report data/scout-national-20260909/new-offline.resources.json \
   data/scout-verify -prepared data/scout-national-20260909/national-aleutian-prepared \
   -landmarks data/scout-national-20260909/national-aleutian-prepared/landmarks \
-  -cases imports/scout-national-cases.json > data/scout-national-20260909/new-offline.jsonl
+  -cases internal/routing/qualification/testdata/national-cases.json > data/scout-national-20260909/new-offline.jsonl
 go run ./cmd/scout-http-verify -url http://127.0.0.1:8096 \
   -offline data/scout-national-20260909/new-offline.jsonl \
   -out data/scout-national-20260909/new-http

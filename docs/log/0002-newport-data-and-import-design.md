@@ -17,7 +17,7 @@ OSM extract. No claim of complete city coverage is made.
 
 Overture snapshot: **2026-08-19.0**. Geofabrik snapshot:
 **rhode-island-260801.osm.pbf**, 51,849,634 bytes. Inputs, URLs, SHA-256 digests,
-versions and bounds are in [the lock file](../../imports/newport.lock.json).
+versions and bounds are in [the Places/geocoding config](../../config/places-geocoding.json).
 The Overture hashes cover canonical regional GeoJSON exports, not whole global
 Parquet files. Exports use Go `encoding/json` with one final newline, features
 sorted by source ID and Parquet map entries represented as key-sorted pairs.
@@ -100,7 +100,7 @@ and status remain available for subsequent investigation.
    `osm:way:<id>`. Releases, coordinates, names and SQLite row numbers do not enter
    the ID. OSM way versions are stored separately from the stable way ID.
 2. A concrete future importer emits the existing normalized bundle shape.
-   [identities.json](../../imports/identities.json) explicitly maps verified new
+   An optional identities JSON file explicitly maps verified new
    source keys to existing anchors. Preserve that mapping as part of the dataset
    when rebuilding, even if the original provider record is removed. There are
    no runtime provider plugins and no fuzzy automatic identity merges. New

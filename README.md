@@ -89,10 +89,11 @@ There is no frontend install, build step or vendored asset directory. Dependency
 versions are explicit in `public/app.js` and `public/index.html`. A CDN failure leaves
 search and details available, but the map cannot initialize.
 
-Data snapshots are pinned. Overture and Protomaps may expire old hosted releases;
+Data snapshots are pinned in the domain configs under `config/`. Overture and
+Protomaps may expire old hosted releases;
 archive the verified local inputs for long-term rebuilds. A download or checksum
 failure never falls back to a newer dataset. Normal setup must not use
-`-write-lock` or edit expected checksums to bypass a mismatch.
+`-update-config` or edit expected checksums to bypass a mismatch.
 
 Already have source files? Rebuild offline into a **new** database:
 
@@ -207,15 +208,16 @@ searchable as scoped aliases on other named segments; `Colbert Plaza` is absent
 from the pinned Transportation subset. No new primary label appears. This is a
 meaningful source-model difference, not evidence that every road gained coverage.
 
-[Source locks](imports/newport.lock.json) record versions, URLs, bounds,
-checksums and attribution references. The [normalized bundle checksum](imports/newport.bundle.sha256)
-is verified by the Go importer. Each entity keeps source-qualified identifiers,
+[The Places/geocoding config](config/places-geocoding.json) records versions, URLs, bounds,
+source checksums, the normalized bundle checksum and attribution references. The
+Go importer verifies all of them. Each entity keeps source-qualified identifiers,
 original records and attribute provenance. Public IDs derive from permanent
 identity anchors, independent of row IDs, import order or mutable attributes.
 
-Additional sources can supply new records or enrich existing entities through
-[explicit identity mappings](imports/identities.json), without API changes or
-renumbering existing entities. Overture address IDs currently lack a stable
+Additional sources can supply new records or enrich existing entities through an
+explicit identity mapping passed to `prepare -identities`, without API changes or
+renumbering existing entities. There are no mappings in the current configuration.
+Overture address IDs currently lack a stable
 upstream matcher and are not in its GERS registry; changed source values can
 require reviewed replacement mappings. See the [historical address-source
 comparison](docs/log/0013-address-source-comparison.md). Highest source priority
@@ -224,7 +226,7 @@ remain stored.
 There is no fuzzy identity merging or speculative provider plugin framework.
 See the [historical initial matching and conflict rules](docs/log/0002-newport-data-and-import-design.md#matching-identity-and-conflict-resolution).
 
-The [basemap lock](imports/basemap.lock.json) separately pins a Protomaps
+The [basemap config](config/basemap.json) separately pins a Protomaps
 2026-09-06 regional cutout at zooms 0–15. The Go service serves it locally; tiles
 are never used as lookup data. Upstream notices are linked on the demo's
 [attribution page](public/attribution.html).
@@ -254,7 +256,7 @@ internal/importer/  Source adapters, schema, identity history and refresh compar
 internal/importer/scout/ Provider acquisition, receipts and preparation handoff
 internal/importer/addressdata/ Retained provider address decoding
 internal/dataset/   Atomic deployment selection and live HTTP handler replacement
-imports/           Source locks, bundle checksum and identity mappings
+config/            Pinned Places/geocoding, routing and basemap configuration
 public/            Browser ES modules and styles; libraries loaded from esm.sh
 ```
 

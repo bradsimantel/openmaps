@@ -4,7 +4,9 @@ package importer
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -24,18 +26,13 @@ func TestPinnedNewportLookup(t *testing.T) {
 		t.Fatal("set OPENMAPS_DATA to the prepared Newport source directory")
 	}
 	root := filepath.Join("..", "..")
-	manifest, err := ReadManifest(filepath.Join(root, "imports/newport.lock.json"))
+	manifest, err := ReadManifest(filepath.Join(root, "config/places-geocoding.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "imports/identities.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	expectedBundleSHA256 := manifest.BundleSHA256
 	identities := map[string]string{}
-	if err = json.Unmarshal(raw, &identities); err != nil {
-		t.Fatal(err)
-	}
+	manifest.BundleSHA256 = ""
 	bundle, audit, err := Prepare(context.Background(), manifest, dataDir, identities)
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +40,14 @@ func TestPinnedNewportLookup(t *testing.T) {
 	rebuilt, _, err := Prepare(context.Background(), manifest, dataDir, identities)
 	if err != nil || !reflect.DeepEqual(bundle, rebuilt) {
 		t.Fatal("regional preparation is not deterministic", err)
+	}
+	encoded, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(append(encoded, '\n'))
+	if got := hex.EncodeToString(sum[:]); got != expectedBundleSHA256 {
+		t.Fatalf("normalized bundle checksum changed: got %s want %s", got, expectedBundleSHA256)
 	}
 	selection, ok := audit["transportation_selection"].(transportationSelection)
 	if !ok || selection.NamedRoads == 0 || selection.UnnamedRoads == 0 || selection.NonRoads == 0 {

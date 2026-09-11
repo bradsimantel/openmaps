@@ -25,7 +25,7 @@ Go HTTP API and active deployment remain untouched.
 
 ## Acquisition and pins
 
-The [source lock](../../imports/valhalla-scout-bremen.lock.json) records URLs,
+The [retained source config](0029-bremen-scout.json) records URLs,
 SHA-256 and sizes for the catalog, directory listing, provider digest, all three
 packages, all 35 decompressed tiles, and the unselected range probe. It also
 records attribution and the observed upstream/provider revisions. Data and raw
@@ -394,7 +394,7 @@ upstream URLs can change. Metadata URLs/checksums are in the same lock.
 ```sh
 python3 - <<'PY'
 import hashlib, json, pathlib, urllib.request
-lock = json.loads(pathlib.Path('imports/valhalla-scout-bremen.lock.json').read_text())
+lock = json.loads(pathlib.Path('docs/log/0029-bremen-scout.json').read_text())
 packages = lock['packages']
 assert sum(p['bytes'] for p in packages) < 100_000_000
 for p in packages:
@@ -420,13 +420,13 @@ PY
 go build -o data/valhalla-scout-recheck/routing-valhalla ./cmd/routing-valhalla
 data/valhalla-scout-recheck/routing-valhalla \
   -scout-packages data/valhalla-scout-recheck \
-  -lock imports/valhalla-scout-bremen.lock.json \
+  -lock docs/log/0029-bremen-scout.json \
   -scratch data/valhalla-scout-recheck -cache-mib 32 -audit \
   > data/valhalla-scout-recheck/audit.json
 
 /usr/bin/time -l data/valhalla-scout-recheck/routing-valhalla \
   -scout-packages data/valhalla-scout-recheck \
-  -lock imports/valhalla-scout-bremen.lock.json \
+  -lock docs/log/0029-bremen-scout.json \
   -scratch data/valhalla-scout-recheck -cache-mib 32 -cold-cache \
   -max-labels 200000 -repeat 30 \
   > data/valhalla-scout-recheck/short-32.json \

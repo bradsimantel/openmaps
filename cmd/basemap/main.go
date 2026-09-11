@@ -24,7 +24,7 @@ func main() {
 	}
 }
 func run() error {
-	manifest := flag.String("manifest", "imports/basemap.lock.json", "pinned Protomaps extraction manifest")
+	manifest := flag.String("config", "config/basemap.json", "pinned Protomaps extraction configuration")
 	output := flag.String("out", "data/newport.pmtiles", "regional PMTiles output")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -33,21 +33,21 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	var lock struct {
+	var config struct {
 		URL         string    `json:"url"`
 		ToolVersion string    `json:"tool_version"`
 		BBox        []float64 `json:"bbox"`
 		MaxZoom     int       `json:"maxzoom"`
 		SHA256      string    `json:"sha256"`
 	}
-	if e = json.Unmarshal(raw, &lock); e != nil {
+	if e = json.Unmarshal(raw, &config); e != nil {
 		return e
 	}
-	if !regexp.MustCompile(`^v\d+\.\d+\.\d+$`).MatchString(lock.ToolVersion) || len(lock.BBox) != 4 || lock.MaxZoom < 0 || lock.MaxZoom > 24 || !strings.HasPrefix(lock.URL, "https://") {
-		return fmt.Errorf("invalid basemap lock")
+	if !regexp.MustCompile(`^v\d+\.\d+\.\d+$`).MatchString(config.ToolVersion) || len(config.BBox) != 4 || config.MaxZoom < 0 || config.MaxZoom > 24 || !strings.HasPrefix(config.URL, "https://") {
+		return fmt.Errorf("invalid basemap config")
 	}
 	if _, e = os.Stat(*output); e == nil {
-		return importer.Verify(*output, lock.SHA256)
+		return importer.Verify(*output, config.SHA256)
 	} else if !os.IsNotExist(e) {
 		return e
 	}
@@ -61,18 +61,18 @@ func run() error {
 	defer os.RemoveAll(dir)
 	candidate := filepath.Join(dir, "newport.pmtiles")
 	parts := []string{}
-	for _, v := range lock.BBox {
+	for _, v := range config.BBox {
 		parts = append(parts, strconv.FormatFloat(v, 'f', -1, 64))
 	}
 	// The format-specific extractor is a pinned Go dependency, invoked in its own
 	// module so cloud SDK dependencies do not enter the HTTP service's module.
-	cmd := exec.CommandContext(ctx, "go", "run", "github.com/protomaps/go-pmtiles@"+lock.ToolVersion, "extract", lock.URL, candidate, "--bbox="+strings.Join(parts, ","), "--maxzoom="+strconv.Itoa(lock.MaxZoom))
+	cmd := exec.CommandContext(ctx, "go", "run", "github.com/protomaps/go-pmtiles@"+config.ToolVersion, "extract", config.URL, candidate, "--bbox="+strings.Join(parts, ","), "--maxzoom="+strconv.Itoa(config.MaxZoom))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if e = cmd.Run(); e != nil {
 		return e
 	}
-	if e = importer.Verify(candidate, lock.SHA256); e != nil {
+	if e = importer.Verify(candidate, config.SHA256); e != nil {
 		return e
 	}
 	if e = os.Link(candidate, *output); e != nil {

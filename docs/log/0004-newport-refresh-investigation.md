@@ -102,7 +102,7 @@ Neither snapshot has a standalone-address relationship for Pearl; none was
 fabricated during reconciliation. The proposed July bootstrap ID
 `om_185af1e49296d616228d0d8822a455ed` is not published by the reviewed candidate.
 The decision and evidence are retained in
-[the replacement file](../../imports/newport-2026-07-22.replacements.json) and
+[the replacement file](0004-newport-refresh-replacements.json) and
 candidate metadata. This does not modify the baseline source bundle or mappings.
 
 ## Seven uncertain pairs remain distinct

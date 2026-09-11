@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -17,16 +16,16 @@ func TestRefreshRebuild(t *testing.T) {
 	baseline := os.Getenv("OPENMAPS_BASELINE")
 	candidate := os.Getenv("OPENMAPS_CANDIDATE")
 	bundle := os.Getenv("OPENMAPS_BUNDLE")
-	checksum := os.Getenv("OPENMAPS_CHECKSUM")
+	config := os.Getenv("OPENMAPS_CONFIG")
 	replacements := os.Getenv("OPENMAPS_REPLACEMENTS")
-	if baseline == "" || candidate == "" || bundle == "" || checksum == "" {
-		t.Fatal("set absolute OPENMAPS_BASELINE, OPENMAPS_CANDIDATE, OPENMAPS_BUNDLE, OPENMAPS_CHECKSUM; optionally OPENMAPS_REPLACEMENTS")
+	if baseline == "" || candidate == "" || bundle == "" || config == "" {
+		t.Fatal("set absolute OPENMAPS_BASELINE, OPENMAPS_CANDIDATE, OPENMAPS_BUNDLE, OPENMAPS_CONFIG; optionally OPENMAPS_REPLACEMENTS")
 	}
-	expected, e := os.ReadFile(checksum)
+	manifest, e := ReadManifest(config)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = Verify(bundle, string(expected)); e != nil {
+	if e = Verify(bundle, manifest.BundleSHA256); e != nil {
 		t.Fatal(e)
 	}
 	raw, e := os.ReadFile(bundle)
@@ -59,7 +58,7 @@ func TestRefreshRebuild(t *testing.T) {
 	if e = Build(context.Background(), path, b); e != nil {
 		t.Fatal(e)
 	}
-	if e = SaveRefreshMetadata(path, h, decisions, strings.TrimSpace(string(expected))); e != nil {
+	if e = SaveRefreshMetadata(path, h, decisions, manifest.BundleSHA256); e != nil {
 		t.Fatal(e)
 	}
 	old, e := openSnapshot(candidate)

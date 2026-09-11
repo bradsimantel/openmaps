@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,16 +22,15 @@ func TestLiveDemo(t *testing.T) {
 		t.Fatal("set OPENMAPS_URL to the running demo")
 	}
 	path := os.Getenv("OPENMAPS_QUERIES")
-	if path == "" {
-		path = filepath.Join("..", "..", "imports", "newport.queries.json")
-	}
-	raw, e := os.ReadFile(path)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var checks []importer.QueryCheck
-	if e = json.Unmarshal(raw, &checks); e != nil {
-		t.Fatal(e)
+	checks := importer.NewportPlacesQueryChecks()
+	if path != "" {
+		raw, e := os.ReadFile(path)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = json.Unmarshal(raw, &checks); e != nil {
+			t.Fatal(e)
+		}
 	}
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, e := client.Get(base + "/healthz")

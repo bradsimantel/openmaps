@@ -13,7 +13,7 @@ packages. Actual graph references exposed a southern boundary dependency, so 23
 Central American packages were added from the same pinned generation. The final
 643 packages occupy 9,172,913,195 compressed bytes. All retained payloads have
 provider MD5 and local SHA-256 verification. The lock is
-`imports/valhalla-scout-national.lock.json`; the generation is
+`config/routing.json`; the generation is
 `2026-06-20_07:12`, tile version 3.4.0, dataset ID 183131145. These facts do not
 establish the exact OSM cutoff or provider production build configuration.
 
@@ -55,7 +55,7 @@ No returned path may silently skip a required absent tile. Runtime outcomes keep
 
 ## Frozen short-route checks
 
-The 72 short cases in `imports/scout-national-cases.json` (excluding four long
+The 72 short cases in `internal/routing/qualification/testdata/national-cases.json` (excluding four long
 routes and two Mexican cases) all pass: 64 routed, two unreachable, and six
 unsnappable. Each of the 64 returned paths passes the separate source-path
 verifier and matches ordinary Dijkstra's cost. The verifier walks actual edges,

@@ -152,8 +152,8 @@ using its [Oregon](https://download.geofabrik.de/north-america/us/oregon.html),
 [Washington](https://download.geofabrik.de/north-america/us/washington.html) and
 [Idaho](https://download.geofabrik.de/north-america/us/idaho.html) releases dated
 2026-09-07. All three PBF headers identify `2026-09-07T20:21:20Z`. Published MD5s
-were downloaded and matched; SHA-256 pins are in
-[the maintained lock](../../imports/oregon-routing.lock.json). The original PBFs,
+were downloaded and matched; SHA-256 pins were recorded with the now-retired
+SQLite routing experiment. The original PBFs,
 provider polygons, header reports, checksum responses and acquisition record
 are retained in ignored `data/scaling/`. Original sizes were 253,399,721 bytes
 Oregon, 362,812,088 Washington and 128,536,486 Idaho.

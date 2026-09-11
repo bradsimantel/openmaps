@@ -100,7 +100,7 @@ func (r *rangeFile) ReadAt(p []byte, offset int64) (int, error) {
 	return n, nil
 }
 
-// FetchSources downloads missing locked artifacts. rewriteExports is only for
+// FetchSources downloads missing pinned artifacts. rewriteExports is only for
 // deliberate maintainer migrations: it never changes release URLs automatically.
 func FetchSources(ctx context.Context, m Manifest, dir string, rewriteExports bool) (Manifest, error) {
 	if e := os.MkdirAll(dir, 0755); e != nil {

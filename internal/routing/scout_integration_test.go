@@ -19,7 +19,7 @@ func scoutProvider(t *testing.T, cache int64) *Router {
 	if dir == "" {
 		t.Skip("set OPENMAPS_SCOUT_DIR to the pinned downloaded packages")
 	}
-	b, err := os.ReadFile("../../imports/valhalla-scout-bremen.lock.json")
+	b, err := os.ReadFile("../../docs/log/0029-bremen-scout.json")
 	if err != nil {
 		t.Fatal(err)
 	}

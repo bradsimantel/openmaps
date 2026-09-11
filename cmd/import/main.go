@@ -11,7 +11,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"openmaps/internal/importer"
 )
@@ -24,9 +23,9 @@ func main() {
 func run() error {
 	bundle := flag.String("bundle", "data/newport.json", "normalized regional bundle")
 	db := flag.String("db", "data/openmaps.sqlite", "output (must not already exist)")
-	checksum := flag.String("checksum", "imports/newport.bundle.sha256", "expected bundle SHA-256 file")
+	config := flag.String("config", "config/places-geocoding.json", "pinned Places and geocoding source configuration")
 	flag.Parse()
-	expected, err := os.ReadFile(*checksum)
+	manifest, err := importer.ReadManifest(*config)
 	if err != nil {
 		return err
 	}
@@ -39,7 +38,7 @@ func run() error {
 	if _, err = io.Copy(hash, file); err != nil {
 		return err
 	}
-	if hex.EncodeToString(hash.Sum(nil)) != strings.TrimSpace(string(expected)) {
+	if hex.EncodeToString(hash.Sum(nil)) != manifest.BundleSHA256 {
 		return fmt.Errorf("bundle checksum mismatch")
 	}
 	if _, err = file.Seek(0, 0); err != nil {

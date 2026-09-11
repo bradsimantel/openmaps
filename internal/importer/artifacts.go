@@ -29,6 +29,7 @@ type Manifest struct {
 	Region          string     `json:"region"`
 	BBox            [4]float64 `json:"bbox"`
 	CoordinateOrder string     `json:"coordinate_order"`
+	BundleSHA256    string     `json:"bundle_sha256,omitempty"`
 	Inputs          []Input    `json:"inputs"`
 	Catalog         *Input     `json:"catalog,omitempty"`
 }
@@ -45,6 +46,9 @@ func ReadManifest(path string) (Manifest, error) {
 	}
 	if m.Schema != 1 || m.Region == "" || m.CoordinateOrder != "longitude,latitude" || !validBounds(m.BBox) {
 		return m, fmt.Errorf("invalid regional manifest")
+	}
+	if _, e := hex.DecodeString(m.BundleSHA256); e != nil || len(m.BundleSHA256) != 64 {
+		return m, fmt.Errorf("invalid normalized bundle SHA-256")
 	}
 	seen := map[string]bool{}
 	for _, i := range append(append([]Input{}, m.Inputs...), catalogInputs(m)...) {

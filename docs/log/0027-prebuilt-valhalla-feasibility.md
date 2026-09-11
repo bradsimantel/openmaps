@@ -47,9 +47,9 @@ Interline provider compatibility and its build-policy suitability remain blocked
 on access to a small, metadata-complete sample. The public Librescoot sample
 removes the general sample-access blocker; it does not prove Interline compatibility.
 
-[The source lock](../../imports/valhalla-bremen.lock.json) records the tar and
-individual tile SHA-256 values, byte counts, release asset ID, observation of the
-provider source revision and upstream code pin. Archive SHA-256:
+The retired Librescoot source pin recorded the tar and individual tile SHA-256
+values, byte counts, release asset ID, observation of the provider source
+revision and upstream code pin. Archive SHA-256:
 
 ```text
 92e3c58cb1f69b9392b96dc98477b295b491b77617b25f6b5ae5b70c1d3a0b91

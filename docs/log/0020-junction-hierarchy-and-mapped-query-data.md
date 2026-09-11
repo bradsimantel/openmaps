@@ -36,8 +36,8 @@ were serialized. An early run overlapping the multistate build is retained as
 
 The existing Oregon, Washington and Idaho PBFs were rehashed against the retained
 lock. All have pinned release **2026-09-07T20:21:20Z**. No newer source or address
-acquisition was needed. The [new lock](../../imports/northwest-routing.lock.json)
-records the three upstream SHA-256 values and the full merged derivative:
+acquisition was needed. The retired experiment's Northwest source record captured
+the three upstream SHA-256 values and the full merged derivative:
 
 - `northwest-260907.osm.pbf`: 744,258,582 bytes, SHA-256
   `3af61891279d9a393d4630800e3253d698a59348fc71f4a2dc7c5cfeae6ebf2c`.

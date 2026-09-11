@@ -22,8 +22,8 @@ func TestPinnedNationalHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The repository qualification lock is independent of the acquisition receipts.
-	b, err := os.ReadFile("../../imports/valhalla-scout-national.lock.json")
+	// The repository qualification config is independent of the acquisition receipts.
+	b, err := os.ReadFile("../../config/routing.json")
 	if err != nil {
 		t.Fatal(err)
 	}

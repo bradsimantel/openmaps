@@ -39,9 +39,9 @@ func run() error {
 	baseline := f.String("baseline", "data/openmaps.sqlite", "retained baseline database")
 	candidate := f.String("candidate", "", "candidate database (build refuses existing output)")
 	bundle := f.String("bundle", "", "normalized input bundle")
-	checksum := f.String("checksum", "", "expected input bundle SHA-256 file")
+	config := f.String("config", "", "Places and geocoding source configuration for the input bundle")
 	replacements := f.String("replacements", "", "optional reviewed one-to-one replacements JSON")
-	queries := f.String("queries", "imports/newport.queries.json", "representative search expectations JSON")
+	queries := f.String("queries", "", "optional Places search expectations JSON")
 	report := f.String("report", "data/refresh-report.json", "full deterministic comparison JSON")
 	review := f.String("review", "", "review JSON bound to report SHA-256")
 	reviewer := f.String("reviewer", "", "person or agent recording the review")
@@ -56,14 +56,14 @@ func run() error {
 	ctx := context.Background()
 	switch command {
 	case "build":
-		if *candidate == "" || *bundle == "" || *checksum == "" {
-			return fmt.Errorf("build requires -candidate, -bundle and -checksum")
+		if *candidate == "" || *bundle == "" || *config == "" {
+			return fmt.Errorf("build requires -candidate, -bundle and -config")
 		}
-		expected, e := os.ReadFile(*checksum)
+		manifest, e := importer.ReadManifest(*config)
 		if e != nil {
 			return e
 		}
-		if e = importer.Verify(*bundle, string(expected)); e != nil {
+		if e = importer.Verify(*bundle, manifest.BundleSHA256); e != nil {
 			return e
 		}
 		var b importer.Bundle
@@ -99,7 +99,7 @@ func run() error {
 		if e = importer.Build(ctx, name, b); e != nil {
 			return e
 		}
-		if e = importer.SaveRefreshMetadata(name, history, decisions, strings.TrimSpace(string(expected))); e != nil {
+		if e = importer.SaveRefreshMetadata(name, history, decisions, manifest.BundleSHA256); e != nil {
 			return e
 		}
 		if _, e = importer.ReadSnapshot(ctx, name); e != nil {
@@ -113,9 +113,11 @@ func run() error {
 		if *candidate == "" {
 			return fmt.Errorf("compare requires -candidate")
 		}
-		var checks []importer.QueryCheck
-		if e := readJSON(*queries, &checks); e != nil {
-			return e
+		checks := importer.NewportPlacesQueryChecks()
+		if *queries != "" {
+			if e := readJSON(*queries, &checks); e != nil {
+				return e
+			}
 		}
 		r, e := importer.Compare(ctx, *baseline, *candidate, checks)
 		if e != nil {
