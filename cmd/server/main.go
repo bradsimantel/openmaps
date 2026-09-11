@@ -87,7 +87,8 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		}
 	}
 	fail := func(err error) (http.Handler, func(), error) { cleanup(); return nil, nil, err }
-	var lookup http.Handler = api.Handler{}
+	lookupAPI := api.Handler{}
+	var lookup http.Handler = lookupAPI
 	var live *dataset.Live
 	if c.deployment != "" {
 		var err error
@@ -111,7 +112,8 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		if err != nil {
 			return fail(err)
 		}
-		lookup = api.Handler{Places: store, Geocoding: geocoder}
+		lookupAPI = api.Handler{Places: store, Geocoding: geocoder}
+		lookup = lookupAPI
 	}
 	var router *routing.Service
 	if c.routing != "" {
@@ -128,7 +130,13 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		}
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/directions/", api.RoutingAdmission(api.Handler{Routing: router}, c.workers))
+	routeAPI := lookupAPI
+	routeAPI.Routing = router
+	var routeHandler http.Handler = routeAPI
+	if live != nil {
+		routeHandler = live.Routes(router)
+	}
+	mux.Handle("/directions/", api.RoutingAdmission(routeHandler, c.workers))
 	mux.Handle("/v1/", lookup)
 	mux.Handle("/maps/api/", lookup)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

@@ -25,11 +25,13 @@ exhaustive source coverage. See [Scout routing](docs/routing-scout.md) and the
 [historical qualification](docs/log/0034-national-scout-qualification.md).
 
 The explicit `osm-scout-public-auto-v1` profile excludes ferries and destination
-access, supports coordinates only, and cannot reproduce discarded source tags or
-verify the exact OSM cutoff. Address requests fail explicitly. Places and geocoding
-remain available in the same service. Lookup SQLite and routing snapshots have
-independent selection and lifetime. Acquisition, preparation and verification run
-with Go tools; Python and Valhalla's routing engine are not required.
+access and cannot reproduce discarded source tags or verify the exact OSM cutoff.
+Scout still receives coordinates only: the API layer can resolve Open Maps place
+IDs and exact supported address strings through the selected lookup snapshot before
+calling it. Places and geocoding remain available in the same service. Lookup SQLite
+and routing snapshots have independent selection and lifetime. Acquisition,
+preparation and verification run with Go tools; Python and Valhalla's routing engine
+are not required.
 
 ## Run the Newport demo
 
@@ -67,10 +69,12 @@ unsupported. See [the maintained geocoding contract](docs/geocoding.md).
 
 For driving, add `-routing-scout PREPARED_DIRECTORY` to the server command after
 following [Scout acquisition and preparation](docs/routing-scout.md#acquisition-and-preparation).
-Use selected lookup coordinates or map points for both endpoints. Address routing
-is unavailable. Duration uses uncalibrated provider speeds and excludes traffic
-and unverified off-road gaps. Routes outside the Newport basemap can still be
-returned, although the local basemap has no tiles there.
+The browser uses selected lookup coordinates or map points. The HTTP API also
+accepts an Open Maps ID returned by autocomplete/details or an exact supported
+address for either endpoint. Address text retains the strict geocoding grammar and
+must identify one standalone address. Duration uses uncalibrated provider speeds
+and excludes traffic and unverified off-road gaps. Routes outside the Newport
+basemap can still be returned, although the local basemap has no tiles there.
 
 `data/` is ignored by Git.
 The four canonical regional Overture exports and catalog are about 12 MB; SQLite
@@ -123,7 +127,7 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 | `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, and response field mask; up to five place predictions |
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
 | `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional English `language` and unauthenticated `key` |
-| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: coordinate origin/destination, driving (address requests explicitly unavailable), GeoJSON geometry, road distance and estimated duration; requires routing data and response mask |
+| `POST /directions/v2:computeRoutes` | Routes REST v2 subset: coordinate, Open Maps Place ID, or exact unique address origin/destination; driving, GeoJSON geometry, road distance and estimated duration; requires routing data, lookup data for non-coordinate forms, and a response mask |
 | `GET /healthz` | Process health and routing availability; in deployment mode, loaded database fingerprint and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
 
@@ -262,10 +266,12 @@ index. Activation replaces all available domains together. The owned Go import p
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
-Routing remains independent of text search and address resolution. Scout uses
-bounded graph pages and directed landmark A*, preserving full turn history and
-source steps. Ordinary Go traversal and independent source-path replay remain
-correctness references. See [the maintained routing design](docs/routing-scout.md).
+Routing remains independent of text search and address resolution. The API holds
+one lookup snapshot lease while resolving both endpoints, then gives Scout WGS84
+coordinates. Scout uses bounded graph pages and directed landmark A*, preserving
+full turn history and source steps. Ordinary Go traversal and independent
+source-path replay remain correctness references. See
+[the maintained routing design](docs/routing-scout.md).
 
 ## Verification
 
@@ -350,7 +356,8 @@ national and regional services, graceful restarts and retained rollback commands
 - The local map cutout is finite; zooming or panning far outside Newport can show
   missing tiles. Browser libraries, fonts and sprites use external hosts.
 - Scout minimizes uncalibrated provider edge-speed cost. No traffic, turn delay,
-  navigation instructions, address routing, destination-only access or ferries.
+  navigation instructions, destination-only access or ferries. Place/address
+  coordinates are source points, not verified entrances or access points.
   Retained tiles do not establish complete source coverage or an exact OSM cutoff.
   Missing dependencies, unsupported snaps and disconnected networks remain
   distinct outcomes. See [the profile and limits](docs/routing-scout.md).

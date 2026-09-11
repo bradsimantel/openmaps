@@ -157,9 +157,11 @@ It requires a valid non-dateline manifest `bbox`. There are no schema changes,
 new source imports, migrations, sidecar databases or writes to retained snapshots.
 Deployment reload opens Places and geocoding before replacing their handler.
 Scout routing uses independently selected prepared tiles in the same service.
-It accepts coordinates from geocoding results, but has no source-backed address
-association; direct address route requests return `address_routing_unavailable`.
-Geocoding identity, ambiguity and source precision are unchanged.
+The Routes API may call this same exact forward matcher for an address waypoint,
+but requires exactly one result; no-match and ambiguity fail explicitly instead
+of choosing a candidate. It passes the unchanged source address coordinate to
+Scout, which has no source-backed address association and performs its ordinary
+road snap. Geocoding identity, ambiguity and source precision are unchanged.
 Lookup requests carry `X-OpenMaps-Dataset` in deployment mode. Activation and
 rollback use the [refresh workflow](refresh.md); see [Scout routing](routing-scout.md).
 
@@ -209,5 +211,7 @@ OPENMAPS_URL=http://127.0.0.1:8080 \
 
 Scout route distance and duration exclude unverified off-road gaps. Its coordinate
 coverage does not expand Newport geocoding coverage or establish surveyed property
-entrances. The former automatic address routing and SQLite graph versions are
-historical implementations, removed in the Go Scout migration.
+entrances. API-layer address resolution adds no address records, entrances or
+access edges to Scout. The former graph-coupled automatic address routing and
+SQLite graph versions are historical implementations, removed in the Go Scout
+migration.

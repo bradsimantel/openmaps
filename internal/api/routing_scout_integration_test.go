@@ -34,7 +34,7 @@ func TestScoutHTTP(t *testing.T) {
 		{"full", coordinate, "routes.distanceMeters,routes.duration,routes.staticDuration,routes.polyline", "routed", 200},
 		{"distance mask", coordinate, "routes.distanceMeters", "routed", 200},
 		{"broad mask", coordinate, "routes", "unsupported_input", 400},
-		{"address", `{"origin":{"address":"Newport"},"destination":{"address":"Boston"},"polylineEncoding":"GEO_JSON_LINESTRING"}`, "routes.duration", "address_routing_unavailable", 503},
+		{"address without lookup", `{"origin":{"address":"Newport"},"destination":{"address":"Boston"},"polylineEncoding":"GEO_JSON_LINESTRING"}`, "routes.duration", "lookup_unavailable", 503},
 		{"absent graph", `{"origin":{"location":{"latLng":{"longitude":0,"latitude":0}}},"destination":{"location":{"latLng":{"longitude":0,"latitude":0}}},"polylineEncoding":"GEO_JSON_LINESTRING"}`, "routes.duration", "incomplete_data", 503},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

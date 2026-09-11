@@ -158,11 +158,11 @@ func TestNationalServiceRoundTrip(t *testing.T) {
 		}
 		b, _ := io.ReadAll(r.Body)
 		r.Body.Close()
-		expected := "incomplete_data"
+		expected, expectedStatus := "incomplete_data", 503
 		if strings.Contains(body, "address") {
-			expected = "address_routing_unavailable"
+			expected, expectedStatus = "unsupported_address_syntax", 400
 		}
-		if r.StatusCode != 503 || !bytes.Contains(b, []byte(expected)) {
+		if r.StatusCode != expectedStatus || !bytes.Contains(b, []byte(expected)) {
 			t.Fatal(r.StatusCode, string(b))
 		}
 	}

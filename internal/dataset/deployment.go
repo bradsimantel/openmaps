@@ -15,6 +15,7 @@ import (
 	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
+	"openmaps/internal/routing"
 )
 
 type File struct {
@@ -275,6 +276,18 @@ func (l *Live) Close() error {
 // loads a changed snapshot outside that lease; concurrent requests keep using
 // the previous snapshot. Publication waits for old leases before closing SQLite.
 func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	l.serveHTTP(w, r, nil)
+}
+
+// Routes returns a handler that resolves both route endpoints against one
+// lookup snapshot lease. Lookup publication waits until response encoding ends.
+func (l *Live) Routes(router *routing.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l.serveHTTP(w, r, router)
+	})
+}
+
+func (l *Live) serveHTTP(w http.ResponseWriter, r *http.Request, router *routing.Service) {
 	if l.reloadMu.TryLock() {
 		err := l.reload(r.Context())
 		message := ""
@@ -314,7 +327,7 @@ func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("X-OpenMaps-Dataset", l.current.SHA256)
-	api.Handler{Places: l.store, Geocoding: l.geocoder}.ServeHTTP(w, r)
+	api.Handler{Places: l.store, Geocoding: l.geocoder, Routing: router}.ServeHTTP(w, r)
 }
 
 // Status reports the lookup identity and the last failed selection check.

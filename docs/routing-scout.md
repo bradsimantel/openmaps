@@ -1,9 +1,11 @@
-# Scout coordinate routing
+# Scout routing
 
 The sole routing backend, Scout, reads pinned OSM Scout Server Valhalla **3.4.0 tiles**
 as graph records. Go owns route search, costing, snapping, restrictions, geometry,
 HTTP translation and snapshot lifetime. It does not execute Valhalla's routing
-engine. Places, geocoding, basemap serving and Scout share `cmd/server`.
+engine. Scout accepts only WGS84 coordinates; the API layer may obtain them from
+literal coordinates, an Open Maps Place ID or one exact address match before
+calling Scout. Places, geocoding, basemap serving and Scout share `cmd/server`.
 Lookup SQLite and routing pages have independent snapshot selections. The retired
 SQLite/PBF graph engines and transient provider backends are no longer built.
 The engine lives directly in `internal/routing`. The separate
@@ -38,9 +40,11 @@ This profile cannot reproduce `driving-time-v4`: normalized tiles lose raw acces
 specificity, malformed/unknown tags, excluded-road guards, source node/relation
 identity, some conditions, speed provenance and property entrance evidence.
 Provider normalization can admit a gate or bollard the retired profile excluded.
-No destination-zone qualification, address association or address routing is
-implemented. Neither a tile generation timestamp nor a dataset ID establishes
-an independently verified OSM snapshot cutoff or production build configuration.
+No destination-zone qualification, address association or lookup storage is
+implemented in Scout. API-resolved POI/address points receive no special road or
+entrance treatment. Neither a tile generation timestamp nor a dataset ID
+establishes an independently verified OSM snapshot cutoff or production build
+configuration.
 
 Coordinates use WGS84 longitude/latitude; GeoJSON uses `[longitude, latitude]`.
 Snapping independently selects the nearest eligible stored shape within 100 m,
@@ -224,8 +228,9 @@ Use an unused loopback port. `-db` (default `data/openmaps.sqlite`) or
 lookup for a routing-only service. The normal server always serves basemap files.
 `-deployment` selects only lookup SQLite; `-scout-selection` selects only routing.
 Neither selection changes the other's identity or resets routing admission.
-It implements the same explicit coordinate request subset and response masks at
-`POST /directions/v2:computeRoutes`; Google translation remains in `internal/api`.
+It implements the same explicit coordinate, Open Maps Place ID and exact-address
+request subset and response masks at `POST /directions/v2:computeRoutes`; Google
+translation and lookup resolution remain in `internal/api`.
 The service and `scout-verify` use one-sided A*. In `scout-audit`, `-accelerated`
 selects one-sided A*; omitting it selects ordinary Dijkstra.
 
@@ -291,12 +296,14 @@ The offline harness accepts an external directory with `-accelerated -landmarks`
 when requested, and checks paths independently of search labels and automata.
 
 The response identifies the experimental profile, cost model, snapshot,
-source limitations, attribution, both selected snaps and unverified gaps.
-Address requests return 503 `address_routing_unavailable`; missing tiles return
-503 `incomplete_data` with the dependency; a query limit returns 503
-`query_budget_exhausted`. Exhaustive no-route remains HTTP 200 with empty routes
-and `unreachable`. Invalid requests/masks retain their existing 400 errors;
-excess concurrent work returns 429 with `Retry-After: 1`.
+source limitations, attribution, both selected snaps and unverified gaps. The API
+also identifies a resolved lookup ID, entity kind and source coordinate without
+claiming it is an entrance or access point. Missing tiles return 503
+`incomplete_data` with the dependency; a query limit returns 503
+`query_budget_exhausted`. Exact-address ambiguity/no-match, unknown IDs and missing
+lookup data fail before Scout with distinct outcomes. Exhaustive no-route remains
+HTTP 200 with empty routes and `unreachable`. Invalid requests/masks retain their
+existing 400 errors; excess concurrent work returns 429 with `Retry-After: 1`.
 
 `-scout-selection path.json` optionally watches a separate file containing
 `{"directory":"prepared-directory"}`. Relative directories resolve beside the

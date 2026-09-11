@@ -6,15 +6,12 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"openmaps/internal/routing"
 	"time"
+
+	"openmaps/internal/routing"
 )
 
 func (h Handler) computeScoutRoute(w http.ResponseWriter, r *http.Request, origin, destination routeWaypoint, paths []string) {
-	if origin.address != "" || destination.address != "" {
-		write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Scout supports coordinates only; it has no address evidence"}, "openmaps": object{"outcome": "address_routing_unavailable", "profile": routing.Profile}})
-		return
-	}
 	lease, err := h.Routing.Acquire()
 	if err != nil {
 		if errors.Is(err, routing.ErrBusy) {
@@ -27,6 +24,12 @@ func (h Handler) computeScoutRoute(w http.ResponseWriter, r *http.Request, origi
 	}
 	defer lease.Close()
 	meta := object{"profile": lease.Metadata.Profile, "search": lease.Metadata.Search, "profile_note": lease.Metadata.Note, "snapshot": lease.Metadata.Snapshot, "snap_limit_meters": 100, "cost_model": "scout-edge-speed-v1", "attribution": "© OpenStreetMap contributors", "attribution_uri": "https://www.openstreetmap.org/copyright", "source_release": "OSM Scout package generation " + lease.Metadata.Timestamp + "; exact OSM cutoff unverified", "time_estimate_note": "Provider encoded edge speed estimates; no traffic or turn penalties; unverified off-road gaps excluded"}
+	if resolution := origin.resolutionMetadata(); resolution != nil {
+		meta["origin_resolution"] = resolution
+	}
+	if resolution := destination.resolutionMetadata(); resolution != nil {
+		meta["destination_resolution"] = resolution
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	fail := func(err error, endpoint string) {

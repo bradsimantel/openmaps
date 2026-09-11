@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"openmaps/internal/api"
+	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
 )
@@ -34,7 +35,11 @@ func setup(t *testing.T) (api.Handler, *places.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	return api.Handler{Places: s}, s
+	g, err := geocoding.Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return api.Handler{Places: s, Geocoding: g}, s
 }
 func call(h http.Handler, method, path, body, mask string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -170,6 +175,43 @@ func TestStorageErrorsDoNotLeak(t *testing.T) {
 	for _, tc := range []struct{ method, path, body, mask string }{{"POST", "/v1/places:autocomplete", `{"input":"White"}`, ""}, {"GET", "/v1/places/any", "", "id"}} {
 		w := call(h, tc.method, tc.path, tc.body, tc.mask)
 		if w.Code != 500 || !strings.Contains(w.Body.String(), `"status":"INTERNAL"`) || strings.Contains(w.Body.String(), "sql:") {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestRouteLookupResolutionErrors(t *testing.T) {
+	h, _ := setup(t)
+	path := "/directions/v2:computeRoutes"
+	waypoints := func(origin, destination string) string {
+		return `{"origin":` + origin + `,"destination":` + destination + `,"polylineEncoding":"GEO_JSON_LINESTRING"}`
+	}
+	coordinate := `{"location":{"latLng":{"latitude":41.49,"longitude":-71.31}}}`
+	for _, tc := range []struct {
+		name, origin, outcome string
+		code                  int
+	}{
+		{"business place ID resolves", `{"placeId":"` + importer.PublicID("fixture:place:tavern") + `"}`, "unavailable", 503},
+		{"standalone address ID resolves", `{"placeId":"` + importer.PublicID("fixture:address:26") + `"}`, "unavailable", 503},
+		{"exact address resolves", `{"address":"26 Marlborough St"}`, "unavailable", 503},
+		{"unknown place ID", `{"placeId":"om_missing"}`, "unknown_place_id", 400},
+		{"ambiguous address", `{"address":"10 Shared Street"}`, "ambiguous_address", 400},
+		{"unresolved address", `{"address":"99999 Marlborough Street"}`, "unresolved_address", 400},
+		{"unsupported address syntax", `{"address":"26 Marlborough Street Apt 2"}`, "unsupported_address_syntax", 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := call(h, "POST", path, waypoints(tc.origin, coordinate), "routes.duration")
+			if w.Code != tc.code || !strings.Contains(w.Body.String(), `"outcome":"`+tc.outcome+`"`) {
+				t.Fatal(w.Code, w.Body.String())
+			}
+			if tc.outcome == "ambiguous_address" && !strings.Contains(w.Body.String(), `"candidate_count":2`) {
+				t.Fatal(w.Body.String())
+			}
+		})
+	}
+	for _, origin := range []string{`{"placeId":"om_missing"}`, `{"address":"26 Marlborough Street"}`} {
+		w := call(api.Handler{}, "POST", path, waypoints(origin, coordinate), "routes.duration")
+		if w.Code != 503 || !strings.Contains(w.Body.String(), `"outcome":"lookup_unavailable"`) {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}

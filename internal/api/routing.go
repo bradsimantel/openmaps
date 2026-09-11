@@ -156,6 +156,16 @@ func (h Handler) computeRoute(w http.ResponseWriter, r *http.Request) {
 		routingInputFailure(w, fmt.Errorf("destination: %w", err))
 		return
 	}
+	origin, err = h.resolveRouteWaypoint(r.Context(), origin)
+	if err != nil {
+		routeResolutionFailure(w, "origin", err)
+		return
+	}
+	destination, err = h.resolveRouteWaypoint(r.Context(), destination)
+	if err != nil {
+		routeResolutionFailure(w, "destination", err)
+		return
+	}
 	if h.Routing == nil {
 		write(w, 503, object{"error": object{"code": 503, "status": "UNAVAILABLE", "message": "Routing snapshot unavailable"}, "openmaps": object{"outcome": "unavailable"}})
 		return
