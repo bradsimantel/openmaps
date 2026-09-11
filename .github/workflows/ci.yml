@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting and whitespace
+        run: |
+          test -z "$(find cmd internal -name '*.go' -type f -exec gofmt -l {} +)"
+          git diff --check "$(git hash-object -t tree /dev/null)" HEAD
+      - name: Validate maintained JSON
+        run: >-
+          jq empty
+          config/*.json
+          config/routing/*.json
+          docs/log/0034-national-scout-snap-probes.json
+          internal/routing/testdata/scout-bremen/lock.json
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...

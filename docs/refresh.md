@@ -174,10 +174,9 @@ hold shared lookup leases; one request loads a changed selection while others
 use the previous snapshot, and publication waits for old leases before closing
 SQLite. A failed reload retains the last working handler and makes health return
 HTTP 503 with an error. Scout routing has a separate immutable selection and
-admission pool; lookup replacement never retires its readers.
-Successful API responses include `X-OpenMaps-Lookup-Snapshot`; the former
-`X-OpenMaps-Dataset` header remains a compatibility alias. Check health after
-every switch. Autocomplete and details are separate requests; an ID removed between
+admission pool; lookup replacement never retires its readers. Successful API
+responses include `X-OpenMaps-Lookup-Snapshot`. Check health after every switch.
+Autocomplete and details are separate requests; an ID removed between
 those requests can correctly return `NOT_FOUND`.
 
 ## Roll back

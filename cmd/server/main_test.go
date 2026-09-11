@@ -322,7 +322,7 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil {
 			t.Fatal(response.Code, response.Body.String())
 		}
-		if response.Header().Get("X-OpenMaps-Lookup-Snapshot") != file.SHA256 || response.Header().Get("X-OpenMaps-Dataset") != file.SHA256 || result.Openmaps.Origin.Source[0] != originLng || result.Openmaps.Destination.Source[0] != destinationLng {
+		if response.Header().Get("X-OpenMaps-Lookup-Snapshot") != file.SHA256 || response.Header().Get("X-OpenMaps-Dataset") != "" || result.Openmaps.Origin.Source[0] != originLng || result.Openmaps.Destination.Source[0] != destinationLng {
 			t.Fatalf("mixed lookup snapshot: header=%s body=%s", response.Header().Get("X-OpenMaps-Lookup-Snapshot"), response.Body.String())
 		}
 	}

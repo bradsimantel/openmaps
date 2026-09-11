@@ -285,6 +285,9 @@ go test ./...
 go vet ./...
 ```
 
+The same formatting, test, vet, whitespace, and maintained-JSON checks run in
+[GitHub Actions](.github/workflows/ci.yml) on pushes and pull requests.
+
 These cover API response shapes and errors, masks, search ranking, accents,
 street abbreviations, repeated street labels, distinct repeated address labels,
 closed-place behavior, dateline coordinates, multilingual Point and LineString

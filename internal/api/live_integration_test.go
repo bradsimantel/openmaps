@@ -42,15 +42,13 @@ func TestLiveDemo(t *testing.T) {
 		LookupSnapshot struct {
 			SHA256 string `json:"sha256"`
 		} `json:"lookup_snapshot"`
-		Dataset struct {
-			SHA256 string `json:"sha256"`
-		} `json:"dataset"` // Deprecated compatibility alias.
+		LegacyDataset json.RawMessage `json:"dataset"`
 	}
 	if e = json.NewDecoder(resp.Body).Decode(&health); e != nil {
 		t.Fatal(e)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != 200 || health.Status != "ok" || health.LookupSnapshot.SHA256 == "" || health.Dataset.SHA256 != health.LookupSnapshot.SHA256 {
+	if resp.StatusCode != 200 || health.Status != "ok" || health.LookupSnapshot.SHA256 == "" || len(health.LegacyDataset) != 0 {
 		t.Fatalf("deployment not healthy: %+v", health)
 	}
 	t.Logf("Serving lookup snapshot %s", health.LookupSnapshot.SHA256)

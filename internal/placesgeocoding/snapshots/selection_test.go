@@ -220,8 +220,8 @@ func TestGeocodingUsesActivatedSnapshotAndRollback(t *testing.T) {
 		if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"OK"`) {
 			t.Fatal(w.Code, w.Body.String())
 		}
-		if legacy := w.Header().Get("X-OpenMaps-Dataset"); legacy != w.Header().Get("X-OpenMaps-Lookup-Snapshot") {
-			t.Fatalf("legacy lookup snapshot header = %q", legacy)
+		if w.Header().Get("X-OpenMaps-Lookup-Snapshot") == "" || w.Header().Get("X-OpenMaps-Dataset") != "" {
+			t.Fatalf("lookup snapshot headers = %v", w.Header())
 		}
 		return w.Body.String(), w.Header().Get("X-OpenMaps-Lookup-Snapshot")
 	}

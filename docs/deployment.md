@@ -40,8 +40,7 @@ those bounded settings.
 Healthy responses report `lookup_snapshot` for the Places/geocoding selection and
 `routing_candidate` for the routing snapshot. `routing_candidate` remains the
 established compatibility name. Lookup responses carry
-`X-OpenMaps-Lookup-Snapshot`; the former `dataset` health field and
-`X-OpenMaps-Dataset` header remain temporary compatibility aliases.
+`X-OpenMaps-Lookup-Snapshot`.
 
 ## Supervision and graceful shutdown
 

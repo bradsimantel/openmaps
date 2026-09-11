@@ -75,5 +75,5 @@ func TestLiveGeocoding(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("%d live geocoding cases; dataset %s", len(suite.Cases), fingerprint)
+	t.Logf("%d live geocoding cases; lookup snapshot %s", len(suite.Cases), fingerprint)
 }

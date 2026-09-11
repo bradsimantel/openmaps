@@ -323,14 +323,11 @@ func (l *LiveHandler) serveHTTP(w http.ResponseWriter, r *http.Request, router *
 			DurationAvailable bool      `json:"routing_duration_available"`
 			Status            string    `json:"status"`
 			LookupSnapshot    Reference `json:"lookup_snapshot"`
-			Dataset           Reference `json:"dataset"` // Deprecated compatibility alias.
 			Error             string    `json:"error,omitempty"`
-		}{false, false, status, l.current, l.current, l.lastError})
+		}{false, false, status, l.current, l.lastError})
 		return
 	}
 	w.Header().Set("X-OpenMaps-Lookup-Snapshot", l.current.SHA256)
-	// Deprecated compatibility alias for existing clients and monitors.
-	w.Header().Set("X-OpenMaps-Dataset", l.current.SHA256)
 	api.Handler{Places: l.store, Geocoding: l.geocoder, Routing: router}.ServeHTTP(w, r)
 }
 

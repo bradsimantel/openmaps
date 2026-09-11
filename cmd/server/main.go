@@ -31,10 +31,6 @@ func main() {
 	flag.StringVar(&c.routingSnapshot, "routing-snapshot", "", "prepared routing snapshot directory")
 	flag.StringVar(&c.routingSelection, "routing-selection", "", "JSON routing selection file, independent of lookup selection")
 	flag.Int64Var(&c.routingCache, "routing-cache-mib", 128, "graph page payload per reader, 1..128 MiB; index caches are additional")
-	// Deprecated aliases retained for existing local launchd jobs and scripts.
-	flag.StringVar(&c.routingSnapshot, "routing-scout", "", "deprecated alias for -routing-snapshot")
-	flag.StringVar(&c.routingSelection, "scout-selection", "", "deprecated alias for -routing-selection")
-	flag.Int64Var(&c.routingCache, "scout-cache-mib", 128, "deprecated alias for -routing-cache-mib")
 	flag.StringVar(&c.db, "db", "data/openmaps.sqlite", "lookup SQLite database; empty disables lookup")
 	flag.StringVar(&c.deployment, "deployment", "", "lookup refresh deployment state; supersedes -db")
 	flag.StringVar(&c.listen, "listen", "127.0.0.1:8080", "HTTP listen address")
@@ -154,8 +150,6 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		if live != nil {
 			lookupSnapshot, errorText := live.Status(r.Context())
 			health["lookup_snapshot"] = lookupSnapshot
-			// Deprecated compatibility alias for existing clients and monitors.
-			health["dataset"] = lookupSnapshot
 			if errorText != "" {
 				health["error"] = errorText
 				health["status"] = "degraded"
