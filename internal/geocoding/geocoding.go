@@ -135,20 +135,40 @@ func addressKey(input string) (string, bool) {
 }
 func empty(outcome string) Response { return Response{Results: []Result{}, Outcome: outcome} }
 
-// Forward requires the complete street label (abbreviations are expanded).
-// Comma-separated context is checked against stored label context. Newport is
-// accepted only as the preview's scope, never as an inferred address locality.
-func (s *Store) Forward(ctx context.Context, input string) (Response, error) {
+// AddressIndex derives the exact serving key and retained label context for a
+// supported source address. Compact serving artifacts use this same function
+// so they cannot broaden the maintained geocoding grammar during import.
+func AddressIndex(name, formatted string) (key, context string, ok bool) {
+	key, ok = addressKey(name)
+	if !ok || unitRE.MatchString(name) {
+		return "", "", false
+	}
+	tail, ok := strings.CutPrefix(formatted, name)
+	if !ok && formatted != "" {
+		return "", "", false
+	}
+	return key, places.Normalize(tail), true
+}
+
+// ForwardQuery is the validated exact-address portion of a forward request.
+type ForwardQuery struct {
+	Key, Context string
+	Partial      bool
+}
+
+// ParseForward applies the public input grammar without consulting a store.
+func ParseForward(input string) (ForwardQuery, Response, error) {
+	var query ForwardQuery
 	if !utf8.ValidString(input) || utf8.RuneCountInString(input) > 200 || strings.TrimSpace(input) == "" {
-		return empty("invalid_input"), fmt.Errorf("address must contain 1–200 Unicode characters")
+		return query, empty("invalid_input"), fmt.Errorf("address must contain 1–200 Unicode characters")
 	}
 	if unitRE.MatchString(input) {
-		return empty("unsupported_input"), fmt.Errorf("unit, suite, floor and apartment lookup is unsupported; units are missing in this dataset")
+		return query, empty("unsupported_input"), fmt.Errorf("unit, suite, floor and apartment lookup is unsupported; units are missing in this dataset")
 	}
 	parts := strings.Split(input, ",")
 	key, ok := addressKey(parts[0])
 	if !ok {
-		return empty("unsupported_input"), fmt.Errorf("use a simple house number and complete street name; ranges, fractions, businesses, streets alone and localities alone are unsupported")
+		return query, empty("unsupported_input"), fmt.Errorf("use a simple house number and complete street name; ranges, fractions, businesses, streets alone and localities alone are unsupported")
 	}
 	contextText := places.Normalize(strings.Join(parts[1:], " "))
 	contextText = " " + contextText + " "
@@ -161,32 +181,44 @@ func (s *Store) Forward(ctx context.Context, input string) (Response, error) {
 		contextText = strings.TrimSpace(strings.TrimPrefix(contextText, "newport"))
 		partial = true
 	}
-	out := empty("no_match")
-	for _, i := range s.byText[key] {
+	return ForwardQuery{Key: key, Context: contextText, Partial: partial}, empty("no_match"), nil
+}
+
+// ContextMatches requires query context tokens to appear in order in retained
+// source context; it never drops an unknown locality, postcode, or country.
+func ContextMatches(stored, requested string) bool {
+	remaining := strings.Fields(stored)
+	for _, want := range strings.Fields(requested) {
+		found := -1
+		for j, have := range remaining {
+			if have == want {
+				found = j
+				break
+			}
+		}
+		if found < 0 {
+			return false
+		}
+		remaining = remaining[found+1:]
+	}
+	return true
+}
+
+// Forward requires the complete street label (abbreviations are expanded).
+// Comma-separated context is checked against stored label context. Newport is
+// accepted only as the preview's scope, never as an inferred address locality.
+func (s *Store) Forward(ctx context.Context, input string) (Response, error) {
+	query, out, err := ParseForward(input)
+	if err != nil {
+		return out, err
+	}
+	for _, i := range s.byText[query.Key] {
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
 		a := s.addresses[i]
-		// Context must be an ordered sequence of whole stored tokens. No locality,
-		// postcode or country from the request is silently dropped.
-		remaining := strings.Fields(a.context)
-		matches := true
-		for _, want := range strings.Fields(contextText) {
-			found := -1
-			for j, have := range remaining {
-				if have == want {
-					found = j
-					break
-				}
-			}
-			if found < 0 {
-				matches = false
-				break
-			}
-			remaining = remaining[found+1:]
-		}
-		if matches {
-			out.Results = append(out.Results, Result{Entity: a.entity, Components: a.components, Partial: partial})
+		if ContextMatches(a.context, query.Context) {
+			out.Results = append(out.Results, Result{Entity: a.entity, Components: a.components, Partial: query.Partial})
 		}
 	}
 	if len(out.Results) > 0 {

@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -21,10 +22,18 @@ import (
 	"openmaps/internal/routing"
 )
 
+type PlacesStore interface {
+	Autocomplete(context.Context, string) ([]places.Entity, error)
+	Details(context.Context, string) (places.Entity, error)
+}
+type GeocodingStore interface {
+	Forward(context.Context, string) (geocoding.Response, error)
+	Reverse(context.Context, places.Location) (geocoding.Response, error)
+}
 type Handler struct {
 	Routing   *routing.Service
-	Places    *places.Store
-	Geocoding *geocoding.Store
+	Places    PlacesStore
+	Geocoding GeocodingStore
 }
 type object = map[string]any
 

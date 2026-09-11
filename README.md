@@ -237,6 +237,8 @@ are never used as lookup data. Upstream notices are linked on the demo's
 cmd/server/         Go HTTP service
 cmd/places-geocoding-prepare/ Pinned Overture acquisition, normalization and selection audit
 cmd/places-geocoding-import/ Checksum-verified Places/geocoding SQLite builder
+cmd/places-geocoding-compact/ Non-default Parquet plus compact SQLite proof builder
+cmd/places-geocoding-duckdb/ Non-default Parquet plus DuckDB qualification builder
 cmd/scout-acquire/  Complete provider metadata, selection, resumable downloads
 cmd/scout-prepare/  Immutable routing graph and index publication
 cmd/scout-landmarks/ Directed landmark construction and safe extension
@@ -256,6 +258,8 @@ internal/importer/  Source adapters, schema, identity history and refresh compar
 internal/importer/scout/ Provider acquisition, receipts and preparation handoff
 internal/importer/addressdata/ Retained provider address decoding
 internal/placesgeocoding/snapshots/ Atomic Places/geocoding selection and live handler replacement
+internal/placesgeocoding/compact/ Experimental verified artifact builder and reader
+internal/placesgeocoding/duckdb/ Qualified non-default artifact, reader and snapshot-lease proof
 config/            Pinned Places/geocoding, routing and basemap inputs
 public/            Browser ES modules and styles; libraries loaded from esm.sh
 ```
@@ -268,6 +272,18 @@ loads an immutable graph and turn-restriction index from its own snapshot. The o
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
+
+The compact lookup path is an experimental, non-default proof and is not wired
+into `cmd/server` or snapshot selection. It writes normalized provenance to
+Parquet and only serving projections and locators to SQLite. See the
+[historical Newport proof](docs/log/0044-compact-parquet-sqlite-newport-proof.md)
+for its measured scope. The later bounded
+[DuckDB token-prefix proof](docs/log/0045-duckdb-token-prefix-proof.md) and
+[Go qualification](docs/log/0046-duckdb-go-qualification.md) met the regional
+correctness, resource, concurrency and deployment gates. Normalized Parquet
+plus an immutable DuckDB serving catalog is therefore the recommended lookup
+architecture for a future migration, not the implementation selected by the
+production server today.
 Routing remains independent of text search and address resolution. The API holds
 one lookup snapshot lease while resolving both endpoints, then gives Scout WGS84
 coordinates. Scout uses bounded graph pages and directed landmark A*, preserving
