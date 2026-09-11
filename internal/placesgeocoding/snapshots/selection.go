@@ -1,6 +1,7 @@
-// Package dataset owns local snapshot selection and safe HTTP handler replacement.
-// Source interpretation and refresh comparisons remain in importer.
-package dataset
+// Package snapshots owns Places/geocoding snapshot selection and safe HTTP
+// handler replacement. Source interpretation and refresh comparisons remain in
+// importer; routing snapshot selection remains in routing.
+package snapshots
 
 import (
 	"context"
@@ -18,15 +19,15 @@ import (
 	"openmaps/internal/routing"
 )
 
-type File struct {
+type Reference struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
 }
-type State struct {
-	Schema   int   `json:"schema"`
-	Baseline File  `json:"baseline"`
-	Current  File  `json:"current"`
-	Previous *File `json:"previous,omitempty"`
+type Selection struct {
+	Schema   int        `json:"schema"`
+	Baseline Reference  `json:"baseline"`
+	Current  Reference  `json:"current"`
+	Previous *Reference `json:"previous,omitempty"`
 }
 type Review struct {
 	ReportSHA256 string `json:"report_sha256"`
@@ -34,8 +35,8 @@ type Review struct {
 	Reason       string `json:"reason"`
 }
 
-func Read(path string) (State, error) {
-	var s State
+func Read(path string) (Selection, error) {
+	var s Selection
 	b, e := os.ReadFile(path)
 	if e != nil {
 		return s, e
@@ -49,19 +50,19 @@ func Read(path string) (State, error) {
 	}
 	return s, nil
 }
-func Describe(path string) (File, error) {
+func Describe(path string) (Reference, error) {
 	p, e := filepath.Abs(path)
 	if e != nil {
-		return File{}, e
+		return Reference{}, e
 	}
 	p, e = filepath.EvalSymlinks(p)
 	if e != nil {
-		return File{}, e
+		return Reference{}, e
 	}
 	sum, e := importer.Checksum(p)
-	return File{p, sum}, e
+	return Reference{p, sum}, e
 }
-func Validate(ctx context.Context, f File) error {
+func Validate(ctx context.Context, f Reference) error {
 	if !filepath.IsAbs(f.Path) || len(f.SHA256) != 64 {
 		return fmt.Errorf("invalid snapshot reference")
 	}
@@ -75,7 +76,7 @@ func Validate(ctx context.Context, f File) error {
 // Change serializes local writers and publishes a single synced state document.
 // A process crash can leave the lock; remove it only after confirming no writer
 // is running. Neither activation nor rollback modifies any database bytes.
-func Change(path string, change func(*State) error) error {
+func Change(path string, change func(*Selection) error) error {
 	lock, e := os.OpenFile(path+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if e != nil {
 		return fmt.Errorf("deployment locked: %w", e)
@@ -103,7 +104,7 @@ func Change(path string, change func(*State) error) error {
 	return nil
 }
 func Init(ctx context.Context, path, baseline string) error {
-	return Change(path, func(s *State) error {
+	return Change(path, func(s *Selection) error {
 		if s.Schema != 0 {
 			return fmt.Errorf("deployment already exists")
 		}
@@ -114,7 +115,7 @@ func Init(ctx context.Context, path, baseline string) error {
 		if e = Validate(ctx, f); e != nil {
 			return e
 		}
-		*s = State{Schema: 1, Baseline: f, Current: f}
+		*s = Selection{Schema: 1, Baseline: f, Current: f}
 		return nil
 	})
 }
@@ -144,7 +145,7 @@ func Activate(ctx context.Context, path, candidate, reportPath, reviewPath strin
 	if report.Schema != 1 || len(report.Violations) != 0 || len(report.Queries) == 0 {
 		return fmt.Errorf("report has violations or no query checks")
 	}
-	return Change(path, func(s *State) error {
+	return Change(path, func(s *Selection) error {
 		if s.Schema != 1 || s.Current.SHA256 != report.BaselineSHA256 {
 			return fmt.Errorf("report does not compare the current deployment")
 		}
@@ -180,8 +181,8 @@ func Activate(ctx context.Context, path, candidate, reportPath, reviewPath strin
 }
 func Rollback(ctx context.Context, path string) error { return rollback(ctx, path, Validate) }
 
-func rollback(ctx context.Context, path string, validate func(context.Context, File) error) error {
-	return Change(path, func(s *State) error {
+func rollback(ctx context.Context, path string, validate func(context.Context, Reference) error) error {
+	return Change(path, func(s *Selection) error {
 		if s.Previous == nil {
 			return fmt.Errorf("no previous snapshot")
 		}
@@ -195,26 +196,26 @@ func rollback(ctx context.Context, path string, validate func(context.Context, F
 	})
 }
 
-type Live struct {
+type LiveHandler struct {
 	mu        sync.RWMutex
 	reloadMu  sync.Mutex
 	closed    bool
 	statePath string
-	current   File
+	current   Reference
 	store     *places.Store
 	geocoder  *geocoding.Store
 	lastError string
 }
 
-func Open(ctx context.Context, statePath string) (*Live, error) {
-	l := &Live{statePath: statePath}
+func Open(ctx context.Context, statePath string) (*LiveHandler, error) {
+	l := &LiveHandler{statePath: statePath}
 	if e := l.reload(ctx); e != nil {
 		return nil, e
 	}
 	return l, nil
 }
 
-func (l *Live) reload(ctx context.Context) error {
+func (l *LiveHandler) reload(ctx context.Context) error {
 	s, e := Read(l.statePath)
 	if e != nil {
 		return e
@@ -257,7 +258,7 @@ func (l *Live) reload(ctx context.Context) error {
 	}
 	return nil
 }
-func (l *Live) Close() error {
+func (l *LiveHandler) Close() error {
 	l.reloadMu.Lock()
 	defer l.reloadMu.Unlock()
 	l.mu.Lock()
@@ -275,19 +276,19 @@ func (l *Live) Close() error {
 // Requests hold a shared lease through response completion. A single request
 // loads a changed snapshot outside that lease; concurrent requests keep using
 // the previous snapshot. Publication waits for old leases before closing SQLite.
-func (l *Live) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (l *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	l.serveHTTP(w, r, nil)
 }
 
 // Routes returns a handler that resolves both route endpoints against one
 // lookup snapshot lease. Lookup publication waits until response encoding ends.
-func (l *Live) Routes(router *routing.Service) http.Handler {
+func (l *LiveHandler) Routes(router *routing.Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		l.serveHTTP(w, r, router)
 	})
 }
 
-func (l *Live) serveHTTP(w http.ResponseWriter, r *http.Request, router *routing.Service) {
+func (l *LiveHandler) serveHTTP(w http.ResponseWriter, r *http.Request, router *routing.Service) {
 	if l.reloadMu.TryLock() {
 		err := l.reload(r.Context())
 		message := ""
@@ -318,20 +319,23 @@ func (l *Live) serveHTTP(w http.ResponseWriter, r *http.Request, router *routing
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 		json.NewEncoder(w).Encode(struct {
-			RoutingAvailable  bool   `json:"routing_available"`
-			DurationAvailable bool   `json:"routing_duration_available"`
-			Status            string `json:"status"`
-			Dataset           File   `json:"dataset"`
-			Error             string `json:"error,omitempty"`
-		}{false, false, status, l.current, l.lastError})
+			RoutingAvailable  bool      `json:"routing_available"`
+			DurationAvailable bool      `json:"routing_duration_available"`
+			Status            string    `json:"status"`
+			LookupSnapshot    Reference `json:"lookup_snapshot"`
+			Dataset           Reference `json:"dataset"` // Deprecated compatibility alias.
+			Error             string    `json:"error,omitempty"`
+		}{false, false, status, l.current, l.current, l.lastError})
 		return
 	}
+	w.Header().Set("X-OpenMaps-Lookup-Snapshot", l.current.SHA256)
+	// Deprecated compatibility alias for existing clients and monitors.
 	w.Header().Set("X-OpenMaps-Dataset", l.current.SHA256)
 	api.Handler{Places: l.store, Geocoding: l.geocoder, Routing: router}.ServeHTTP(w, r)
 }
 
 // Status reports the lookup identity and the last failed selection check.
-func (l *Live) Status(ctx context.Context) (File, string) {
+func (l *LiveHandler) Status(ctx context.Context) (Reference, string) {
 	if l.reloadMu.TryLock() {
 		err := l.reload(ctx)
 		l.mu.Lock()

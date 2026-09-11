@@ -14,31 +14,35 @@ import (
 	"time"
 
 	"openmaps/internal/api"
-	"openmaps/internal/dataset"
 	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
+	"openmaps/internal/placesgeocoding/snapshots"
 	"openmaps/internal/routing"
 )
 
 type configuration struct {
-	routing, selection, db, deployment, listen, public, tiles string
-	workers                                                   int
-	cache                                                     int64
+	routingSnapshot, routingSelection, db, deployment, listen, public, tiles string
+	routingConcurrency                                                       int
+	routingCache                                                             int64
 }
 
 func main() {
 	var c configuration
-	flag.StringVar(&c.routing, "routing-scout", "", "prepared Scout routing snapshot")
-	flag.StringVar(&c.selection, "scout-selection", "", "JSON routing selection file, independent of lookup selection")
-	flag.Int64Var(&c.cache, "scout-cache-mib", 128, "graph page payload per reader, 1..128 MiB; index caches are additional")
+	flag.StringVar(&c.routingSnapshot, "routing-snapshot", "", "prepared routing snapshot directory")
+	flag.StringVar(&c.routingSelection, "routing-selection", "", "JSON routing selection file, independent of lookup selection")
+	flag.Int64Var(&c.routingCache, "routing-cache-mib", 128, "graph page payload per reader, 1..128 MiB; index caches are additional")
+	// Deprecated aliases retained for existing local launchd jobs and scripts.
+	flag.StringVar(&c.routingSnapshot, "routing-scout", "", "deprecated alias for -routing-snapshot")
+	flag.StringVar(&c.routingSelection, "scout-selection", "", "deprecated alias for -routing-selection")
+	flag.Int64Var(&c.routingCache, "scout-cache-mib", 128, "deprecated alias for -routing-cache-mib")
 	flag.StringVar(&c.db, "db", "data/openmaps.sqlite", "lookup SQLite database; empty disables lookup")
 	flag.StringVar(&c.deployment, "deployment", "", "lookup refresh deployment state; supersedes -db")
 	flag.StringVar(&c.listen, "listen", "127.0.0.1:8080", "HTTP listen address")
 	flag.StringVar(&c.public, "public", "public", "public files directory")
 	flag.StringVar(&c.tiles, "tiles", "data/newport.pmtiles", "local Protomaps archive")
-	flag.IntVar(&c.workers, "routing-concurrency", 4, "maximum concurrent routing requests, 1..4")
+	flag.IntVar(&c.routingConcurrency, "routing-concurrency", 4, "maximum concurrent routing requests, 1..4")
 	flag.Parse()
-	if c.workers < 1 || c.workers > 4 || c.cache < 1 || c.cache > 128 || c.selection != "" && c.routing == "" {
+	if c.routingConcurrency < 1 || c.routingConcurrency > 4 || c.routingCache < 1 || c.routingCache > 128 || c.routingSelection != "" && c.routingSnapshot == "" {
 		log.Fatal("invalid routing budgets or selection without routing snapshot")
 	}
 	if err := serve(c); err != nil {
@@ -89,10 +93,10 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 	fail := func(err error) (http.Handler, func(), error) { cleanup(); return nil, nil, err }
 	lookupAPI := api.Handler{}
 	var lookup http.Handler = lookupAPI
-	var live *dataset.Live
+	var live *snapshots.LiveHandler
 	if c.deployment != "" {
 		var err error
-		live, err = dataset.Open(ctx, c.deployment)
+		live, err = snapshots.Open(ctx, c.deployment)
 		if err != nil {
 			return fail(err)
 		}
@@ -116,16 +120,16 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		lookup = lookupAPI
 	}
 	var router *routing.Service
-	if c.routing != "" {
+	if c.routingSnapshot != "" {
 		var err error
-		router, err = routing.OpenService(ctx, c.routing, c.workers, c.cache<<20)
+		router, err = routing.OpenService(ctx, c.routingSnapshot, c.routingConcurrency, c.routingCache<<20)
 		if err != nil {
 			return fail(err)
 		}
 		closers = append(closers, func() { router.Close() })
-		if c.selection != "" {
+		if c.routingSelection != "" {
 			done := make(chan struct{})
-			go func() { defer close(done); watchScoutSelection(ctx, router, c.selection) }()
+			go func() { defer close(done); watchRoutingSelection(ctx, router, c.routingSelection) }()
 			closers = append(closers, func() { <-done })
 		}
 	}
@@ -136,7 +140,7 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 	if live != nil {
 		routeHandler = live.Routes(router)
 	}
-	mux.Handle("/directions/", api.RoutingAdmission(routeHandler, c.workers))
+	mux.Handle("/directions/", api.RoutingAdmission(routeHandler, c.routingConcurrency))
 	mux.Handle("/v1/", lookup)
 	mux.Handle("/maps/api/", lookup)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -148,8 +152,10 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		health := map[string]any{"status": "ok", "routing_available": router != nil, "routing_duration_available": router != nil, "lookup_available": c.db != "" || live != nil}
 		status := 200
 		if live != nil {
-			dataset, errorText := live.Status(r.Context())
-			health["dataset"] = dataset
+			lookupSnapshot, errorText := live.Status(r.Context())
+			health["lookup_snapshot"] = lookupSnapshot
+			// Deprecated compatibility alias for existing clients and monitors.
+			health["dataset"] = lookupSnapshot
 			if errorText != "" {
 				health["error"] = errorText
 				health["status"] = "degraded"

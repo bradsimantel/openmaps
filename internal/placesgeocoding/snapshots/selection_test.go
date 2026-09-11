@@ -1,4 +1,4 @@
-package dataset
+package snapshots
 
 import (
 	"context"
@@ -21,7 +21,7 @@ func fixture(t *testing.T) (string, string, string, string) {
 	base := filepath.Join(dir, "base.sqlite")
 	candidate := filepath.Join(dir, "next.sqlite")
 	state := filepath.Join(dir, "deployment.json")
-	raw, e := os.ReadFile("../importer/testdata/small.json")
+	raw, e := os.ReadFile("../../importer/testdata/small.json")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -71,7 +71,7 @@ func fixture(t *testing.T) (string, string, string, string) {
 	}
 	return base, candidate, state, reportPath
 }
-func serve(l *Live, path string) (int, string) {
+func serve(l *LiveHandler, path string) (int, string) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", path, nil)
 	r.Header.Set("X-Goog-FieldMask", "id,websiteUri")
@@ -220,7 +220,10 @@ func TestGeocodingUsesActivatedSnapshotAndRollback(t *testing.T) {
 		if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"OK"`) {
 			t.Fatal(w.Code, w.Body.String())
 		}
-		return w.Body.String(), w.Header().Get("X-OpenMaps-Dataset")
+		if legacy := w.Header().Get("X-OpenMaps-Dataset"); legacy != w.Header().Get("X-OpenMaps-Lookup-Snapshot") {
+			t.Fatalf("legacy lookup snapshot header = %q", legacy)
+		}
+		return w.Body.String(), w.Header().Get("X-OpenMaps-Lookup-Snapshot")
 	}
 	before, baseHash := lookup()
 	if err = Activate(ctx, state, next, report, filepath.Join(filepath.Dir(state), "review.json")); err != nil {
@@ -229,7 +232,7 @@ func TestGeocodingUsesActivatedSnapshotAndRollback(t *testing.T) {
 	after, nextHash := lookup()
 	id := importer.PublicID("fixture:address:26")
 	if before == after || baseHash == nextHash || !strings.Contains(before, id) || !strings.Contains(after, id) || !strings.Contains(after, `"lat":41.4902`) {
-		t.Fatal("geocoding coordinate update, identity or dataset header changed incorrectly")
+		t.Fatal("geocoding coordinate update, identity or lookup snapshot header changed incorrectly")
 	}
 	if err = Rollback(ctx, state); err != nil {
 		t.Fatal(err)

@@ -22,8 +22,8 @@ func TestPinnedNationalHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The repository qualification config is independent of the acquisition receipts.
-	b, err := os.ReadFile("../../config/routing.json")
+	// The repository acquisition plan is independent of the retained receipts.
+	b, err := os.ReadFile("../../config/routing/scout-national-acquisition.json")
 	if err != nil {
 		t.Fatal(err)
 	}

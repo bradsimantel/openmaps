@@ -12,6 +12,16 @@ import (
 	"openmaps/internal/routing"
 )
 
+func TestRepositoryAcquisitionPlanHasExactSchema(t *testing.T) {
+	p, err := scout.ReadPlan("../../config/routing", "scout-national-acquisition.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Schema != 1 || p.PackageSchema != "2" || p.Version != "3.4.0" || len(p.Packages) != 647 {
+		t.Fatalf("unexpected repository acquisition plan: schema=%d package_schema=%q version=%q packages=%d", p.Schema, p.PackageSchema, p.Version, len(p.Packages))
+	}
+}
+
 // Verify the actual graph publication boundary, not just a field-by-field copy.
 func TestPreparationHandoffEnforcesPins(t *testing.T) {
 	for _, kind := range []string{"valid", "tile-sha", "tile-size", "missing-tile", "duplicate-tile", "package-sha", "dataset", "generation"} {

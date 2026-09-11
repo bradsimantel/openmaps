@@ -1,7 +1,7 @@
 # Newport data refreshes
 
-Refreshes are explicit, offline-reviewed snapshot changes. `cmd/prepare` acquires
-and normalizes pinned sources; `cmd/refresh build` constructs a new SQLite file
+Refreshes are explicit, offline-reviewed snapshot changes. `cmd/places-geocoding-prepare` acquires
+and normalizes pinned sources; `cmd/places-geocoding-refresh build` constructs a new SQLite file
 with identity history; `compare` validates it and produces the review artifact.
 `review` records the reviewer and findings against that artifact's SHA-256.
 `activate` selects it for the server; `rollback` restores the previous selection.
@@ -28,18 +28,18 @@ and `config/places-geocoding.json`. Do not overwrite them to prepare a refresh.
 Basemap pins and tiles are independent and do not change with this data refresh.
 
 ```sh
-go run ./cmd/prepare -fetch \
+go run ./cmd/places-geocoding-prepare -fetch \
   -config docs/log/0004-newport-refresh-candidate.json \
   -data data/newport-2026-07-22
 
-go run ./cmd/refresh build \
+go run ./cmd/places-geocoding-refresh build \
   -baseline data/openmaps.sqlite \
   -bundle data/newport-2026-07-22/newport.json \
   -config docs/log/0004-newport-refresh-candidate.json \
   -replacements docs/log/0004-newport-refresh-replacements.json \
   -candidate data/newport-2026-07-22/openmaps-reviewed.sqlite
 
-go run ./cmd/refresh compare \
+go run ./cmd/places-geocoding-refresh compare \
   -baseline data/openmaps.sqlite \
   -candidate data/newport-2026-07-22/openmaps-reviewed.sqlite \
   -report data/newport-2026-07-22/reviewed-report.json
@@ -126,7 +126,7 @@ retain them as distinct in the review findings.
 Initialize the deployment **once**, pointing at the retained baseline:
 
 ```sh
-go run ./cmd/refresh init -baseline data/openmaps.sqlite
+go run ./cmd/places-geocoding-refresh init -baseline data/openmaps.sqlite
 ```
 
 Stop the fixed-database demo before reusing port 8080, then start:
@@ -136,20 +136,20 @@ go run ./cmd/server -deployment data/deployment.json
 ```
 
 `-deployment` supersedes `-db`; without it, the server continues to use a fixed
-SQLite file as before. `refresh status` shows the selected files, while
+SQLite file as before. `places-geocoding-refresh status` shows the selected files, while
 `/healthz` reports the database actually loaded by this process.
 
 Inspect the full comparison and provenance. Record specific findings, especially
 unresolved matches, before recording a review. For this historical rehearsal:
 
 ```sh
-go run ./cmd/refresh review \
+go run ./cmd/places-geocoding-refresh review \
   -report data/newport-2026-07-22/reviewed-report.json \
   -review data/newport-2026-07-22/review.json \
   -reviewer 'Your name' \
   -reason 'Reviewed historical July changes and search results; Pearl replacement has source evidence; seven uncertain pairs remain distinct; restore August after the rehearsal.'
 
-go run ./cmd/refresh activate \
+go run ./cmd/places-geocoding-refresh activate \
   -candidate data/newport-2026-07-22/openmaps-reviewed.sqlite \
   -report data/newport-2026-07-22/reviewed-report.json \
   -review data/newport-2026-07-22/review.json
@@ -175,16 +175,17 @@ use the previous snapshot, and publication waits for old leases before closing
 SQLite. A failed reload retains the last working handler and makes health return
 HTTP 503 with an error. Scout routing has a separate immutable selection and
 admission pool; lookup replacement never retires its readers.
-Successful API responses include `X-OpenMaps-Dataset`. Check health after every
-switch. Autocomplete and details are separate requests; an ID removed between
+Successful API responses include `X-OpenMaps-Lookup-Snapshot`; the former
+`X-OpenMaps-Dataset` header remains a compatibility alias. Check health after
+every switch. Autocomplete and details are separate requests; an ID removed between
 those requests can correctly return `NOT_FOUND`.
 
 ## Roll back
 
 ```sh
-go run ./cmd/refresh rollback
+go run ./cmd/places-geocoding-refresh rollback
 curl -fsS http://127.0.0.1:8080/healthz
-go run ./cmd/refresh status
+go run ./cmd/places-geocoding-refresh status
 ```
 
 Rollback verifies the previous file before changing selection. It exchanges
@@ -200,7 +201,7 @@ refresh, compare against the currently deployed snapshot and carry forward all
 applicable reviewed mappings. Historical candidate decisions must be revisited
 if the same keys reappear with different coexistence or kind evidence; a rollback
 does not approve a new merge. Do not discard the prior snapshot chain or treat a
-fresh `cmd/import` database as a substitute for a refresh built with history.
+fresh `cmd/places-geocoding-import` database as a substitute for a refresh built with history.
 
 ## Verification
 
@@ -220,7 +221,8 @@ go vet ./...
 ```
 
 An explicit check against a running deployment validates autocomplete, returned
-IDs, details, coordinates, and a consistent dataset fingerprint across requests:
+IDs, details, coordinates, and a consistent lookup snapshot identity across
+requests:
 
 ```sh
 OPENMAPS_URL=http://127.0.0.1:8080 \
@@ -247,21 +249,21 @@ OPENMAPS_REPLACEMENTS="$PWD/docs/log/0004-newport-refresh-replacements.json" \
 For a new release, copy the Places/geocoding config to a new named file,
 explicitly select releases and unchanged or deliberately reviewed bounds, and obtain trusted
 catalog and regional GeoParquet-export hashes. Use the existing maintainer
-`prepare -update-config` operation
+`places-geocoding-prepare -accept-reviewed-source-update` operation
 only to establish the new export and bundle hashes; independently fetch again
 without that flag. Build, inspect churn, establish replacements, rebuild to a
 new candidate path, compare and review before selecting it. Never use
-`-update-config` to bypass an unexpected mismatch in an established pin.
+`-accept-reviewed-source-update` to bypass an unexpected mismatch in an established pin.
 
 ## Independent routing snapshots
 
-`cmd/server -deployment STATE -routing-scout DIRECTORY` serves lookup data and
+`cmd/server -deployment STATE -routing-snapshot DIRECTORY` serves lookup data and
 Scout routing together. Refresh builds and compares lookup SQLite only; it does
 not import or validate retired SQLite routing payloads. Existing nonempty lookup
 databases can still serve their places and geocoding records. Routing-only legacy
 databases are not supported lookup snapshots. No database bytes are rewritten.
 
-`-scout-selection` watches a separate `{"directory":"prepared-directory"}` file.
+`-routing-selection` watches a separate `{"directory":"prepared-directory"}` file.
 The new graph and indexes are fully verified before publication. Routing leases
 cover HTTP encoding; global admission spans both generations during retirement.
 Failures retain the previous graph and appear in health `reload_error`.

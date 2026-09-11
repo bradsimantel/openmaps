@@ -100,9 +100,9 @@ func (r *rangeFile) ReadAt(p []byte, offset int64) (int, error) {
 	return n, nil
 }
 
-// FetchSources downloads missing pinned artifacts. rewriteExports is only for
-// deliberate maintainer migrations: it never changes release URLs automatically.
-func FetchSources(ctx context.Context, m Manifest, dir string, rewriteExports bool) (Manifest, error) {
+// FetchSources downloads missing pinned artifacts. acceptReviewedUpdate is only
+// for deliberate maintainer migrations: it never changes release URLs automatically.
+func FetchSources(ctx context.Context, m Manifest, dir string, acceptReviewedUpdate bool) (Manifest, error) {
 	if e := os.MkdirAll(dir, 0755); e != nil {
 		return m, e
 	}
@@ -114,7 +114,7 @@ func FetchSources(ctx context.Context, m Manifest, dir string, rewriteExports bo
 	}
 	for index, input := range m.Inputs {
 		path := filepath.Join(dir, input.File)
-		if _, e := os.Stat(path); e == nil && !rewriteExports {
+		if _, e := os.Stat(path); e == nil && !acceptReviewedUpdate {
 			if e = Verify(path, input.SHA256); e != nil {
 				return m, e
 			}
@@ -143,11 +143,11 @@ func FetchSources(ctx context.Context, m Manifest, dir string, rewriteExports bo
 		}
 		name := temp.Name()
 		temp.Close()
-		if e = writeAtomic(name, data); e == nil && !rewriteExports {
+		if e = writeAtomic(name, data); e == nil && !acceptReviewedUpdate {
 			e = Verify(name, input.SHA256)
 		}
 		if e == nil {
-			if rewriteExports {
+			if acceptReviewedUpdate {
 				e = os.Rename(name, path)
 			} else {
 				e = os.Link(name, path)
@@ -157,7 +157,7 @@ func FetchSources(ctx context.Context, m Manifest, dir string, rewriteExports bo
 		if e != nil {
 			return m, e
 		}
-		if rewriteExports {
+		if acceptReviewedUpdate {
 			digest, e := Checksum(path)
 			if e != nil {
 				return m, e

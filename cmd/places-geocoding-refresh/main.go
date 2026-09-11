@@ -1,4 +1,5 @@
-// refresh builds, compares, selects and rolls back immutable local snapshots.
+// places-geocoding-refresh builds, compares, selects and rolls back immutable
+// Places/geocoding snapshots.
 package main
 
 import (
@@ -11,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"openmaps/internal/dataset"
 	"openmaps/internal/importer"
+	"openmaps/internal/placesgeocoding/snapshots"
 )
 
 func main() {
@@ -32,7 +33,7 @@ func readJSON(path string, v any) error {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: refresh build|compare|review|init|activate|rollback|status [flags]")
+		return fmt.Errorf("usage: places-geocoding-refresh build|compare|review|init|activate|rollback|status [flags]")
 	}
 	command := os.Args[1]
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -151,25 +152,25 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		return importer.WriteJSON(*review, dataset.Review{ReportSHA256: sum, Reviewer: *reviewer, Reason: *reason})
+		return importer.WriteJSON(*review, snapshots.Review{ReportSHA256: sum, Reviewer: *reviewer, Reason: *reason})
 	case "init":
-		return dataset.Init(ctx, *state, *baseline)
+		return snapshots.Init(ctx, *state, *baseline)
 	case "activate":
 		if *candidate == "" || *review == "" {
 			return fmt.Errorf("activate requires -candidate and -review")
 		}
-		return dataset.Activate(ctx, *state, *candidate, *report, *review)
+		return snapshots.Activate(ctx, *state, *candidate, *report, *review)
 	case "rollback":
-		return dataset.Rollback(ctx, *state)
+		return snapshots.Rollback(ctx, *state)
 	case "status":
-		s, e := dataset.Read(*state)
+		s, e := snapshots.Read(*state)
 		if e != nil {
 			return e
 		}
 		out, _ := json.MarshalIndent(s, "", "  ")
 		fmt.Println(string(out))
 	default:
-		return fmt.Errorf("unknown refresh command %q", command)
+		return fmt.Errorf("unknown places-geocoding-refresh command %q", command)
 	}
 	return nil
 }

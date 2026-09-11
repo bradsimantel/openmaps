@@ -90,12 +90,12 @@ are still verified by graph preparation before publication. Acquisition metadata
 validation alone does not certify those bytes or source-road completeness.
 
 To reproduce the pinned snapshot from its retained acquisition directory, copy
-the routing config into that directory under a new plan name, then prepare into
+the checked-in acquisition plan into that directory under a new plan name, then prepare into
 a new output directory. The root must retain the three pinned metadata files,
 `packages/` and `receipts/`:
 
 ```sh
-cp config/routing.json data/scout-national-20260909/pinned-acquisition.json
+cp config/routing/scout-national-acquisition.json data/scout-national-20260909/pinned-acquisition.json
 go build -o data/scout-prepare ./cmd/scout-prepare
 go run ./cmd/scout-run-bounded --root data/scout-national-20260909 \
   --report data/scout-national-20260909/rebuild.resources.json \
@@ -112,7 +112,7 @@ space for the new graph and landmarks **plus** the disk reserve. To reacquire
 missing packages from this generation, `scout-acquire fetch --root ... --plan
 pinned-acquisition.json` checks the complete pinned provider metadata and rejects
 changes. If the provider has rotated the generation, use retained verified inputs;
-do not change the config to bypass rejection.
+do not change the acquisition plan to bypass rejection.
 
 For a new generation, from the repository root:
 
@@ -198,7 +198,7 @@ pruning is used. Serving and accelerated offline checks use one-sided A*.
 | Tile preparation | 48 GiB spool default (maximum 64 GiB), 256 MiB per tile, 512 MiB outer tar per package |
 | Tile index | 100,000 tiles, 64 MiB serialized metadata |
 | Offline turns | 250,000 rules, 2,000,000 trie states; 4,096 decoded rules per tile |
-| Runtime cache | CLI prepared pages up to 128 MiB; service default 128 MiB per independent reader (`-scout-cache-mib`), plus turn caches and fixed record caches |
+| Runtime cache | CLI prepared pages up to 128 MiB; service default 128 MiB per independent reader (`-routing-cache-mib`), plus turn caches and fixed record caches |
 | Query | HTTP: 2,000,000 labels; offline admission: up to 4,000,000, including obsolete labels; 1,000,000 output positions; 30-second HTTP calculation timeout |
 | Service | 1–4 readers; non-waiting shared admission across snapshot replacement and through HTTP encoding |
 
@@ -211,22 +211,21 @@ binary as its command so the sampled PID is the job itself.
 
 ## Unified service and snapshot lifetime
 
-The national instance uses `127.0.0.1:8097` and
-`data/scout-national-20260909/national-aleutian-prepared`; the regional instance
-uses `127.0.0.1:8096` and the retained `regional-prepared` directory. Both run
-the same unified Go binary with lookup, geocoding and basemap serving. See
-[local deployment](deployment.md) for service management and rollback.
-`/healthz` reports the loaded snapshot. The example uses an unused port:
+A deployment may run several instances of the same unified Go binary with
+different routing snapshots. Lookup, geocoding and basemap serving remain
+available in each configured instance. See [local deployment](deployment.md) for
+service management and rollback. `/healthz` reports the loaded snapshot. The
+example uses an unused port:
 
 ```sh
-go run ./cmd/server -routing-scout data/scout-prepared-next \
+go run ./cmd/server -routing-snapshot data/scout-prepared-next \
   -routing-concurrency 2 -listen 127.0.0.1:8106
 ```
 
 Use an unused loopback port. `-db` (default `data/openmaps.sqlite`) or
 `-deployment` supplies lookup data alongside Scout; `-db ''` explicitly disables
 lookup for a routing-only service. The normal server always serves basemap files.
-`-deployment` selects only lookup SQLite; `-scout-selection` selects only routing.
+`-deployment` selects only lookup SQLite; `-routing-selection` selects only routing.
 Neither selection changes the other's identity or resets routing admission.
 It implements the same explicit coordinate, Open Maps Place ID and exact-address
 request subset and response masks at `POST /directions/v2:computeRoutes`; Google
@@ -243,7 +242,7 @@ go run ./cmd/scout-run-bounded --root data/scout-next \
   --report data/scout-next/landmarks.resources.json \
   data/scout-landmarks -prepared data/scout-prepared-next \
   -out data/scout-prepared-next/landmarks \
-  -seeds internal/routing/qualification/testdata/national-landmarks.json
+  -seeds config/routing/national-landmark-seeds.json
 ```
 
 A completed subset can be published without changing the resumable build:
@@ -305,7 +304,7 @@ lookup data fail before Scout with distinct outcomes. Exhaustive no-route remain
 HTTP 200 with empty routes and `unreachable`. Invalid requests/masks retain their
 existing 400 errors; excess concurrent work returns 429 with `Retry-After: 1`.
 
-`-scout-selection path.json` optionally watches a separate file containing
+`-routing-selection path.json` optionally watches a separate file containing
 `{"directory":"prepared-directory"}`. Relative directories resolve beside the
 selection file. A new snapshot is fully loaded before publication; old response
 leases finish before retirement. Replacement shares the existing admission
@@ -338,7 +337,7 @@ go run ./cmd/scout-run-bounded -root data/scout-national-20260909 \
   -report data/scout-national-20260909/new-offline.resources.json \
   data/scout-verify -prepared data/scout-national-20260909/national-aleutian-prepared \
   -landmarks data/scout-national-20260909/national-aleutian-prepared/landmarks \
-  -cases internal/routing/qualification/testdata/national-cases.json > data/scout-national-20260909/new-offline.jsonl
+  -cases config/routing/national-route-cases.json > data/scout-national-20260909/new-offline.jsonl
 go run ./cmd/scout-http-verify -url http://127.0.0.1:8096 \
   -offline data/scout-national-20260909/new-offline.jsonl \
   -out data/scout-national-20260909/new-http
@@ -349,7 +348,7 @@ go run ./cmd/scout-coverage \
 
 go test ./...
 go vet ./...
-go test -race ./cmd/server ./internal/api ./internal/dataset \
+go test -race ./cmd/server ./internal/api ./internal/placesgeocoding/snapshots \
   ./internal/importer/scout ./internal/routing/... ./internal/supervisor
 OPENMAPS_SCOUT_DIR="$PWD/data/valhalla-scout" \
 OPENMAPS_SCOUT_PREPARED="$PWD/data/scout-national-20260909/regional-indexed" \

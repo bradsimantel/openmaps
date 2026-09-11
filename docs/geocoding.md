@@ -162,8 +162,9 @@ but requires exactly one result; no-match and ambiguity fail explicitly instead
 of choosing a candidate. It passes the unchanged source address coordinate to
 Scout, which has no source-backed address association and performs its ordinary
 road snap. Geocoding identity, ambiguity and source precision are unchanged.
-Lookup requests carry `X-OpenMaps-Dataset` in deployment mode. Activation and
-rollback use the [refresh workflow](refresh.md); see [Scout routing](routing-scout.md).
+Lookup requests carry `X-OpenMaps-Lookup-Snapshot` in deployment mode. The former
+`X-OpenMaps-Dataset` name remains a compatibility alias. Activation and rollback
+use the [refresh workflow](refresh.md); see [Scout routing](routing-scout.md).
 
 Both retained snapshots have 8,545 standalone addresses, of which 8,407 satisfy
 the implemented grammar. The other 138 retain Places behavior but are excluded
@@ -202,7 +203,8 @@ See the historical [contract decision](log/0008-geocoding-contract.md) and
 [verification findings](log/0009-geocoding-verification.md).
 
 Against a running deployment, repeat the suite and existing Places checks after
-activation and rollback; each live suite requires a consistent dataset header:
+activation and rollback; each live suite requires a consistent lookup snapshot
+header:
 
 ```sh
 OPENMAPS_URL=http://127.0.0.1:8080 \

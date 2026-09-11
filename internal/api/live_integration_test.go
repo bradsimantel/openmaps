@@ -38,19 +38,22 @@ func TestLiveDemo(t *testing.T) {
 		t.Fatal(e)
 	}
 	var health struct {
-		Status  string `json:"status"`
+		Status         string `json:"status"`
+		LookupSnapshot struct {
+			SHA256 string `json:"sha256"`
+		} `json:"lookup_snapshot"`
 		Dataset struct {
 			SHA256 string `json:"sha256"`
-		} `json:"dataset"`
+		} `json:"dataset"` // Deprecated compatibility alias.
 	}
 	if e = json.NewDecoder(resp.Body).Decode(&health); e != nil {
 		t.Fatal(e)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != 200 || health.Status != "ok" || health.Dataset.SHA256 == "" {
+	if resp.StatusCode != 200 || health.Status != "ok" || health.LookupSnapshot.SHA256 == "" || health.Dataset.SHA256 != health.LookupSnapshot.SHA256 {
 		t.Fatalf("deployment not healthy: %+v", health)
 	}
-	t.Logf("Serving dataset %s", health.Dataset.SHA256)
+	t.Logf("Serving lookup snapshot %s", health.LookupSnapshot.SHA256)
 	for _, q := range checks {
 		t.Run(q.Input, func(t *testing.T) {
 			body, _ := json.Marshal(map[string]string{"input": q.Input})
@@ -73,8 +76,8 @@ func TestLiveDemo(t *testing.T) {
 				t.Fatal(e)
 			}
 			resp.Body.Close()
-			if resp.StatusCode != 200 || resp.Header.Get("X-OpenMaps-Dataset") != health.Dataset.SHA256 {
-				t.Fatal("request failed or dataset changed during check")
+			if resp.StatusCode != 200 || resp.Header.Get("X-OpenMaps-Lookup-Snapshot") != health.LookupSnapshot.SHA256 {
+				t.Fatal("request failed or lookup snapshot changed during check")
 			}
 			if q.Empty {
 				if len(results.Suggestions) != 0 {
@@ -120,8 +123,8 @@ func TestLiveDemo(t *testing.T) {
 					t.Fatal(e)
 				}
 				resp.Body.Close()
-				if resp.StatusCode != 200 || resp.Header.Get("X-OpenMaps-Dataset") != health.Dataset.SHA256 || detail.ID != s.Prediction.ID || detail.Location.Lat == nil || detail.Location.Lng == nil {
-					t.Fatal("details failed, missing location or changed dataset")
+				if resp.StatusCode != 200 || resp.Header.Get("X-OpenMaps-Lookup-Snapshot") != health.LookupSnapshot.SHA256 || detail.ID != s.Prediction.ID || detail.Location.Lat == nil || detail.Location.Lng == nil {
+					t.Fatal("details failed, missing location or changed lookup snapshot")
 				}
 				if *detail.Location.Lat < -90 || *detail.Location.Lat > 90 || *detail.Location.Lng < -180 || *detail.Location.Lng > 180 {
 					t.Fatal("invalid location")

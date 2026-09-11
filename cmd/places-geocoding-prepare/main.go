@@ -1,4 +1,5 @@
-// prepare owns regional acquisition, provider decoding, normalization and audit.
+// places-geocoding-prepare owns regional acquisition, provider decoding,
+// normalization and audit for the shared Places/geocoding inputs.
 package main
 
 import (
@@ -27,8 +28,11 @@ func run() error {
 	config := flag.String("config", "config/places-geocoding.json", "pinned Places and geocoding source configuration")
 	identities := flag.String("identities", "", "optional permanent source identity mappings JSON")
 	fetch := flag.Bool("fetch", false, "download missing pinned source files")
-	updateConfig := flag.Bool("update-config", false, "maintainer operation: accept reviewed exports and bundle checksum")
+	acceptSourceUpdate := flag.Bool("accept-reviewed-source-update", false, "maintainer operation: replace reviewed source exports and accept their checksums")
 	flag.Parse()
+	if *acceptSourceUpdate && !*fetch {
+		return fmt.Errorf("-accept-reviewed-source-update requires -fetch")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	m, e := importer.ReadManifest(*config)
@@ -41,7 +45,7 @@ func run() error {
 		return e
 	}
 	if *fetch {
-		m, e = importer.FetchSources(ctx, m, *data, *updateConfig)
+		m, e = importer.FetchSources(ctx, m, *data, *acceptSourceUpdate)
 		if e != nil {
 			return e
 		}
@@ -69,7 +73,7 @@ func run() error {
 	}
 	sum := sha256.Sum256(append(encoded, '\n'))
 	digest := hex.EncodeToString(sum[:])
-	if !*updateConfig {
+	if !*acceptSourceUpdate {
 		if digest != expected {
 			return fmt.Errorf("normalized bundle checksum mismatch: got %s; outputs were not published", digest)
 		}
@@ -81,7 +85,7 @@ func run() error {
 	if e = importer.WriteJSON(filepath.Join(*data, "audit.json"), audit); e != nil {
 		return e
 	}
-	if *updateConfig {
+	if *acceptSourceUpdate {
 		m.BundleSHA256 = digest
 		if e = importer.WriteJSON(*config, m); e != nil {
 			return e

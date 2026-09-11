@@ -6,13 +6,14 @@ import (
 	"errors"
 	"io"
 	"log"
-	"openmaps/internal/routing"
 	"os"
 	"path/filepath"
 	"time"
+
+	"openmaps/internal/routing"
 )
 
-func watchScoutSelection(ctx context.Context, c *routing.Service, path string) {
+func watchRoutingSelection(ctx context.Context, c *routing.Service, path string) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var last string
@@ -21,7 +22,7 @@ func watchScoutSelection(ctx context.Context, c *routing.Service, path string) {
 		last = ""
 		c.RecordSelectionError(err)
 		if err.Error() != lastError {
-			log.Printf("Scout selection: %v", err)
+			log.Printf("Routing selection: %v", err)
 			lastError = err.Error()
 		}
 	}
@@ -38,7 +39,7 @@ func watchScoutSelection(ctx context.Context, c *routing.Service, path string) {
 			b, err := io.ReadAll(io.LimitReader(f, 65537))
 			f.Close()
 			if err != nil || len(b) > 65536 {
-				failure(errors.New("Scout selection unreadable or oversized"))
+				failure(errors.New("routing selection unreadable or oversized"))
 				continue
 			}
 			if string(b) == last {
@@ -49,7 +50,7 @@ func watchScoutSelection(ctx context.Context, c *routing.Service, path string) {
 				Directory string `json:"directory"`
 			}
 			if err := json.Unmarshal(b, &selection); err != nil || selection.Directory == "" {
-				failure(errors.New("Scout selection requires directory"))
+				failure(errors.New("routing selection requires directory"))
 				continue
 			}
 			dir := selection.Directory
@@ -69,10 +70,10 @@ func watchScoutSelection(ctx context.Context, c *routing.Service, path string) {
 			}
 			started := time.Now()
 			if err := c.Replace(ctx, dir); err != nil {
-				log.Printf("Scout replacement rejected; old snapshot retained: %v", err)
+				log.Printf("Routing snapshot replacement rejected; old snapshot retained: %v", err)
 			} else {
 				lastError = ""
-				log.Printf("Scout snapshot replaced: %s (load and retirement %s)", dir, time.Since(started))
+				log.Printf("Routing snapshot replaced: %s (load and retirement %s)", dir, time.Since(started))
 			}
 		}
 	}

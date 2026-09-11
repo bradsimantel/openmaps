@@ -1,3 +1,4 @@
+// places-geocoding-import builds the shared Places/geocoding SQLite snapshot.
 package main
 
 import (

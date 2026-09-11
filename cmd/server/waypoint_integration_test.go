@@ -20,7 +20,7 @@ func TestDownloadedNewportWaypointFlows(t *testing.T) {
 	if db == "" || prepared == "" {
 		t.Skip("set OPENMAPS_LOOKUP_DB and OPENMAPS_SCOUT_PREPARED; no downloads")
 	}
-	handler, closeHandler, err := newService(context.Background(), configuration{db: db, routing: prepared, workers: 1, cache: 64, public: "../../public"})
+	handler, closeHandler, err := newService(context.Background(), configuration{db: db, routingSnapshot: prepared, routingConcurrency: 1, routingCache: 64, public: "../../public"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -40,9 +40,9 @@ downloads. All commands below run from the repository root. No API keys,
 Docker, external database server or system SQLite installation are required.
 
 ```sh
-go run ./cmd/prepare -fetch
+go run ./cmd/places-geocoding-prepare -fetch
 
-go run ./cmd/import
+go run ./cmd/places-geocoding-import
 
 go run ./cmd/basemap
 
@@ -67,7 +67,7 @@ coordinates, approximate precision and reverse distance. `364 Bellevue Avenue`
 requires choosing among eight distinct points; apartment requests are explicitly
 unsupported. See [the maintained geocoding contract](docs/geocoding.md).
 
-For driving, add `-routing-scout PREPARED_DIRECTORY` to the server command after
+For driving, add `-routing-snapshot PREPARED_DIRECTORY` to the server command after
 following [Scout acquisition and preparation](docs/routing-scout.md#acquisition-and-preparation).
 The browser uses selected lookup coordinates or map points. The HTTP API also
 accepts an Open Maps ID returned by autocomplete/details or an exact supported
@@ -93,13 +93,13 @@ Data snapshots are pinned in the domain configs under `config/`. Overture and
 Protomaps may expire old hosted releases;
 archive the verified local inputs for long-term rebuilds. A download or checksum
 failure never falls back to a newer dataset. Normal setup must not use
-`-update-config` or edit expected checksums to bypass a mismatch.
+`-accept-reviewed-source-update` or edit expected checksums to bypass a mismatch.
 
 Already have source files? Rebuild offline into a **new** database:
 
 ```sh
-go run ./cmd/prepare
-go run ./cmd/import -db data/openmaps-next.sqlite
+go run ./cmd/places-geocoding-prepare
+go run ./cmd/places-geocoding-import -db data/openmaps-next.sqlite
 go run ./cmd/server -db data/openmaps-next.sqlite -listen 127.0.0.1:8081
 ```
 
@@ -129,7 +129,7 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
 | `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional English `language` and unauthenticated `key` |
 | `POST /directions/v2:computeRoutes` | Routes REST v2 subset: coordinate, Open Maps Place ID, or exact unique address origin/destination; driving, GeoJSON geometry, road distance and estimated duration; requires routing data, lookup data for non-coordinate forms, and a response mask |
-| `GET /healthz` | Process health and routing availability; in deployment mode, loaded database fingerprint and reload failures |
+| `GET /healthz` | Process health and routing availability; in selection mode, loaded lookup snapshot identity and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
 
 Details exposes IDs, display name, coordinates, conservative types, attribution,
@@ -215,7 +215,7 @@ original records and attribute provenance. Public IDs derive from permanent
 identity anchors, independent of row IDs, import order or mutable attributes.
 
 Additional sources can supply new records or enrich existing entities through an
-explicit identity mapping passed to `prepare -identities`, without API changes or
+explicit identity mapping passed to `places-geocoding-prepare -identities`, without API changes or
 renumbering existing entities. There are no mappings in the current configuration.
 Overture address IDs currently lack a stable
 upstream matcher and are not in its GERS registry; changed source values can
@@ -235,8 +235,8 @@ are never used as lookup data. Upstream notices are linked on the demo's
 
 ```text
 cmd/server/         Go HTTP service
-cmd/prepare/        Pinned Overture acquisition, normalization and selection audit
-cmd/import/         Checksum-verified SQLite builder
+cmd/places-geocoding-prepare/ Pinned Overture acquisition, normalization and selection audit
+cmd/places-geocoding-import/ Checksum-verified Places/geocoding SQLite builder
 cmd/scout-acquire/  Complete provider metadata, selection, resumable downloads
 cmd/scout-prepare/  Immutable routing graph and index publication
 cmd/scout-landmarks/ Directed landmark construction and safe extension
@@ -246,7 +246,7 @@ cmd/scout-coverage/ Pinned Census footprint verification
 cmd/scout-http-verify/ Full HTTP body comparison and concurrency measurement
 cmd/scout-run-bounded/ Sampled RSS/free-disk supervision
 cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
-cmd/refresh/        Snapshot build, comparison, review, activation and rollback
+cmd/places-geocoding-refresh/ Snapshot build, comparison, review, activation and rollback
 internal/places/    Domain entities, autocomplete, details and search normalization
 internal/geocoding/ Address label matching, bounded nearest address lookup and fixtures
 internal/routing/   Scout decoder, search, indexes and snapshot leases
@@ -255,15 +255,15 @@ internal/api/       Google request/response translation and errors
 internal/importer/  Source adapters, schema, identity history and refresh comparison
 internal/importer/scout/ Provider acquisition, receipts and preparation handoff
 internal/importer/addressdata/ Retained provider address decoding
-internal/dataset/   Atomic deployment selection and live HTTP handler replacement
-config/            Pinned Places/geocoding, routing and basemap configuration
+internal/placesgeocoding/snapshots/ Atomic Places/geocoding selection and live handler replacement
+config/            Pinned Places/geocoding, routing and basemap inputs
 public/            Browser ES modules and styles; libraries loaded from esm.sh
 ```
 
 One Go service reads SQLite with FTS5. Geocoding loads an immutable address index
 from the same read-only snapshot; reverse lookup scans the small regional set.
-Routing-enabled snapshots also load an immutable directed graph and turn-restriction
-index. Activation replaces all available domains together. The owned Go import pipeline uses
+Lookup activation replaces Places and geocoding together. Routing independently
+loads an immutable graph and turn-restriction index from its own snapshot. The owned Go import pipeline uses
 `parquet-go` for cloud GeoParquet and decodes Overture Point and LineString WKB; provider
 parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
@@ -332,8 +332,9 @@ source-backed regional cases, concurrent replacement and measured resource use.
 These SQLite routing designs have been retired; [Scout](docs/routing-scout.md)
 describes the current architecture.
 
-The [local deployment guide](docs/deployment.md) describes the Go-supervised
-national and regional services, graceful restarts and retained rollback commands.
+The [local deployment guide](docs/deployment.md) describes reusable instance
+startup, graceful shutdown, update and rollback requirements. Machine-specific
+service evidence remains in historical logs.
 
 ## Current limitations and next work
 

@@ -1,81 +1,75 @@
-# Local Go deployment
+# Local deployment
 
-Two loopback instances run the same unified `cmd/server` binary under the Go
-resource supervisor and per-user macOS launchd jobs:
+Open Maps can run one or more loopback instances of the unified `cmd/server`
+binary. Each instance needs explicit paths for its Places/geocoding selection,
+routing snapshot or selection, basemap archive and public files. The repository
+does not assert that any service is currently running and does not contain an
+installed launchd configuration.
 
-| Instance | URL | Routing snapshot | launchd label |
-| --- | --- | --- | --- |
-| National | `http://127.0.0.1:8097` | `data/scout-national-20260909/national-aleutian-prepared` | `com.openmaps.national` |
-| Regional | `http://127.0.0.1:8096` | `data/scout-national-20260909/regional-prepared` | `com.openmaps.regional` |
+The September 2026 ports, launchd labels, binaries, rollback scripts and retained
+release directories are historical deployment evidence, recorded in the
+[Scout cutover log](log/0036-scout-deployment-cutover.md). Do not treat those
+machine-local paths as a reusable configuration.
 
-Both use `data/deployment.json` for Places/geocoding, `data/newport.pmtiles` for
-basemap ranges and `public/` for the map UI. National routing also watches the
-existing `data/scout-national-20260909/national-final-selection.json`. These
-lookup and routing selection files remain independent.
+## Start and inspect an instance
 
-The current release lives in `data/scout-cutover-20260909/`: compiled binaries in
-`bin/`, launchd configuration copies in `launchd/`, append-only service logs in
-`national.log` / `regional.log`, and per-lifetime resource reports in
-`reports/national/` / `reports/regional/`. Reports are completed on process exit;
-an empty active report is expected. Source and binary pins and verification
-results are in the [historical cutover record](log/0036-scout-deployment-cutover.md).
-
-LaunchAgents are installed in `~/Library/LaunchAgents/`. They start at login and
-survive the terminal or coding session. They deliberately do not automatically
-retry failures: investigate an exit or resource-budget crossing before restarting.
-Each supervisor samples its server's RSS against 4 GiB and requires 32 GiB free
-disk. These are sampled per-process limits, not total-machine memory limits.
-The runtime executable search path contains only `ps`; no Python is used.
-
-## Inspect, stop and restart
+Build a new executable rather than replacing one used by a running process:
 
 ```sh
-launchctl print "gui/$(id -u)/com.openmaps.national"
-launchctl print "gui/$(id -u)/com.openmaps.regional"
-curl -fsS http://127.0.0.1:8097/healthz
-curl -fsS http://127.0.0.1:8096/healthz
+go build -o data/openmaps-server-next ./cmd/server
+
+data/openmaps-server-next \
+  -deployment data/deployment.json \
+  -routing-snapshot data/scout-prepared \
+  -routing-selection data/routing-selection.json \
+  -tiles data/newport.pmtiles \
+  -public public \
+  -listen 127.0.0.1:8080
+
+curl -fsS http://127.0.0.1:8080/healthz
 ```
 
-Healthy responses include lookup availability, the lookup dataset checksum,
-routing profile, snapshot identity and reload diagnostics. The established
-`routing_candidate` JSON key remains for compatibility; internal Go ownership is
-`routing.Service`.
+`-deployment` selects Places/geocoding SQLite snapshots.
+`-routing-selection` independently watches a JSON document containing
+`{"directory":"prepared-directory"}`; relative directories resolve beside that
+document. `-routing-snapshot` supplies the verified initial routing snapshot.
+The server defaults to four concurrent routing requests and a 128 MiB graph-page
+cache per reader. Use `-routing-concurrency` and `-routing-cache-mib` to change
+those bounded settings.
 
-For a graceful planned stop, identify the server child of the supervisor PID
-shown by `launchctl print`, confirm its full command, and send **that server**
-SIGTERM. It drains HTTP requests for up to 35 seconds. Wait for it and its
-supervisor to exit, then inspect the completed resource report. Signalling the
-supervisor instead uses the resource-abort termination path, with a five-second
-grace period.
+Healthy responses report `lookup_snapshot` for the Places/geocoding selection and
+`routing_candidate` for the routing snapshot. `routing_candidate` remains the
+established compatibility name. Lookup responses carry
+`X-OpenMaps-Lookup-Snapshot`; the former `dataset` health field and
+`X-OpenMaps-Dataset` header remain temporary compatibility aliases.
 
-Restart an exited, still-loaded job:
+## Supervision and graceful shutdown
 
-```sh
-launchctl kickstart "gui/$(id -u)/com.openmaps.national"
-```
+`cmd/scout-run-bounded` can supervise a compiled server, sample its RSS and free
+disk, and write a distinct resource report for each process lifetime. It does not
+install or manage launchd jobs. If launchd or another process manager is used,
+keep its configuration outside generated data and record the exact executable,
+arguments, resource limits and restart policy.
 
-Use `com.openmaps.regional` for the other instance. Avoid `kickstart -k` during
-traffic because it interrupts the current process. To unload an exited job, use
-`launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.openmaps.national.plist`.
-To load it again, replace `bootout` with `bootstrap`, then use `kickstart`
-for an immediate start; launchd may defer the initial run-at-load request.
+For a graceful planned stop, signal the server process with SIGTERM. It drains
+HTTP requests for up to 35 seconds. Signalling the resource supervisor instead
+uses its resource-abort path and a five-second grace period. Avoid forced process
+replacement during traffic.
 
 ## Update and rollback
 
-Build into a new release directory. Verify its binaries against the frozen
-national cases, full HTTP responses, lookup suites, basemap byte ranges and
-snapshot replacement on isolated ports before changing the live ports. Retain
-the previous binaries, launch configuration, resource reports and selection
-files. Never rewrite prepared graph payloads or an actively executing binary.
+Build into a new release path. Before changing a service definition or routing
+selection, verify its binaries against the maintained national cases, full HTTP
+responses, lookup suites, basemap byte ranges and snapshot replacement on an
+unused loopback port. Never rewrite prepared graph payloads, selected SQLite
+files or an executing binary.
 
-For the cutover release, rollback launch commands are retained in
-`data/scout-cutover-20260909/rollback/national.sh` and `regional.sh`. After stopping
-and unloading the corresponding new job, run the selected script with `/bin/sh`.
-It starts the original binary on its original port under the **Go** supervisor,
-with a fresh report. Those old binaries restore routing-only behavior and should
-be temporary rollback tools. The scripts do not restore or overwrite selection
-files; baseline copies are retained beside them for inspection if needed.
+Retain the previous executable, service definition, lookup and routing selection
+documents, prepared snapshots and completed resource reports. Rollback should
+restore those explicit retained inputs; it must not depend on a dated path from a
+historical log. Confirm health and both snapshot identities after every update or
+rollback.
 
 This is a local user-session deployment. System-wide startup before login,
-automatic failure recovery, remote exposure and production orchestration are
-not configured here.
+automatic failure recovery, remote exposure and production orchestration are not
+configured by this repository.

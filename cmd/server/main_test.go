@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"openmaps/internal/dataset"
 	"openmaps/internal/importer"
+	"openmaps/internal/placesgeocoding/snapshots"
 	"openmaps/internal/routing"
 )
 
@@ -68,7 +68,7 @@ func serviceFixture(t *testing.T) (configuration, string) {
 	}
 	tiles := filepath.Join(root, "map.pmtiles")
 	os.WriteFile(tiles, []byte("0123456789"), 0600)
-	return configuration{db: db, routing: dirs[0], workers: 2, cache: 1, tiles: tiles, public: "../../public", selection: filepath.Join(root, "selection.json")}, dirs[1]
+	return configuration{db: db, routingSnapshot: dirs[0], routingConcurrency: 2, routingCache: 1, tiles: tiles, public: "../../public", routingSelection: filepath.Join(root, "selection.json")}, dirs[1]
 }
 func TestUnifiedServiceLookupTilesAndRoutingReplacement(t *testing.T) {
 	c, second := serviceFixture(t)
@@ -201,7 +201,7 @@ func TestUnifiedServiceLookupTilesAndRoutingReplacement(t *testing.T) {
 		}
 		t.Fatal("selection did not settle")
 	}
-	os.WriteFile(c.selection, []byte(`{"directory":"absent"}`), 0600)
+	os.WriteFile(c.routingSelection, []byte(`{"directory":"absent"}`), 0600)
 	wait(func(b string) bool {
 		return strings.Contains(b, `"reload_error":"`) && !strings.Contains(b, `"reload_error":""`)
 	})
@@ -211,7 +211,7 @@ func TestUnifiedServiceLookupTilesAndRoutingReplacement(t *testing.T) {
 		t.Fatal("bad selection replaced graph")
 	}
 	raw, _ := json.Marshal(map[string]string{"directory": second})
-	os.WriteFile(c.selection, raw, 0600)
+	os.WriteFile(c.routingSelection, raw, 0600)
 	wait(func(b string) bool { return strings.Contains(b, second) && strings.Contains(b, `"reload_error":""`) })
 	w = call("POST", "/directions/v2:computeRoutes", body, "routes.distanceMeters")
 	json.Unmarshal(w.Body.Bytes(), &response)
@@ -240,7 +240,7 @@ func (w *blockedHTTPWriter) Write(p []byte) (int, error) {
 
 func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 	c, _ := serviceFixture(t)
-	c.selection = ""
+	c.routingSelection = ""
 	base := c.db
 	candidate := filepath.Join(filepath.Dir(base), "lookup-next.sqlite")
 	bundle := routingLookupBundle(t)
@@ -254,7 +254,7 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := filepath.Join(filepath.Dir(base), "deployment.json")
-	if err := dataset.Init(context.Background(), state, base); err != nil {
+	if err := snapshots.Init(context.Background(), state, base); err != nil {
 		t.Fatal(err)
 	}
 	c.deployment = state
@@ -278,11 +278,11 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 		close(firstDone)
 	}()
 	<-first.entered
-	nextFile, err := dataset.Describe(candidate)
+	nextFile, err := snapshots.Describe(candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = dataset.Change(state, func(s *dataset.State) error {
+	if err = snapshots.Change(state, func(s *snapshots.Selection) error {
 		s.Current = nextFile
 		return nil
 	}); err != nil {
@@ -303,11 +303,11 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 	close(first.release)
 	<-firstDone
 	<-secondDone
-	baseFile, err := dataset.Describe(base)
+	baseFile, err := snapshots.Describe(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := func(response *httptest.ResponseRecorder, file dataset.File, originLng, destinationLng float64) {
+	check := func(response *httptest.ResponseRecorder, file snapshots.Reference, originLng, destinationLng float64) {
 		t.Helper()
 		var result struct {
 			Openmaps struct {
@@ -322,8 +322,8 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &result) != nil {
 			t.Fatal(response.Code, response.Body.String())
 		}
-		if response.Header().Get("X-OpenMaps-Dataset") != file.SHA256 || result.Openmaps.Origin.Source[0] != originLng || result.Openmaps.Destination.Source[0] != destinationLng {
-			t.Fatalf("mixed lookup snapshot: header=%s body=%s", response.Header().Get("X-OpenMaps-Dataset"), response.Body.String())
+		if response.Header().Get("X-OpenMaps-Lookup-Snapshot") != file.SHA256 || response.Header().Get("X-OpenMaps-Dataset") != file.SHA256 || result.Openmaps.Origin.Source[0] != originLng || result.Openmaps.Destination.Source[0] != destinationLng {
+			t.Fatalf("mixed lookup snapshot: header=%s body=%s", response.Header().Get("X-OpenMaps-Lookup-Snapshot"), response.Body.String())
 		}
 	}
 	check(first.ResponseRecorder, baseFile, 8.7495, 8.7515)
@@ -331,7 +331,7 @@ func TestRouteLookupSnapshotLeaseDuringReplacement(t *testing.T) {
 }
 
 func TestServiceWithoutLookupReturnsUnavailable(t *testing.T) {
-	h, closeHandler, e := newService(context.Background(), configuration{workers: 1, cache: 1, public: "../../public"})
+	h, closeHandler, e := newService(context.Background(), configuration{routingConcurrency: 1, routingCache: 1, public: "../../public"})
 	if e != nil {
 		t.Fatal(e)
 	}

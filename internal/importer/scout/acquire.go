@@ -425,10 +425,22 @@ func ReadPlan(root, name string) (Plan, error) {
 		return p, errors.New("invalid plan filename")
 	}
 	b, e := Read(filepath.Join(root, name), 8*MiB)
-	if e == nil {
-		e = json.Unmarshal(b, &p)
+	if e != nil {
+		return p, e
 	}
-	return p, e
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	if e = d.Decode(&p); e != nil {
+		return p, e
+	}
+	var trailing any
+	if e = d.Decode(&trailing); e != io.EOF {
+		if e == nil {
+			e = errors.New("acquisition plan contains trailing JSON")
+		}
+		return p, e
+	}
+	return p, nil
 }
 func (c *Client) recheck(ctx context.Context, p Plan) error {
 	for _, name := range []string{"catalog.json", "digest.md5.bz2"} {

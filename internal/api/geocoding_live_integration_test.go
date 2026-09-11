@@ -50,7 +50,7 @@ func TestLiveGeocoding(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		hash := response.Header.Get("X-OpenMaps-Dataset")
+		hash := response.Header.Get("X-OpenMaps-Lookup-Snapshot")
 		if fingerprint == "" {
 			fingerprint = hash
 		}

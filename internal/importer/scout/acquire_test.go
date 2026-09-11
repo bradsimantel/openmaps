@@ -2,6 +2,7 @@ package scout
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -83,6 +84,26 @@ func TestCompleteManifestAndGeneration(t *testing.T) {
 		t.Fatal("incomplete directory accepted")
 	}
 }
+
+func TestReadPlanRejectsUnknownAndTrailingFields(t *testing.T) {
+	root, _, p := planFixture(t)
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, contents := range map[string][]byte{
+		"unknown.json":  append(raw[:len(raw)-1], []byte(`,"graph_sha256":"historical-output"}`)...),
+		"trailing.json": append(raw, []byte(` {}`)...),
+	} {
+		if err = os.WriteFile(filepath.Join(root, name), contents, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = ReadPlan(root, name); err == nil {
+			t.Fatalf("accepted invalid acquisition plan %s", name)
+		}
+	}
+}
+
 func TestResumeAndImmutableReceipt(t *testing.T) {
 	root, c, p := planFixture(t)
 	ctx := context.Background()

@@ -46,20 +46,11 @@
   "compressed_bytes": 9192382849,
   "dataset_id": 183131145,
   "full_manifest_packages": 2930,
-  "graph_bytes": 24522784768,
-  "graph_receipt_sha256": "4cb6be091e5a7751d77d45d5ae719849e29971af6d5677f63e35e71abafda2a1",
-  "graph_sha256": "9e6c5973e546615150100dc15eaa5ec9a79ad2c95749cf369391edf6e91ca22e",
   "metadata_sha256": {
     "catalog.json": "770e6c599cfb42d4f35cbe8b7b5be0295dae45d2d25ebe93ce3ccc9c23eca362",
     "digest.md5.bz2": "9019d68065ea30241a71112c51b2c2c11b5d2ce8d30a4fe6fdb3743e859a2e6e",
     "packages.html": "326a60201d6a62eee4c829c23db3976c0d4b3af3fba729f7cf6c5a197342d63c"
   },
-  "metadata_urls": {
-    "catalog.json": "https://data.modrana.org/osm_scout_server/countries_provided.json",
-    "digest.md5.bz2": "https://data.modrana.org/osm_scout_server/digest.md5.bz2",
-    "packages.html": "https://data.modrana.org/osm_scout_server/valhalla-34/valhalla/packages/"
-  },
-  "observed_date": "2026-09-09",
   "package_schema": "2",
   "packages": [
     {
@@ -4674,8 +4665,6 @@
     "russia/far-eastern-fed-district/kamchatka"
   ],
   "schema": 1,
-  "scope_note": "Adds package records for eastern-hemisphere Aleutian source tiles discovered in the Kamchatka selection; verify extension and paths before selection.",
-  "status": "National coordinate candidate: 83 frozen cases verified; experimental source profile; exhaustive upstream road completeness unverified.",
   "tile_version": "3.4.0",
   "timestamp": "2026-06-20_07:12"
 }
