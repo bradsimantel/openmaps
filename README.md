@@ -38,7 +38,7 @@ are not required.
 
 Prerequisites: Go **1.26.1+**, CGO, and a native C/C++ toolchain. Allow several minutes for first-time tool and data
 downloads. All commands below run from the repository root. No API keys,
-Docker, external database server or system SQLite installation are required.
+Docker or external database server are required.
 
 ```sh
 go run ./cmd/places-geocoding-prepare -fetch
@@ -109,7 +109,7 @@ before reusing its port. The service defaults to loopback and supports `-lookup`
 `-lookup-selection`, `-listen`, `-public` and `-tiles`;
 `go run ./cmd/server -help` lists defaults. `-lookup` opens one verified
 generation directly; selection mode is the default and provides live activation
-and rollback. Verification or open failure is fatal—there is no SQLite fallback.
+and rollback. Verification or open failure is fatal—there is no legacy fallback.
 
 ## Supported API
 
@@ -252,12 +252,12 @@ cmd/scout-http-verify/ Full HTTP body comparison and concurrency measurement
 cmd/scout-run-bounded/ Sampled RSS/free-disk supervision
 cmd/basemap/        Verified regional extraction using the pinned Go PMTiles CLI
 cmd/places-geocoding-refresh/ Snapshot build, comparison, review, activation and rollback
-internal/places/    Domain entities, autocomplete, details and search normalization
-internal/geocoding/ Address label matching, bounded nearest address lookup and fixtures
+internal/places/    Provider-independent entity types and search normalization
+internal/geocoding/ Address grammar, context matching and distance semantics
 internal/routing/   Scout decoder, search, indexes and snapshot leases
 internal/routing/qualification/ Offline coverage and HTTP verification
 internal/api/       Google request/response translation and errors
-internal/importer/  Source adapters, schema, identity history and refresh comparison
+internal/importer/  Source adapters, stable identity and conflict/provenance rules
 internal/importer/scout/ Provider acquisition, receipts and preparation handoff
 internal/importer/addressdata/ Retained provider address decoding
 internal/placesgeocoding/duckdb/ Production artifact, reader, comparison, selection and snapshot leases
@@ -275,8 +275,8 @@ parsing stays in `internal/importer`. The basemap command invokes a pinned Go
 PMTiles extractor in a separate module to keep its cloud SDKs out of the service
 dependencies.
 
-The removed compact-SQLite lookup path remains documented only as the
-[historical Newport proof](docs/log/0044-compact-parquet-sqlite-newport-proof.md).
+The removed predecessor lookup path remains documented only in historical log
+0044.
 The later bounded
 [DuckDB token-prefix proof](docs/log/0045-duckdb-token-prefix-proof.md) and
 [Go qualification](docs/log/0046-duckdb-go-qualification.md) met the regional
@@ -310,8 +310,8 @@ GeoParquet parsing, Transportation selection and clipped representative points,
 HTTP range validation, cancellation, checksums,
 relationships, rejected imports, stable IDs across reordered/released imports,
 and source enrichment/replacement without changing existing IDs. Refresh tests cover
-reviewed replacements, split/merge ambiguity, absent-source history, search-index
-corruption, stale reviews, failed switches and live rollback. Geocoding tests
+generation comparison, corrupt or missing shards, interrupted builds, stale
+reviews, failed switches, concurrent replacement and live rollback. Geocoding tests
 cover normalized address numbers/streets, context, duplicate
 identities, explicit unit errors, invalid coordinates, distance cutoffs and
 coverage, plus atomic snapshot selection and rollback. Routing adds one-way and
@@ -330,7 +330,7 @@ Browser libraries, fonts and sprites require network access. See the
 and [historical refresh verification](docs/log/0005-newport-refresh-verification.md).
 
 The geocoding milestone also passed a [26-case source-backed benchmark](docs/geocoding.md#deterministic-quality-benchmark)
-on the retained baseline and candidate, and in-app browser forward/reverse flows
+against a fresh DuckDB generation, and in-app browser forward/reverse flows
 with ambiguity, errors and rollback. See [historical geocoding verification](docs/log/0009-geocoding-verification.md).
 
 Check a real business, address, street and area through autocomplete, details and
@@ -347,7 +347,7 @@ validation of real-world estimate accuracy.
 The [historical routing scale and Oregon evaluation](docs/log/0019-routing-scale-and-oregon.md)
 records compact storage, indexed endpoint selection, search acceleration,
 source-backed regional cases, concurrent replacement and measured resource use.
-These SQLite routing designs have been retired; [Scout](docs/routing-scout.md)
+These earlier routing designs have been retired; [Scout](docs/routing-scout.md)
 describes the current architecture.
 
 The [local deployment guide](docs/deployment.md) describes reusable instance
@@ -359,7 +359,8 @@ service evidence remains in historical logs.
 - Limited geography and English request options; no global/IP bias, spatial or
   type filters, translation, typo tolerance, plus-code support or Google ranking.
 - Search uses normalized token prefixes with exact-name/name-prefix priority,
-  then area/street/business/address precedence, FTS ranking and stable ID ties.
+  then area/street/business/address precedence, BM25-style token scoring and
+  stable ID ties.
 - Source labels can be incomplete or duplicated. The retained Overture locality
   slot and units are empty; 562 raw records have a CDP-like `postal_city` value
   that is not returned as a locality or verified postal city. Address ranges are

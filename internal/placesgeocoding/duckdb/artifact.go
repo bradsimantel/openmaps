@@ -63,7 +63,7 @@ type Manifest struct {
 	Files            []File `json:"files"`
 }
 
-// Build is retained for small deterministic fixtures and the SQLite oracle.
+// Build constructs a generation from a decoded bundle for deterministic tests.
 // Production commands use BuildJSON, whose decoder and resolver are streaming.
 func Build(ctx context.Context, path string, bundle importer.Bundle) error {
 	var input bytes.Buffer

@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"openmaps/internal/api"
-	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
 func geocodingHandler(t *testing.T, edits ...func(*importer.Bundle)) api.Handler {
@@ -28,14 +28,15 @@ func geocodingHandler(t *testing.T, edits ...func(*importer.Bundle)) api.Handler
 	for _, edit := range edits {
 		edit(&b)
 	}
-	path := filepath.Join(t.TempDir(), "geocoding.sqlite")
-	if err = importer.Build(context.Background(), path, b); err != nil {
+	path := filepath.Join(t.TempDir(), "lookup")
+	if err = placeduckdb.Build(context.Background(), path, b); err != nil {
 		t.Fatal(err)
 	}
-	s, err := geocoding.Open(context.Background(), path)
+	s, err := placeduckdb.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s.Close() })
 	return api.Handler{Geocoding: s}
 }
 

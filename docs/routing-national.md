@@ -14,7 +14,7 @@ tiles remain incomplete data; ferries and address routing are unsupported.
 Known source geometry defects and missing references outside the target remain
 visible. Representative passing routes do not certify every source road.
 
-The [historical PBF/SQLite capacity preflight](log/0026-national-routing-preflight.md)
+The [historical capacity preflight](log/0026-national-routing-preflight.md)
 measured a superseded pipeline. That routing pipeline, its capacity estimator and
 its regional configuration files have been removed; downloaded datasets and
 historical evidence are retained.

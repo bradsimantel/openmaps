@@ -1,11 +1,10 @@
 //go:build integration
 
-package importer
+package importer_test
 
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -14,30 +13,29 @@ import (
 	"strings"
 	"testing"
 
-	"openmaps/internal/places"
+	"openmaps/internal/importer"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
-// TestPinnedNewportLookup rebuilds the checked-in pin from downloaded inputs.
-// It verifies source identities/provenance, SQLite integrity, representative
-// lookup behavior, aliases, repeated segment identities, and deterministic IDs.
+// TestPinnedNewportLookup rebuilds the checked-in pin from downloaded inputs
+// and verifies the normalized relations and DuckDB serving generation directly.
 func TestPinnedNewportLookup(t *testing.T) {
 	dataDir := os.Getenv("OPENMAPS_DATA")
 	if dataDir == "" {
 		t.Fatal("set OPENMAPS_DATA to the prepared Newport source directory")
 	}
 	root := filepath.Join("..", "..")
-	manifest, err := ReadManifest(filepath.Join(root, "config/places-geocoding.json"))
+	manifest, err := importer.ReadManifest(filepath.Join(root, "config/places-geocoding.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	expectedBundleSHA256 := manifest.BundleSHA256
-	identities := map[string]string{}
 	manifest.BundleSHA256 = ""
-	bundle, audit, err := Prepare(context.Background(), manifest, dataDir, identities)
+	bundle, audit, err := importer.Prepare(context.Background(), manifest, dataDir, map[string]string{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rebuilt, _, err := Prepare(context.Background(), manifest, dataDir, identities)
+	rebuilt, _, err := importer.Prepare(context.Background(), manifest, dataDir, map[string]string{})
 	if err != nil || !reflect.DeepEqual(bundle, rebuilt) {
 		t.Fatal("regional preparation is not deterministic", err)
 	}
@@ -49,115 +47,65 @@ func TestPinnedNewportLookup(t *testing.T) {
 	if got := hex.EncodeToString(sum[:]); got != expectedBundleSHA256 {
 		t.Fatalf("normalized bundle checksum changed: got %s want %s", got, expectedBundleSHA256)
 	}
-	selection, ok := audit["transportation_selection"].(transportationSelection)
-	if !ok || selection.NamedRoads == 0 || selection.UnnamedRoads == 0 || selection.NonRoads == 0 {
+	auditRaw, marshalErr := json.Marshal(audit["transportation_selection"])
+	var selection map[string]int
+	if marshalErr != nil || json.Unmarshal(auditRaw, &selection) != nil || selection["named_road_segments"] == 0 || selection["unnamed_road_segments"] == 0 || selection["non_road_segments"] == 0 {
 		t.Fatalf("incomplete transportation selection audit: %#v", audit["transportation_selection"])
 	}
 
-	database := filepath.Join(t.TempDir(), "newport.sqlite")
-	if err = Build(context.Background(), database, bundle); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := ReadSnapshot(context.Background(), database)
+	normalized, err := importer.Resolve(bundle)
 	if err != nil {
 		t.Fatal(err)
 	}
 	counts := map[string]int{}
-	for _, entity := range snapshot.Entities {
+	streetNames := map[string][]string{}
+	for _, entity := range normalized.Entities {
 		counts[entity.Kind]++
+		if entity.Kind == "street" {
+			streetNames[entity.Name] = append(streetNames[entity.Name], entity.ID)
+		}
 	}
 	wantCounts := map[string]int{"business": 2173, "address": 8545, "area": 4, "street": 1621}
 	if !reflect.DeepEqual(counts, wantCounts) {
 		t.Fatalf("unexpected pinned counts: got %v want %v", counts, wantCounts)
 	}
-
 	streetSources := 0
-	for key, source := range snapshot.Sources {
-		if snapshot.Entities[source.ID].Kind != "street" {
+	for _, source := range normalized.Sources {
+		if !strings.HasPrefix(source.Record.Key(), "overture:segment:") {
 			continue
 		}
 		streetSources++
-		if !strings.HasPrefix(key, "overture:segment:") || source.ID != PublicID(key) || !strings.Contains(string(source.Raw), `"sources"`) {
-			t.Fatalf("street identity/provenance mismatch: %s %+v", key, source)
+		if source.EntityID != importer.PublicID(source.Record.Key()) || !strings.Contains(string(source.Record.Raw), `"sources"`) {
+			t.Fatalf("street identity/provenance mismatch: %s", source.Record.Key())
 		}
 	}
-	if streetSources != wantCounts["street"] {
-		t.Fatalf("got %d street sources", streetSources)
+	if streetSources != wantCounts["street"] || len(streetNames["Thames Street"]) < 2 {
+		t.Fatalf("street identities lost: sources=%d Thames=%v", streetSources, streetNames["Thames Street"])
 	}
 
-	store, err := places.Open(database)
+	generation := filepath.Join(t.TempDir(), "newport")
+	if err = placeduckdb.Build(context.Background(), generation, bundle); err != nil {
+		t.Fatal(err)
+	}
+	store, err := placeduckdb.Open(generation)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	for _, input := range []string{"Thames", "Bellevue Avenue", "Marlborough", "West Broadway"} {
-		results, err := store.Autocomplete(context.Background(), input)
-		if err != nil || len(results) == 0 {
-			t.Fatalf("%q: no results: %v", input, err)
-		}
-		if results[0].Kind != "street" {
-			t.Fatalf("%q: first result is %s", input, results[0].Kind)
+		results, queryErr := store.Autocomplete(context.Background(), input)
+		if queryErr != nil || len(results) == 0 || results[0].Kind != "street" {
+			t.Fatalf("%q: unexpected results %+v: %v", input, results, queryErr)
 		}
 		if input == "West Broadway" && results[0].Name != "Dr Marcus Wheatland Boulevard" {
 			t.Fatalf("alias lookup returned %q", results[0].Name)
 		}
 		for _, result := range results {
-			detail, err := store.Details(context.Background(), result.ID)
-			if err != nil || detail.ID != result.ID {
-				t.Fatalf("%q details failed for %s: %v", input, result.ID, err)
+			detail, detailErr := store.Details(context.Background(), result.ID)
+			if detailErr != nil || detail.ID != result.ID {
+				t.Fatalf("%q details failed for %s: %v", input, result.ID, detailErr)
 			}
 		}
-		t.Logf("%q first result: %s %s", input, results[0].Kind, results[0].Name)
 	}
-
-	db, err := sql.Open("sqlite", database)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var repeated, distinctIDs int
-	if err = db.QueryRow("SELECT count(*),count(DISTINCT id) FROM entities WHERE kind='street' AND name='Thames Street'").Scan(&repeated, &distinctIDs); err != nil {
-		t.Fatal(err)
-	}
-	if repeated < 2 || repeated != distinctIDs {
-		t.Fatalf("repeated segment names were merged: %d rows, %d IDs", repeated, distinctIDs)
-	}
-	rows, err := db.Query("PRAGMA foreign_key_check")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if rows.Next() {
-		t.Fatal("foreign key check found a violation")
-	}
-	t.Logf("verified %d named roads from %d regional Transportation segments", selection.NamedRoads, selection.Segments)
-}
-
-func sqlRows(t *testing.T, db *sql.DB, query string) [][]any {
-	t.Helper()
-	rows, err := db.Query(query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	columns, err := rows.Columns()
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := [][]any{}
-	for rows.Next() {
-		values := make([]any, len(columns))
-		pointers := make([]any, len(columns))
-		for i := range values {
-			pointers[i] = &values[i]
-		}
-		if err = rows.Scan(pointers...); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, values)
-	}
-	if err = rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return out
+	t.Logf("verified %d named roads from %d regional Transportation segments", selection["named_road_segments"], selection["segments"])
 }

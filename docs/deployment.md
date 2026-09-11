@@ -3,7 +3,7 @@
 Open Maps runs as one Go service with independently selected lookup, routing and
 basemap artifacts. Places/geocoding uses an immutable generation directory:
 normalized Parquet is authoritative and `serving.duckdb` is a derived lookup
-catalog. There is no compact-SQLite runtime or automatic fallback.
+catalog. There is no alternate lookup runtime or automatic fallback.
 
 ## Native build requirements
 
@@ -31,7 +31,7 @@ curl -fsS http://127.0.0.1:8080/healthz
 
 `-lookup-selection` is the default. `-lookup GENERATION -lookup-selection ''`
 opens one verified generation directly for smoke testing. A missing, corrupt or
-incompatible lookup artifact fails startup; it never selects SQLite.
+incompatible lookup artifact fails startup; it never selects a legacy artifact.
 `-routing-selection` independently watches a JSON document containing
 `{"directory":"prepared-directory"}`. The server defaults to four concurrent
 routing requests, four read-only DuckDB connections, one DuckDB thread per

@@ -36,7 +36,7 @@ forward geocoder: no fuzzy search, incomplete-street or locality fallback, unit
 inference, plus-code handling or fabricated address data is added. One request
 holds a shared lookup lease through both resolutions, route calculation and JSON
 encoding. A live lookup replacement therefore cannot mix endpoint coordinates or
-close their Places database during the request. Lookup replacement remains
+close their lookup generation during the request. Lookup replacement remains
 independent of the Scout snapshot selection.
 
 Google may disambiguate address strings and documents an unresolved address as a
@@ -69,14 +69,15 @@ deadlines and admission remain distinct. Route metadata identifies the snapshot,
 both snaps, unverified gaps, attribution and source limitations independently of
 masks.
 
-Lookup SQLite, basemap tiles and routing pages remain separate. Resolved POI,
-address, segment and area locations are source points, not surveyed entrances,
+Lookup Parquet/DuckDB generations, basemap tiles and routing pages remain
+separate. Resolved POI, address, segment and area locations are source points,
+not surveyed entrances,
 verified property access points or additions to the graph. Scout independently
 snaps those points using the same 100 m policy as literal coordinates; distance
 and duration still exclude the unverified off-road gap. The server can serve all
 three data products together; routing snapshot replacement is independent of
 lookup refresh and both retain leases through response encoding. There is no
-PBF/SQLite routing importer, overlay engine, mapped graph cache or legacy startup
+legacy graph importer, overlay engine, mapped graph cache or legacy startup
 flag.
 
 The historical investigations in [0015](log/0015-newport-driving-routing.md)

@@ -10,11 +10,15 @@ import (
 	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
-func fixture(t *testing.T) *geocoding.Store {
+func fixture(t *testing.T) *placeduckdb.Store {
 	t.Helper()
-	b := importer.Bundle{Schema: 1, Manifest: json.RawMessage(`{"bbox":[-71.33,41.47,-71.29,41.51]}`)}
+	b := importer.Bundle{
+		Schema: 1, Manifest: json.RawMessage(`{"bbox":[-71.33,41.47,-71.29,41.51]}`),
+		Identities: map[string]string{}, Relationships: []importer.Relationship{}, Rejections: []importer.Rejection{},
+	}
 	for _, item := range []struct {
 		id, name string
 		lat, lng float64
@@ -30,14 +34,15 @@ func fixture(t *testing.T) *geocoding.Store {
 		}
 		b.Records = append(b.Records, r)
 	}
-	path := filepath.Join(t.TempDir(), "data.sqlite")
-	if err := importer.Build(context.Background(), path, b); err != nil {
+	path := filepath.Join(t.TempDir(), "lookup")
+	if err := placeduckdb.Build(context.Background(), path, b); err != nil {
 		t.Fatal(err)
 	}
-	s, err := geocoding.Open(context.Background(), path)
+	s, err := placeduckdb.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 func TestForward(t *testing.T) {

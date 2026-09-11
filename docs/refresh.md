@@ -1,8 +1,8 @@
 # Places/geocoding refresh and rollback
 
 The refresh path publishes immutable normalized Parquet plus a derived DuckDB
-serving catalog. It never rewrites an active generation and never produces or
-selects a compact-SQLite fallback. Routing and basemap artifacts have separate
+serving catalog. It never rewrites an active generation or selects a legacy
+fallback. Routing and basemap artifacts have separate
 selection and lifetime.
 
 ## Normal Newport preparation
@@ -117,6 +117,6 @@ generation the new rollback target. Keep current and previous generation
 directories immutable and available. Do not treat absence from a regional
 snapshot as proof of real-world deletion or closure.
 
-The initial SQLite refresh records remain historical evidence in
+The initial refresh records remain historical evidence in
 [logs 0004–0007](log/0004-newport-refresh-investigation.md). They are not the
 current artifact or rollback procedure.

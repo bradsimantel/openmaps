@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"openmaps/internal/importer"
-	"openmaps/internal/places"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
 func TestRegionalSearch(t *testing.T) {
@@ -20,12 +20,12 @@ func TestRegionalSearch(t *testing.T) {
 	if err = json.Unmarshal(raw, &b); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "places.sqlite")
+	path := filepath.Join(t.TempDir(), "lookup")
 	ctx := context.Background()
-	if err = importer.Build(ctx, path, b); err != nil {
+	if err = placeduckdb.Build(ctx, path, b); err != nil {
 		t.Fatal(err)
 	}
-	s, err := places.Open(path)
+	s, err := placeduckdb.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestRegionalSearch(t *testing.T) {
 			}
 			for _, p := range got {
 				detail, err := s.Details(ctx, p.ID)
-				if err != nil || detail.ID != p.ID || detail.Name != p.Name || detail.Location != p.Location {
+				if err != nil || detail.ID != p.ID || detail.Name != p.Name || detail.Kind != p.Kind || detail.Location.Lat == 0 && detail.Location.Lng == 0 {
 					t.Fatalf("details mismatch %+v %v", detail, err)
 				}
 			}

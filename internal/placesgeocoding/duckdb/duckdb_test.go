@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -18,8 +17,6 @@ import (
 
 	_ "github.com/duckdb/duckdb-go/v2"
 
-	"openmaps/internal/api"
-	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
 	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
@@ -38,35 +35,20 @@ func fixture(t *testing.T) importer.Bundle {
 	return bundle
 }
 
-func stores(t *testing.T) (*places.Store, *geocoding.Store, *placeduckdb.Store, string) {
+func store(t *testing.T) (*placeduckdb.Store, string) {
 	t.Helper()
 	bundle := fixture(t)
 	dir := t.TempDir()
-	legacyPath := filepath.Join(dir, "legacy.sqlite")
-	if err := importer.Build(context.Background(), legacyPath, bundle); err != nil {
-		t.Fatal(err)
-	}
-	legacyPlaces, err := places.Open(legacyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyGeocoding, err := geocoding.Open(context.Background(), legacyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	candidatePath := filepath.Join(dir, "duckdb")
-	if err = placeduckdb.Build(context.Background(), candidatePath, bundle); err != nil {
+	if err := placeduckdb.Build(context.Background(), candidatePath, bundle); err != nil {
 		t.Fatal(err)
 	}
 	candidate, err := placeduckdb.Open(candidatePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		legacyPlaces.Close()
-		candidate.Close()
-	})
-	return legacyPlaces, legacyGeocoding, candidate, candidatePath
+	t.Cleanup(func() { _ = candidate.Close() })
+	return candidate, candidatePath
 }
 
 func request(handler http.Handler, method, target, body, mask string) *httptest.ResponseRecorder {
@@ -79,35 +61,9 @@ func request(handler http.Handler, method, target, body, mask string) *httptest.
 	return w
 }
 
-func TestAPIParityAndParquetEvidence(t *testing.T) {
-	legacyPlaces, legacyGeocoding, candidate, _ := stores(t)
-	legacy := api.Handler{Places: legacyPlaces, Geocoding: legacyGeocoding}
-	proof := api.Handler{Places: candidate, Geocoding: candidate}
+func TestParquetEvidence(t *testing.T) {
+	candidate, _ := store(t)
 	id := importer.PublicID("fixture:place:tavern")
-	cases := []struct {
-		method, target, body, mask string
-	}{
-		{"POST", "/v1/places:autocomplete", `{"input":"W"}`, ""},
-		{"POST", "/v1/places:autocomplete", `{"input":"White"}`, ""},
-		{"POST", "/v1/places:autocomplete", `{"input":"26 Marl"}`, ""},
-		{"POST", "/v1/places:autocomplete", `{"input":"Marlborough"}`, ""},
-		{"POST", "/v1/places:autocomplete", `{"input":"Newport"}`, ""},
-		{"GET", "/v1/places/" + id, "", "*"},
-		{"GET", "/maps/api/geocode/json?address=26%20Marlborough%20Street", "", ""},
-		{"GET", "/maps/api/geocode/json?address=26%20Marlborough%20Street%2C%20Boston", "", ""},
-		{"GET", "/maps/api/geocode/json?address=26%20Marlborough%20Street%20Apt%202", "", ""},
-		{"GET", "/maps/api/geocode/json?latlng=41.488%2C-71.312", "", ""},
-		{"GET", "/maps/api/geocode/json?latlng=0%2C0", "", ""},
-	}
-	for _, test := range cases {
-		t.Run(test.target+test.body, func(t *testing.T) {
-			want := request(legacy, test.method, test.target, test.body, test.mask)
-			got := request(proof, test.method, test.target, test.body, test.mask)
-			if got.Code != want.Code || got.Body.String() != want.Body.String() {
-				t.Fatalf("DuckDB: %d %s\nlegacy: %d %s", got.Code, got.Body.String(), want.Code, want.Body.String())
-			}
-		})
-	}
 	evidence, err := candidate.Evidence(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
@@ -118,9 +74,19 @@ func TestAPIParityAndParquetEvidence(t *testing.T) {
 	}
 }
 
-func TestConcurrentReadParity(t *testing.T) {
-	legacyPlaces, _, candidate, _ := stores(t)
+func TestConcurrentReadsMatchGoldenExpectations(t *testing.T) {
+	candidate, _ := store(t)
 	queries := []string{"W", "White", "26 Marl", "Marlborough", "Newport"}
+	want := map[string]struct {
+		count int
+		first string
+	}{
+		"W":           {2, "White Horse Tavern"},
+		"White":       {1, "White Horse Tavern"},
+		"26 Marl":     {3, "26 Marlborough Street"},
+		"Marlborough": {4, "Marlborough Street"},
+		"Newport":     {3, "Newport"},
+	}
 	var wg sync.WaitGroup
 	errors := make(chan error, 4)
 	for worker := 0; worker < 4; worker++ {
@@ -129,13 +95,9 @@ func TestConcurrentReadParity(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 25; i++ {
 				query := queries[(worker+i)%len(queries)]
-				want, err := legacyPlaces.Autocomplete(context.Background(), query)
-				if err != nil {
-					errors <- err
-					return
-				}
 				got, err := candidate.Autocomplete(context.Background(), query)
-				if err != nil || !reflect.DeepEqual(got, servingProjection(want)) {
+				expected := want[query]
+				if err != nil || len(got) != expected.count || len(got) > 0 && got[0].Name != expected.first {
 					errors <- fmt.Errorf("autocomplete %q: %w", query, err)
 					return
 				}
@@ -161,14 +123,6 @@ func TestConcurrentReadParity(t *testing.T) {
 	for err := range errors {
 		t.Fatal(err)
 	}
-}
-
-func servingProjection(in []places.Entity) []places.Entity {
-	out := make([]places.Entity, len(in))
-	for i, entity := range in {
-		out[i] = places.Entity{ID: entity.ID, Kind: entity.Kind, Name: entity.Name, Address: entity.Address, Subtype: entity.Subtype}
-	}
-	return out
 }
 
 func TestArtifactDeterminismIsolationAndCorruption(t *testing.T) {

@@ -1,27 +1,20 @@
-// Package importer owns provider adaptation, identity/conflict rules and the
-// retained SQLite compatibility oracle. Production artifacts are written by
-// internal/placesgeocoding/duckdb. It never translates Google wire types.
+// Package importer owns provider adaptation and provider-independent identity,
+// conflict, provenance, and relationship rules. It never translates Google
+// wire types or chooses a serving database.
 package importer
 
 import (
-	"context"
 	"crypto/sha256"
-	"database/sql"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 
 	"openmaps/internal/places"
 )
-
-//go:embed schema.sql
-var schema string
 
 type Record struct {
 	Source       string                     `json:"source"`
@@ -87,7 +80,7 @@ type ResolvedBundle struct {
 }
 
 // PublicID bootstraps identity from an immutable, source-qualified anchor. It
-// does not depend on attributes, release, import order, or SQLite row IDs.
+// does not depend on attributes, release, import order, or transient row IDs.
 func PublicID(anchor string) string {
 	h := sha256.Sum256([]byte("openmaps:entity:v1:" + anchor))
 	return "om_" + hex.EncodeToString(h[:16])
@@ -97,8 +90,7 @@ func validLocation(p places.Location) bool {
 	return !math.IsNaN(p.Lat) && !math.IsNaN(p.Lng) && !math.IsInf(p.Lat, 0) && !math.IsInf(p.Lng, 0) && p.Lat >= -90 && p.Lat <= 90 && p.Lng >= -180 && p.Lng <= 180
 }
 
-// normalize applies the identity, conflict, provenance and relationship rules
-// for the retained SQLite oracle and small tests.
+// normalize applies the identity, conflict, provenance and relationship rules.
 func normalize(b Bundle) (ResolvedBundle, error) {
 	var out ResolvedBundle
 	var scope Manifest
@@ -363,95 +355,4 @@ func ResolveEntityGroup(id string, records []Record) (ResolvedEntity, []Resolved
 		provenance = append(provenance, ResolvedProvenance{EntityID: id, Attribute: attribute, SourceKey: record.Key(), SourcePath: record.Paths[attribute]})
 	}
 	return entity, sources, provenance, nil
-}
-
-// Build creates a new database, refusing to overwrite anything. The command
-// writes a temporary sibling and publishes only after this validation succeeds.
-func Build(ctx context.Context, path string, b Bundle) (err error) {
-	normalized, err := normalize(b)
-	if err != nil {
-		return err
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return err
-	}
-	file.Close()
-	defer func() {
-		if err != nil {
-			os.Remove(path)
-		}
-	}()
-	u := url.URL{Scheme: "file", Path: path}
-	q := u.Query()
-	q.Add("_pragma", "foreign_keys(1)")
-	u.RawQuery = q.Encode()
-	db, err := sql.Open("sqlite", u.String())
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	if _, err = db.ExecContext(ctx, schema); err != nil {
-		return err
-	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err = tx.Exec("INSERT INTO metadata VALUES('manifest',?)", string(normalized.Manifest)); err != nil {
-		return err
-	}
-	if _, err = tx.Exec("INSERT INTO metadata VALUES('identities',?)", serialized(normalized.Identities)); err != nil {
-		return err
-	}
-	for _, entity := range normalized.Entities {
-		result, e := tx.Exec(`INSERT INTO entities(id,kind,name,normalized_name,address,website,subtype,lat,lng,closed,attributions) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, entity.ID, entity.Kind, entity.Name, entity.NormalizedName, entity.Address, entity.Website, entity.Subtype, entity.Location.Lat, entity.Location.Lng, entity.Closed, serialized(entity.Attributions))
-		if e != nil {
-			return e
-		}
-		rowid, e := result.LastInsertId()
-		if e != nil {
-			return e
-		}
-		if _, err = tx.Exec("INSERT INTO entity_fts(rowid,name,address,aliases) VALUES(?,?,?,?)", rowid, entity.NormalizedName, places.Normalize(entity.Address), places.Normalize(strings.Join(entity.Aliases, " "))); err != nil {
-			return err
-		}
-	}
-	for _, source := range normalized.Sources {
-		r := source.Record
-		if _, err = tx.Exec("INSERT INTO source_records VALUES(?,?,?,?,?,?,?,?,?)", r.Key(), source.EntityID, r.Source, r.SourceID, r.Release, r.Priority, serialized(r.Attributes), serialized(r.Paths), string(r.Raw)); err != nil {
-			return err
-		}
-	}
-	for _, provenance := range normalized.Provenance {
-		if _, err = tx.Exec("INSERT INTO attribute_provenance VALUES(?,?,?,?)", provenance.EntityID, provenance.Attribute, provenance.SourceKey, provenance.SourcePath); err != nil {
-			return err
-		}
-	}
-	for _, relationship := range normalized.Relationships {
-		if _, err = tx.Exec("INSERT INTO relationships VALUES(?,?,?,?)", relationship.FromID, relationship.ToID, relationship.Kind, relationship.Evidence); err != nil {
-			return err
-		}
-	}
-	if err = tx.Commit(); err != nil {
-		return err
-	}
-	var check string
-	if err = db.QueryRow("PRAGMA integrity_check").Scan(&check); err != nil {
-		return err
-	}
-	if check != "ok" {
-		return fmt.Errorf("integrity: %s", check)
-	}
-	rows, err := db.Query("PRAGMA foreign_key_check")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	if rows.Next() {
-		return fmt.Errorf("foreign key check failed")
-	}
-	return rows.Err()
 }

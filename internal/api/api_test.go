@@ -11,12 +11,11 @@ import (
 	"testing"
 
 	"openmaps/internal/api"
-	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
-	"openmaps/internal/places"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
-func setup(t *testing.T) (api.Handler, *places.Store) {
+func setup(t *testing.T) (api.Handler, *placeduckdb.Store) {
 	t.Helper()
 	raw, err := os.ReadFile("../importer/testdata/small.json")
 	if err != nil {
@@ -26,20 +25,16 @@ func setup(t *testing.T) (api.Handler, *places.Store) {
 	if err = json.Unmarshal(raw, &b); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "api.sqlite")
-	if err = importer.Build(context.Background(), path, b); err != nil {
+	path := filepath.Join(t.TempDir(), "lookup")
+	if err = placeduckdb.Build(context.Background(), path, b); err != nil {
 		t.Fatal(err)
 	}
-	s, err := places.Open(path)
+	s, err := placeduckdb.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	g, err := geocoding.Open(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return api.Handler{Places: s, Geocoding: g}, s
+	return api.Handler{Places: s, Geocoding: s}, s
 }
 func call(h http.Handler, method, path, body, mask string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))

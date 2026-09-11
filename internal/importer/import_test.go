@@ -2,7 +2,6 @@ package importer_test
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,7 +10,7 @@ import (
 	"testing"
 
 	"openmaps/internal/importer"
-	"openmaps/internal/places"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
 func fixture(t *testing.T) importer.Bundle {
@@ -26,13 +25,13 @@ func fixture(t *testing.T) importer.Bundle {
 	}
 	return b
 }
-func build(t *testing.T, b importer.Bundle) (string, *places.Store) {
+func build(t *testing.T, b importer.Bundle) (string, *placeduckdb.Store) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "test.sqlite")
-	if err := importer.Build(context.Background(), path, b); err != nil {
+	path := filepath.Join(t.TempDir(), "lookup")
+	if err := placeduckdb.Build(context.Background(), path, b); err != nil {
 		t.Fatal(err)
 	}
-	s, err := places.Open(path)
+	s, err := placeduckdb.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +58,7 @@ func TestRebuildStableIDsAndSourceEnrichment(t *testing.T) {
 	supplement.Paths = map[string]string{"name": "/official_name"}
 	b.Records = append(b.Records, supplement)
 	b.Identities[supplement.Key()] = "fixture:place:tavern"
-	path, second := build(t, b)
+	_, second := build(t, b)
 	updated, err := second.Details(ctx, old.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -67,22 +66,22 @@ func TestRebuildStableIDsAndSourceEnrichment(t *testing.T) {
 	if updated.ID != old.ID || updated.Name != "White Horse Public House" || updated.Website != old.Website || updated.Location != old.Location {
 		t.Fatalf("identity/enrichment: %+v", updated)
 	}
-	db, err := sql.Open("sqlite", path)
+	evidence, err := second.Evidence(ctx, old.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	var winner string
-	if err = db.QueryRow("SELECT source_key FROM attribute_provenance WHERE entity_id=? AND attribute='name'", old.ID).Scan(&winner); err != nil || winner != supplement.Key() {
-		t.Fatalf("winner %q: %v", winner, err)
+	winner := ""
+	for _, provenance := range evidence.Attributes {
+		if provenance.Attribute == "name" {
+			winner = provenance.SourceKey
+		}
 	}
-	var count int
-	if err = db.QueryRow("SELECT count(*) FROM source_records WHERE entity_id=?", old.ID).Scan(&count); err != nil || count != 2 {
-		t.Fatalf("sources %d: %v", count, err)
+	if winner != supplement.Key() || len(evidence.Sources) != 2 {
+		t.Fatalf("winner=%q sources=%d", winner, len(evidence.Sources))
 	}
 	// Source replacement retains the original anchor even after it leaves the input.
 	b.Records = slices.DeleteFunc(b.Records, func(r importer.Record) bool { return r.Key() == "fixture:place:tavern" })
-	b.Relationships = nil
+	b.Relationships = []importer.Relationship{}
 	supplement.Attributes["location"] = json.RawMessage(`{"lat":41.49,"lng":-71.31}`)
 	supplement.Paths["location"] = "/point"
 	b.Records[len(b.Records)-1] = supplement
@@ -127,12 +126,12 @@ func TestInvalidImportNeverPublishes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := fixture(t)
 			tc.change(&b)
-			path := filepath.Join(t.TempDir(), "bad.sqlite")
-			if err := importer.Build(context.Background(), path, b); err == nil {
+			path := filepath.Join(t.TempDir(), "bad")
+			if err := placeduckdb.Build(context.Background(), path, b); err == nil {
 				t.Fatal("expected rejection")
 			}
 			if _, err := os.Stat(path); !os.IsNotExist(err) {
-				t.Fatalf("failed import left a database: %v", err)
+				t.Fatalf("failed import left a generation: %v", err)
 			}
 		})
 	}
@@ -140,10 +139,10 @@ func TestInvalidImportNeverPublishes(t *testing.T) {
 func TestRefusesOverwrite(t *testing.T) {
 	path, s := build(t, fixture(t))
 	s.Close()
-	if err := importer.Build(context.Background(), path, fixture(t)); err == nil {
-		t.Fatal("overwrote database")
+	if err := placeduckdb.Build(context.Background(), path, fixture(t)); err == nil {
+		t.Fatal("overwrote generation")
 	}
 	if _, err := os.Stat(path); err != nil {
-		t.Fatal("removed existing database", err)
+		t.Fatal("removed existing generation", err)
 	}
 }

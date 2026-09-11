@@ -2,8 +2,8 @@
 
 This directory contains the checked-in inputs needed to reproduce Open Maps data
 artifacts. These are maintained source configurations, not generated lockfiles or
-runtime server settings. Generated downloads, databases, tiles and receipts belong
-in the ignored `data/` directory.
+runtime server settings. Generated downloads, lookup generations, tiles and
+receipts belong in the ignored `data/` directory.
 
 ## Places and geocoding
 
@@ -12,9 +12,9 @@ Places and geocoding. It pins the Overture releases, source URLs, bounding boxes
 source checksums, attribution and normalized bundle checksum.
 `cmd/places-geocoding-prepare` uses it to acquire and normalize source records;
 `cmd/places-geocoding-import` uses it to verify the bundle before building
-SQLite. It is intentionally shared because the two domains
-use the same businesses, addresses, areas and streets while retaining distinct API
-behavior.
+normalized Parquet and its DuckDB serving catalog. It is intentionally shared
+because the two domains use the same businesses, addresses, areas and streets
+while retaining distinct API behavior.
 
 Normal builds must not edit this file to bypass a checksum mismatch. The explicit
 maintainer workflow for an independently reviewed source change is

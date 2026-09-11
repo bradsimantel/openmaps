@@ -8,27 +8,26 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"openmaps/internal/api"
-	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
 	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
-func TestNewportParity(t *testing.T) {
-	baselinePath := os.Getenv("OPENMAPS_BASELINE")
+func TestNewportGolden(t *testing.T) {
 	bundlePath := os.Getenv("OPENMAPS_BUNDLE")
-	if baselinePath == "" || bundlePath == "" {
-		t.Fatal("set absolute OPENMAPS_BASELINE and OPENMAPS_BUNDLE")
+	if bundlePath == "" {
+		t.Fatal("set absolute OPENMAPS_BUNDLE")
 	}
 	raw, err := os.ReadFile(bundlePath)
 	if err != nil {
@@ -47,54 +46,36 @@ func TestNewportParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer candidate.Close()
-	legacyPlaces, err := places.Open(baselinePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer legacyPlaces.Close()
-	legacyGeocoding, err := geocoding.Open(context.Background(), baselinePath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx := context.Background()
-	legacyHTTP := api.Handler{Places: legacyPlaces, Geocoding: legacyGeocoding}
-	candidateHTTP := api.Handler{Places: candidate, Geocoding: candidate}
-	compareHTTP := func(method, target, body, mask string) {
-		t.Helper()
-		want := request(legacyHTTP, method, target, body, mask)
-		got := request(candidateHTTP, method, target, body, mask)
-		for _, header := range []string{"Content-Type", "Allow"} {
-			if got.Header().Get(header) != want.Header().Get(header) {
-				t.Fatalf("%s %s header %s differs: DuckDB=%q SQLite=%q", method, target, header, got.Header().Get(header), want.Header().Get(header))
-			}
-		}
-		if got.Code != want.Code || got.Body.String() != want.Body.String() {
-			t.Fatalf("%s %s differs\nDuckDB: %d %s\nSQLite: %d %s", method, target, got.Code, got.Body.String(), want.Code, want.Body.String())
-		}
-	}
 	for _, check := range importer.NewportPlacesQueryChecks() {
-		body, _ := json.Marshal(map[string]string{"input": check.Input})
-		compareHTTP(http.MethodPost, "/v1/places:autocomplete", string(body), "")
-		want, queryErr := legacyPlaces.Autocomplete(ctx, check.Input)
+		got, queryErr := candidate.Autocomplete(ctx, check.Input)
 		if queryErr != nil {
 			t.Fatal(queryErr)
 		}
-		got, queryErr := candidate.Autocomplete(ctx, check.Input)
-		if queryErr != nil || !reflect.DeepEqual(got, servingProjection(want)) {
-			t.Fatalf("autocomplete %q differs: %v\nDuckDB: %+v\nlegacy: %+v", check.Input, queryErr, got, want)
+		if check.Empty && len(got) != 0 || !check.Empty && (len(got) == 0 || check.FirstID != "" && got[0].ID != check.FirstID || check.FirstKind != "" && got[0].Kind != check.FirstKind) {
+			t.Fatalf("autocomplete %q failed golden expectation: %+v", check.Input, got)
 		}
-		for _, entity := range want {
-			compareHTTP(http.MethodGet, "/v1/places/"+entity.ID, "", "*")
+		for _, entity := range got {
 			detail, detailErr := candidate.Details(ctx, entity.ID)
-			if detailErr != nil || !reflect.DeepEqual(detail, entity) {
-				t.Fatalf("details %s differs: %v\nDuckDB: %+v\nlegacy: %+v", entity.ID, detailErr, detail, entity)
+			projection := places.Entity{ID: detail.ID, Kind: detail.Kind, Name: detail.Name, Address: detail.Address, Subtype: detail.Subtype}
+			if detailErr != nil || !reflect.DeepEqual(projection, entity) || len(detail.Attributions) == 0 {
+				t.Fatalf("details %s mismatch: %+v %v", entity.ID, detail, detailErr)
 			}
 		}
 	}
 	var suite struct {
 		Cases []struct {
-			Address string
-			LatLng  []float64
+			Name, Address, Outcome string
+			LatLng                 []float64
+			IDs                    []string
+			Distances              []float64
+			Partial                bool
+		}
+		Evidence []struct {
+			ID             string
+			SourceKey      string `json:"source_key"`
+			Number, Street string
+			Location       places.Location
 		}
 	}
 	raw, err = os.ReadFile(filepath.Join("..", "..", "geocoding", "testdata", "newport.json"))
@@ -105,34 +86,74 @@ func TestNewportParity(t *testing.T) {
 		t.Fatal("decode geocoding suite", err)
 	}
 	for _, test := range suite.Cases {
+		var gotErr error
+		var gotIDs []string
+		var gotOutcome string
+		var partial bool
+		var distances []float64
 		if test.Address != "" {
-			compareHTTP(http.MethodGet, "/maps/api/geocode/json?address="+url.QueryEscape(test.Address), "", "")
-			want, wantErr := legacyGeocoding.Forward(ctx, test.Address)
-			got, gotErr := candidate.Forward(ctx, test.Address)
-			if errorString(gotErr) != errorString(wantErr) || !reflect.DeepEqual(got, want) {
-				t.Fatalf("forward %q differs\nDuckDB: %+v %v\nlegacy: %+v %v", test.Address, got, gotErr, want, wantErr)
+			response, err := candidate.Forward(ctx, test.Address)
+			gotErr, gotOutcome = err, response.Outcome
+			for _, result := range response.Results {
+				gotIDs = append(gotIDs, result.Entity.ID)
+				partial = result.Partial
+			}
+		} else {
+			response, err := candidate.Reverse(ctx, places.Location{Lat: test.LatLng[0], Lng: test.LatLng[1]})
+			gotErr, gotOutcome = err, response.Outcome
+			for _, result := range response.Results {
+				gotIDs = append(gotIDs, result.Entity.ID)
+				distances = append(distances, *result.DistanceMeters)
 			}
 		}
-		if len(test.LatLng) == 2 {
-			compareHTTP(http.MethodGet, fmt.Sprintf("/maps/api/geocode/json?latlng=%g%%2C%g", test.LatLng[0], test.LatLng[1]), "", "")
-			point := places.Location{Lat: test.LatLng[0], Lng: test.LatLng[1]}
-			want, wantErr := legacyGeocoding.Reverse(ctx, point)
-			got, gotErr := candidate.Reverse(ctx, point)
-			if errorString(gotErr) != errorString(wantErr) || !reflect.DeepEqual(got, want) {
-				t.Fatalf("reverse %v differs\nDuckDB: %+v %v\nlegacy: %+v %v", point, got, gotErr, want, wantErr)
+		wantError := test.Outcome == "invalid_input" || test.Outcome == "unsupported_input"
+		if (gotErr != nil) != wantError || gotOutcome != test.Outcome || !slices.Equal(gotIDs, test.IDs) || partial != test.Partial {
+			t.Fatalf("%s: outcome=%s ids=%v partial=%v err=%v", test.Name, gotOutcome, gotIDs, partial, gotErr)
+		}
+		for i := range distances {
+			if math.Abs(distances[i]-test.Distances[i]) > 0.00001 {
+				t.Fatalf("%s distance[%d]=%.6f want %.6f", test.Name, i, distances[i], test.Distances[i])
 			}
 		}
 	}
-	compareHTTP(http.MethodPost, "/v1/places:autocomplete", `{"input":"White","locationBias":{"circle":{"center":{"latitude":41.49,"longitude":-71.31},"radius":100}}}`, "")
-	compareHTTP(http.MethodGet, "/maps/api/geocode/json?address=50+Bellevue+Avenue&units=imperial", "", "")
-	compareHTTP(http.MethodGet, "/v1/places/om_missing", "", "*")
-}
-
-func errorString(err error) string {
-	if err == nil {
-		return ""
+	for _, expected := range suite.Evidence {
+		evidence, evidenceErr := candidate.Evidence(ctx, expected.ID)
+		if evidenceErr != nil || evidence.Entity.Location != expected.Location {
+			t.Fatalf("evidence %s: %+v %v", expected.ID, evidence, evidenceErr)
+		}
+		found := false
+		for _, source := range evidence.Sources {
+			if source.SourceKey == expected.SourceKey {
+				var feature struct {
+					Properties struct{ Number, Street string }
+					Geometry   struct{ Coordinates []float64 }
+				}
+				if json.Unmarshal(source.Raw, &feature) != nil || len(feature.Geometry.Coordinates) != 2 {
+					t.Fatalf("invalid original source evidence for %s", expected.ID)
+				}
+				found = feature.Properties.Number == expected.Number && feature.Properties.Street == expected.Street &&
+					feature.Geometry.Coordinates[0] == expected.Location.Lng && feature.Geometry.Coordinates[1] == expected.Location.Lat
+			}
+		}
+		if !found || len(evidence.Attributes) == 0 {
+			t.Fatalf("incomplete original evidence for %s", expected.ID)
+		}
 	}
-	return err.Error()
+	handler := api.Handler{Places: candidate, Geocoding: candidate}
+	for _, test := range []struct {
+		method, target, body, mask string
+		status                     int
+		contains                   string
+	}{
+		{http.MethodPost, "/v1/places:autocomplete", `{"input":"White","locationBias":{}}`, "", 400, "INVALID_ARGUMENT"},
+		{http.MethodGet, "/maps/api/geocode/json?address=50+Bellevue+Avenue&units=imperial", "", "", 200, "INVALID_REQUEST"},
+		{http.MethodGet, "/v1/places/om_missing", "", "*", 404, "NOT_FOUND"},
+	} {
+		response := request(handler, test.method, test.target, test.body, test.mask)
+		if response.Code != test.status || !strings.Contains(response.Header().Get("Content-Type"), "application/json") || !strings.Contains(response.Body.String(), test.contains) {
+			t.Fatalf("%s: status=%d body=%s", test.target, response.Code, response.Body.String())
+		}
+	}
 }
 
 type latency struct{ p50, p95, p99 time.Duration }

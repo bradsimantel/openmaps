@@ -11,6 +11,6 @@ packages and payloads; landmark reindexing requires proof that additions do not
 connect to finite old components. A failed proof requires full recomputation.
 Resource limits and the sampled supervisor are documented with the workflow.
 
-The prior SQLite `routing-prepared-v*` files, mapped numeric arrays and
+The prior `routing-prepared-v*` files, mapped numeric arrays and
 `cmd/routing-prepare` are removed. Their construction and residency reports remain
 historical records in `docs/log/0021` through `docs/log/0025`.

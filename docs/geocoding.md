@@ -108,7 +108,7 @@ layout as state and locality; other countries/layouts do not receive inferred
 administrative types. It checks source labels against the selected entity, and
 does not combine components from losing source records. Unknown providers or
 conflicting labels return an empty component array. This read-only projection
-works with both retained schema-1 snapshots and newly built snapshots; components
+works with every verified normalized Parquet/DuckDB generation; components
 are not a new persisted attribute or a change to Places responses. See the
 [historical component decision and verification](log/0012-geocoding-address-components.md).
 
@@ -166,7 +166,7 @@ Lookup requests carry `X-OpenMaps-Lookup-Snapshot` in direct and selection modes
 and rollback use the [refresh workflow](refresh.md); see
 [Scout routing](routing-scout.md).
 
-Both retained snapshots have 8,545 standalone addresses, of which 8,407 satisfy
+The pinned Newport generation has 8,545 standalone addresses, of which 8,407 satisfy
 the implemented grammar. The other 138 retain Places behavior but are excluded
 from both geocoding directions. These are mostly fractional, ranged or leading
 letter/gate labels. This exclusion is an implementation limit. Missing unit and
@@ -186,15 +186,15 @@ Routine tests are synthetic and offline. The retained-data benchmark is an
 explicit integration test, also offline after preparation:
 
 ```sh
-OPENMAPS_BASELINE="$PWD/data/openmaps.sqlite" \
-OPENMAPS_CANDIDATE="$PWD/data/newport-2026-07-22/openmaps-reviewed.sqlite" \
-  go test -tags=integration ./internal/importer -run TestNewportGeocoding -count=1 -v
+OPENMAPS_BUNDLE="$PWD/data/newport.json" \
+  go test -tags=integration ./internal/placesgeocoding/duckdb \
+  -run TestNewportGolden -count=1 -v
 ```
 
-It exercises the HTTP handler, status and result fields, distances, identity and
-source coordinates on both files. Five executions per case provide a small
-local timing sample. Snapshot validation checks referential integrity and public
-anchors; all address entities are compared across snapshots and changes counted.
+It builds a fresh generation and exercises deterministic direct expectations for
+autocomplete, details, geocoding outcomes, IDs, distances, identity, provenance
+and source coordinates. Generation validation checks checksums, row counts,
+referential integrity and public anchors.
 Large inputs and generated reports stay in ignored `data/`. It does not download
 data, activate snapshots or claim browser coverage. Real browser verification
 uses the installed Codex in-app browser, not an npm or standalone runner.
@@ -215,5 +215,5 @@ Scout route distance and duration exclude unverified off-road gaps. Its coordina
 coverage does not expand Newport geocoding coverage or establish surveyed property
 entrances. API-layer address resolution adds no address records, entrances or
 access edges to Scout. The former graph-coupled automatic address routing and
-SQLite graph versions are historical implementations, removed in the Go Scout
+database-backed graph versions are historical implementations, removed in the Go Scout
 migration.

@@ -6,8 +6,9 @@ HTTP translation and snapshot lifetime. It does not execute Valhalla's routing
 engine. Scout accepts only WGS84 coordinates; the API layer may obtain them from
 literal coordinates, an Open Maps Place ID or one exact address match before
 calling Scout. Places, geocoding, basemap serving and Scout share `cmd/server`.
-Lookup SQLite and routing pages have independent snapshot selections. The retired
-SQLite/PBF graph engines and transient provider backends are no longer built.
+Lookup Parquet/DuckDB generations and routing pages have independent snapshot
+selections. Retired graph engines and transient provider backends are no longer
+built.
 The engine lives directly in `internal/routing`. The separate
 `internal/routing/qualification` package supports offline coverage checks and
 HTTP verification; it is not imported by the production server.
@@ -363,7 +364,7 @@ OPENMAPS_SCOUT_LANDMARKS="$PWD/data/scout-national-20260909/regional-landmarks-v
 after the run; a rotated provider generation must fail. Preparation and landmark
 publication remain immutable. Failed output directories must not be selected.
 
-Historical milestone commands may reference deleted Python or SQLite tools; use
+Historical milestone commands may reference deleted tools; use
 this page for the supported workflow. The [historical Go migration record](log/0035-scout-go-migration.md)
 records deleted components, updated verification and remaining limitations. The
 [historical package cleanup](log/0037-routing-package-and-acquisition-handoff.md)
