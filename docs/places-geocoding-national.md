@@ -17,9 +17,10 @@ memory limit is a reviewed configuration change. Remote Parquet is range-read
 with its ETag in `If-Match`; a changed object or a server that ignores byte
 ranges aborts.
 
-The initial national scope means the 50 states and District of Columbia. Three
-closed WGS84 longitude/latitude envelopes cover the contiguous states, Alaska,
-and Hawaii. Addresses and divisions must carry Overture country `US`.
+The initial national scope means the 50 states and District of Columbia. Four
+closed WGS84 longitude/latitude envelopes cover the contiguous states, Alaska
+on both sides of the antimeridian, and Hawaii. Addresses and divisions must
+carry Overture country `US`.
 Businesses with a country-bearing first address must also carry `US`; a
 business without source country is retained when its point is inside an
 envelope. Named road segments have no supported country field, so they are
@@ -97,7 +98,10 @@ coefficient named `estimated_peak_bytes_per_candidate_row` is conservatively
 applied to the larger rows-read count, then increased by a measured 10% safety
 margin. The preflight does not start a build. A
 build is refused when its conservative estimate would leave less than the
-checked-in 60 GiB free-disk floor. Do not
+checked-in 60 GiB free-disk floor on either the preparation-data volume or the
+generation-output volume. When those are different filesystems, each is required
+to pass the complete conservative estimate because temporary preparation and
+generation files coexist. Do not
 run the following until that preflight passes on a suitably provisioned host:
 
 ```sh

@@ -37,8 +37,11 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Schema != 2 || manifest.Streaming.BatchRows != 2048 || len(manifest.Scopes) != 3 {
+	if manifest.Schema != 2 || manifest.Streaming.BatchRows != 2048 || len(manifest.Scopes) != 4 {
 		t.Fatalf("unexpected streaming config: %+v", manifest)
+	}
+	if !insideScopes([2]float64{173.18, 52.88}, manifest.Scopes) {
+		t.Fatal("national scope omits eastern-hemisphere Alaska")
 	}
 	manifest.Scopes[1].BBox = manifest.Scopes[0].BBox
 	invalid := filepath.Join(t.TempDir(), "overlap.json")

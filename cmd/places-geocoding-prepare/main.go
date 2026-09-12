@@ -76,16 +76,34 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		free, err := freeDisk(*data)
+		dataFree, err := freeDisk(*data)
 		if err != nil {
 			return err
 		}
 		floor := m.Streaming.FreeDiskFloorGiB << 30
-		if *streamOut != "" && free-preflightResult.EstimatedPeakWorkspaceBytes < floor {
-			return fmt.Errorf("estimated build would cross free-disk floor: free=%d estimate=%d floor=%d", free, preflightResult.EstimatedPeakWorkspaceBytes, floor)
+		outputFree := dataFree
+		outputParent := *data
+		if *streamOut != "" {
+			output, absErr := filepath.Abs(*streamOut)
+			if absErr != nil {
+				return absErr
+			}
+			outputParent = filepath.Dir(output)
+			if err = os.MkdirAll(outputParent, 0755); err != nil {
+				return err
+			}
+			if outputFree, err = freeDisk(outputParent); err != nil {
+				return err
+			}
+			if err = requireDiskHeadroom("preparation", dataFree, preflightResult.EstimatedPeakWorkspaceBytes, floor); err != nil {
+				return err
+			}
+			if err = requireDiskHeadroom("output", outputFree, preflightResult.EstimatedPeakWorkspaceBytes, floor); err != nil {
+				return err
+			}
 		}
 		if *preflight || *streamOut == "" {
-			out, _ := json.MarshalIndent(map[string]any{"preflight": preflightResult, "free_disk_bytes": free, "free_disk_floor_bytes": floor}, "", "  ")
+			out, _ := json.MarshalIndent(map[string]any{"preflight": preflightResult, "free_disk_bytes": dataFree, "preparation_free_disk_bytes": dataFree, "output_free_disk_bytes": outputFree, "output_parent": outputParent, "free_disk_floor_bytes": floor}, "", "  ")
 			fmt.Println(string(out))
 		}
 		if *streamOut == "" {
@@ -122,7 +140,7 @@ func run() error {
 			return err
 		}
 		phases["total"] = time.Since(started).Seconds()
-		report := map[string]any{"preflight": preflightResult, "preparation": audit, "build_phase_seconds": phases, "artifact": artifact, "free_disk_before": free}
+		report := map[string]any{"preflight": preflightResult, "preparation": audit, "build_phase_seconds": phases, "artifact": artifact, "free_disk_before": dataFree, "preparation_free_disk_before": dataFree, "output_free_disk_before": outputFree, "output_parent": outputParent}
 		if *auditPath != "" {
 			if err = importer.WriteJSON(*auditPath, report); err != nil {
 				return err
@@ -176,4 +194,11 @@ func freeDisk(path string) (int64, error) {
 		return 0, err
 	}
 	return int64(stat.Bavail) * int64(stat.Bsize), nil
+}
+
+func requireDiskHeadroom(volume string, free, estimate, floor int64) error {
+	if free < estimate || free-estimate < floor {
+		return fmt.Errorf("estimated build would cross %s-volume free-disk floor: free=%d estimate=%d floor=%d", volume, free, estimate, floor)
+	}
+	return nil
 }

@@ -145,6 +145,9 @@ func streamingAssets(catalog string, input Input, scopes []Scope) ([]string, err
 	for asset := range set {
 		out = append(out, asset)
 	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no catalog assets for %s", sourceKind(input.URL))
+	}
 	sort.Strings(out)
 	return out, nil
 }

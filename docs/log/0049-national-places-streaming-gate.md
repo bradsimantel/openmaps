@@ -6,7 +6,7 @@
 
 **Host:** Apple arm64, 16 GiB RAM, macOS
 
-**Outcome:** bounded streaming implementation qualified at a measured 6.107% candidate-row gate; no national build started
+**Outcome:** bounded streaming implementation qualified at a measured 6.105% candidate-row gate; no national build started
 
 ## Scope and selection
 
@@ -18,8 +18,8 @@ multiple state and locality boundaries, named roads, boundary-crossing road
 geometry, and the complete global division set needed for recursive parents.
 
 The slice was selected from Parquet footer statistics, not intuition. Its
-14,212,721 geographic candidate rows are 6.10685% of the national config's
-232,734,199. The exact catalog, selected object URL sets, and URL/content-length/
+14,212,721 geographic candidate rows are 6.10467% of the national config's
+232,817,324. The exact catalog, selected object URL sets, and URL/content-length/
 ETag version sets are SHA-256 pinned in
 `config/places-geocoding-us-gate.json`. The national comparison below uses
 `config/places-geocoding-us.json`; both pin the same Overture release and
@@ -202,28 +202,34 @@ never crossed the 60 GiB disk reserve and left no published output.
 
 ## National estimate and readiness
 
-The final national preflight reads exact metadata for 6 place, 12 address, one
-division, and 28 segment objects. It reports 232,734,199 geographic candidate
-rows, 236,996,512 rows actually read, and a calibrated peak workspace estimate
-of 400,429,306,675 bytes. Current free space was 171,113,017,344 bytes, so this
+Pre-merge review found that the original negative-longitude Alaska envelope
+omitted the state's eastern-hemisphere Aleutian extent. The final national
+configuration adds the disjoint `[172, 51, 180, 54]` envelope and refreshes its
+exact asset/version pins. This selects one additional place object and one
+additional segment object; the gate build itself is unchanged.
+
+The final national preflight reads exact metadata for 7 place, 12 address, one
+division, and 29 segment objects. It reports 232,817,324 geographic candidate
+rows, 237,057,825 rows actually read, and a calibrated peak workspace estimate
+of 400,532,901,120 bytes. Current free space was 173,802,328,064 bytes, so this
 workstation cannot pass `estimate + 60 GiB <= free`; no national build began.
 
 Scaling generation bytes by the measured candidate-row factor
-`232,734,199 / 14,212,721 = 16.3751` gives:
+`232,817,324 / 14,212,721 = 16.3809` gives:
 
 | Retained component | National point estimate |
 | --- | ---: |
-| Normalized Parquet | 64.17 GB |
+| Normalized Parquet | 64.20 GB |
 | Serving catalog | 27.86 GB |
-| **One lookup generation** | **92.03 GB** |
-| Lookup + 40 GB routing + 20 GB basemap | **152.03 GB** |
-| Two lookup generations + routing + basemap | **244.06 GB** |
+| **One lookup generation** | **92.06 GB** |
+| Lookup + 40 GB routing + 20 GB basemap | **152.06 GB** |
+| Two lookup generations + routing + basemap | **244.12 GB** |
 
-Scaling observed workspace by rows actually read gives 370.08 GB; the calibrated
-preflight's 400.43 GB is the operational value. A first build alongside the
+Scaling observed workspace by rows actually read gives 370.17 GB; the calibrated
+preflight's 400.53 GB is the operational value. A first build alongside the
 40 GB routing and 20 GB basemap assumptions plus the 60 GiB reserve needs at
-least 524.85 GB free. Rebuilding while retaining a prior 92.03 GB lookup needs
-at least 616.88 GB free. The recommendation is a 1 TB build volume with at least
+least 524.96 GB free. Rebuilding while retaining a prior 92.06 GB lookup needs
+at least 617.02 GB free. The recommendation is a 1 TB build volume with at least
 650 GB free at start and 32 GiB RAM; retain the 6 GiB process guard initially
 and raise it only from measured evidence.
 

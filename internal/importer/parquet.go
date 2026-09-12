@@ -315,9 +315,6 @@ func catalogAssets(path, kind string, bounds [4]float64) ([]string, error) {
 			return nil, e
 		}
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("no catalog assets for %s", kind)
-	}
 	sort.Strings(out)
 	return unique(out), nil
 }
