@@ -56,6 +56,13 @@ refuses to overwrite a generation directory and atomically initializes or
 advances `data/lookup-selection.json`. DuckDB build and runtime disable extension
 autoload and use no downloadable extensions.
 
+Nationwide candidate builds use a separate checked-in scope and stream pinned
+Overture Parquet directly through spillable DuckDB preparation and the same
+normalized-Parquet/catalog builder; they never create a national transport
+JSON document. The [national build guide](docs/places-geocoding-national.md)
+defines its pins, geographic rules, safety preflight, limitations, and guarded
+commands. The regional Newport workflow above is unchanged.
+
 Open **http://127.0.0.1:8080**. Try `White Horse`, `50 Bellevue`, `Thames`, or
 `Newport`. Click a suggestion; keyboard users can press Down from the input and
 Enter to select. Names, coordinates, available address and website come from the
@@ -239,7 +246,7 @@ are never used as lookup data. Upstream notices are linked on the demo's
 
 ```text
 cmd/server/         Go HTTP service
-cmd/places-geocoding-prepare/ Pinned Overture acquisition, normalization and selection audit
+cmd/places-geocoding-prepare/ Regional preparation plus national-safe pinned Parquet streaming/preflight
 cmd/places-geocoding-import/ Streaming normalized Parquet and DuckDB generation builder/selector
 cmd/places-geocoding-duckdb/ Direct production generation builder used for controlled builds
 cmd/scout-acquire/  Complete provider metadata, selection, resumable downloads

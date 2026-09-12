@@ -32,6 +32,7 @@ type Report struct {
 	Abort      string           `json:"abort_reason,omitempty"`
 	ReturnCode int              `json:"returncode"`
 	FreeBefore int64            `json:"free_before"`
+	MinFree    int64            `json:"minimum_free_bytes"`
 	FreeAfter  int64            `json:"free_after"`
 	Budgets    map[string]int64 `json:"budgets"`
 	MaxRSS     int64            `json:"child_maxrss_native_units"`
@@ -99,6 +100,7 @@ func Run(ctx context.Context, o Options) (report Report, err error) {
 		report.Abort = "disk reserve already crossed"
 		return report, errors.New(report.Abort)
 	}
+	report.MinFree = report.FreeBefore
 	child := exec.Command(o.Command[0], o.Command[1:]...)
 	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	child.Stdout = o.Stdout
@@ -157,6 +159,9 @@ func Run(ctx context.Context, o Options) (report Report, err error) {
 				report.Abort = "disk observation failed: " + e.Error()
 			} else if free < o.ReserveGiB<<30 {
 				report.Abort = "disk reserve crossed"
+			}
+			if e == nil && free < report.MinFree {
+				report.MinFree = free
 			}
 			if report.Abort != "" {
 				return report, errors.Join(fmt.Errorf("%s", report.Abort), terminate())

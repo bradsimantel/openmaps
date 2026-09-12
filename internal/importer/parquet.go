@@ -30,6 +30,7 @@ type rangeFile struct {
 	size      int64
 	mu        sync.Mutex
 	blocks    map[int64][]byte
+	fetched   int64
 }
 
 const rangeBlock int64 = 1 << 20
@@ -88,6 +89,7 @@ func (r *rangeFile) ReadAt(p []byte, offset int64) (int, error) {
 			if int64(len(block)) != end-start+1 {
 				return n, io.ErrUnexpectedEOF
 			}
+			r.fetched += int64(len(block))
 			if len(r.blocks) >= 64 {
 				clear(r.blocks)
 			}
@@ -98,6 +100,12 @@ func (r *rangeFile) ReadAt(p []byte, offset int64) (int, error) {
 		offset += int64(count)
 	}
 	return n, nil
+}
+
+func (r *rangeFile) releaseCache() {
+	r.mu.Lock()
+	clear(r.blocks)
+	r.mu.Unlock()
 }
 
 // FetchSources downloads missing pinned artifacts. acceptReviewedUpdate is only
@@ -111,6 +119,14 @@ func FetchSources(ctx context.Context, m Manifest, dir string, acceptReviewedUpd
 	}
 	if e := download(ctx, m.Catalog.URL, filepath.Join(dir, m.Catalog.File), m.Catalog.SHA256); e != nil {
 		return m, e
+	}
+	// Streaming manifests range-read their exact catalog-selected Parquet asset
+	// set. They retain only the small pinned catalog locally.
+	if m.Schema == 2 {
+		if acceptReviewedUpdate {
+			return m, fmt.Errorf("streaming source pins may not be updated implicitly")
+		}
+		return m, nil
 	}
 	for index, input := range m.Inputs {
 		path := filepath.Join(dir, input.File)

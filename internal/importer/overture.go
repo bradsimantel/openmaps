@@ -3,6 +3,7 @@ package importer
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -150,7 +151,7 @@ func overtureRecord(f overtureFeature, kind, release string) (Record, error) {
 					r.Paths["address"] = "/properties/addresses/0"
 				}
 			}
-			if len(p.Websites) > 0 && (strings.HasPrefix(p.Websites[0], "http://") || strings.HasPrefix(p.Websites[0], "https://")) {
+			if len(p.Websites) > 0 && validWebsite(p.Websites[0]) {
 				r.Attributes["website"] = rawValue(p.Websites[0])
 				r.Paths["website"] = "/properties/websites/0"
 			}
@@ -169,6 +170,10 @@ func overtureRecord(f overtureFeature, kind, release string) (Record, error) {
 	}
 	r.Attributes["name"] = rawValue(name)
 	return r, nil
+}
+func validWebsite(value string) bool {
+	u, err := url.Parse(value)
+	return err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https")
 }
 func unique(s []string) []string {
 	out := []string{}

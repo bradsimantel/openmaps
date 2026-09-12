@@ -13,9 +13,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
+	"time"
 
 	"openmaps/internal/importer"
+	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
 
 func main() {
@@ -30,6 +33,9 @@ func run() error {
 	fetch := flag.Bool("fetch", false, "download missing pinned source files")
 	acceptSourceUpdate := flag.Bool("accept-reviewed-source-update", false, "maintainer operation: replace reviewed source exports and accept their checksums")
 	acceptNormalizationUpdate := flag.Bool("accept-reviewed-normalization-update", false, "maintainer operation: accept a reviewed normalized-output checksum change without changing source pins")
+	preflight := flag.Bool("preflight", false, "inspect pinned Parquet assets and estimate bounded-build workspace use")
+	streamOut := flag.String("stream-out", "", "build a normalized Parquet/DuckDB generation directly from pinned Parquet (schema 2 configs)")
+	auditPath := flag.String("audit", "", "optional new streaming audit JSON path")
 	flag.Parse()
 	if *acceptSourceUpdate && !*fetch {
 		return fmt.Errorf("-accept-reviewed-source-update requires -fetch")
@@ -40,8 +46,6 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	expected := m.BundleSHA256
-	m.BundleSHA256 = ""
 	if e = os.MkdirAll(*data, 0755); e != nil {
 		return e
 	}
@@ -64,6 +68,75 @@ func run() error {
 			return fmt.Errorf("identities must be an object")
 		}
 	}
+	if m.Schema == 2 {
+		if *acceptSourceUpdate || *acceptNormalizationUpdate {
+			return fmt.Errorf("reviewed checksum updates are not supported by streaming configs")
+		}
+		preflightResult, err := importer.PreflightStreaming(ctx, m, *data)
+		if err != nil {
+			return err
+		}
+		free, err := freeDisk(*data)
+		if err != nil {
+			return err
+		}
+		floor := m.Streaming.FreeDiskFloorGiB << 30
+		if *streamOut != "" && free-preflightResult.EstimatedPeakWorkspaceBytes < floor {
+			return fmt.Errorf("estimated build would cross free-disk floor: free=%d estimate=%d floor=%d", free, preflightResult.EstimatedPeakWorkspaceBytes, floor)
+		}
+		if *preflight || *streamOut == "" {
+			out, _ := json.MarshalIndent(map[string]any{"preflight": preflightResult, "free_disk_bytes": free, "free_disk_floor_bytes": floor}, "", "  ")
+			fmt.Println(string(out))
+		}
+		if *streamOut == "" {
+			return nil
+		}
+		if *auditPath != "" {
+			if _, err = os.Stat(*auditPath); err == nil {
+				return fmt.Errorf("audit output exists: %s", *auditPath)
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+		}
+		manifestRaw, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		var audit importer.StreamingAudit
+		oldMemoryLimit := debug.SetMemoryLimit(m.Streaming.GoMemoryLimitMiB << 20)
+		defer debug.SetMemoryLimit(oldMemoryLimit)
+		phases := map[string]float64{}
+		started := time.Now()
+		err = placeduckdb.BuildStream(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, func(name string, elapsed time.Duration) {
+			phases[name] = elapsed.Seconds()
+		}, func(buildCtx context.Context, sink placeduckdb.StreamWriter) error {
+			var prepareErr error
+			audit, prepareErr = importer.PrepareStreaming(buildCtx, m, *data, sink)
+			return prepareErr
+		})
+		if err != nil {
+			return err
+		}
+		artifact, err := placeduckdb.Verify(*streamOut)
+		if err != nil {
+			return err
+		}
+		phases["total"] = time.Since(started).Seconds()
+		report := map[string]any{"preflight": preflightResult, "preparation": audit, "build_phase_seconds": phases, "artifact": artifact, "free_disk_before": free}
+		if *auditPath != "" {
+			if err = importer.WriteJSON(*auditPath, report); err != nil {
+				return err
+			}
+		}
+		out, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	if *preflight || *streamOut != "" || *auditPath != "" {
+		return fmt.Errorf("streaming flags require a schema 2 config")
+	}
+	expected := m.BundleSHA256
+	m.BundleSHA256 = ""
 	bundle, audit, e := importer.Prepare(ctx, m, *data, ids)
 	if e != nil {
 		return e
@@ -95,4 +168,12 @@ func run() error {
 	out, _ := json.MarshalIndent(audit, "", "  ")
 	fmt.Println(string(out))
 	return nil
+}
+
+func freeDisk(path string) (int64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, err
+	}
+	return int64(stat.Bavail) * int64(stat.Bsize), nil
 }

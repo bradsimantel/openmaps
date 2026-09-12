@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/zstd"
@@ -117,6 +118,7 @@ func (sink *parquetSink[T]) open() error {
 	sink.file = file
 	sink.out = parquet.NewGenericWriter[T](file,
 		parquet.Compression(&zstd.Codec{Level: zstd.SpeedDefault}),
+		parquet.DictionaryMaxBytes(4<<20),
 		parquet.MaxRowsPerRowGroup(maxRowsPerRowGroup))
 	sink.localRows = 0
 	sink.rotatePending = false
@@ -156,6 +158,104 @@ func (sink *parquetSink[T]) close() error { return sink.closeCurrent() }
 // relationships; Go retains only one entity's contributing source records at
 // a time while writing deterministic Parquet row groups.
 func BuildJSON(ctx context.Context, path string, input io.Reader) (err error) {
+	return buildStaged(ctx, path, "128MB", "256MB", nil, func(stage *sql.DB) (json.RawMessage, int, error) {
+		return stageJSON(ctx, stage, input)
+	})
+}
+
+// StreamWriter is the bounded input seam used by provider adapters. Each call
+// is committed as one transaction; callers choose and test their own batch
+// size. The writer never retains a submitted batch after the call returns.
+type StreamWriter interface {
+	WriteRecords(context.Context, []importer.Record) error
+	WriteRelationships(context.Context, []importer.Relationship) error
+	WriteRejections(context.Context, []importer.Rejection) error
+}
+
+type stageWriter struct{ db *sql.DB }
+
+func (w stageWriter) WriteRecords(ctx context.Context, rows []importer.Record) error {
+	return writeStageBatch(ctx, w.db, "INSERT INTO input_records VALUES (?,?,?,?)", len(rows), func(stmt *sql.Stmt, i int) error {
+		raw, err := json.Marshal(rows[i])
+		if err != nil {
+			return err
+		}
+		_, err = stmt.ExecContext(ctx, rows[i].Key(), rows[i].Kind, rows[i].Priority, string(raw))
+		return err
+	})
+}
+
+func (w stageWriter) WriteRelationships(ctx context.Context, rows []importer.Relationship) error {
+	return writeStageBatch(ctx, w.db, "INSERT INTO input_relationships VALUES (?,?,?,?)", len(rows), func(stmt *sql.Stmt, i int) error {
+		_, err := stmt.ExecContext(ctx, rows[i].From, rows[i].To, rows[i].Kind, rows[i].Evidence)
+		return err
+	})
+}
+
+func (w stageWriter) WriteRejections(ctx context.Context, rows []importer.Rejection) error {
+	return writeStageBatch(ctx, w.db, "INSERT INTO input_rejections VALUES (?,?,?)", len(rows), func(stmt *sql.Stmt, i int) error {
+		_, err := stmt.ExecContext(ctx, rows[i].SourceKey, rows[i].Reason, string(rows[i].Raw))
+		return err
+	})
+}
+
+func writeStageBatch(ctx context.Context, db *sql.DB, query string, count int, write func(*sql.Stmt, int) error) error {
+	if count == 0 {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx, query)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for i := 0; i < count; i++ {
+		if err = write(stmt, i); err != nil {
+			return err
+		}
+	}
+	if err = stmt.Close(); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// BuildStream constructs a generation directly from a provider adapter. It is
+// the national-safe counterpart to BuildJSON: both paths share the same
+// bounded DuckDB normalization and Parquet/catalog publication code.
+func BuildStream(ctx context.Context, path string, manifest json.RawMessage, identities map[string]string, memoryLimit, catalogMemoryLimit string, observe func(string, time.Duration), produce func(context.Context, StreamWriter) error) error {
+	if len(manifest) == 0 || !json.Valid(manifest) || memoryLimit == "" || catalogMemoryLimit == "" || produce == nil {
+		return fmt.Errorf("valid manifest, memory limits and stream producer are required")
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, manifest); err != nil {
+		return err
+	}
+	manifest = compact.Bytes()
+	return buildStaged(ctx, path, memoryLimit, catalogMemoryLimit, observe, func(stage *sql.DB) (json.RawMessage, int, error) {
+		writer := stageWriter{db: stage}
+		identityRows := make([][2]string, 0, len(identities))
+		for source, target := range identities {
+			identityRows = append(identityRows, [2]string{source, target})
+		}
+		if err := writeStageBatch(ctx, stage, "INSERT INTO input_identities VALUES (?,?)", len(identityRows), func(stmt *sql.Stmt, i int) error {
+			_, err := stmt.ExecContext(ctx, identityRows[i][0], identityRows[i][1])
+			return err
+		}); err != nil {
+			return nil, 0, err
+		}
+		if err := produce(ctx, writer); err != nil {
+			return nil, 0, err
+		}
+		return manifest, 1, nil
+	})
+}
+
+func buildStaged(ctx context.Context, path, memoryLimit, catalogMemoryLimit string, observe func(string, time.Duration), stageInput func(*sql.DB) (json.RawMessage, int, error)) (err error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -176,7 +276,7 @@ func BuildJSON(ctx context.Context, path string, input io.Reader) (err error) {
 
 	stagePath := filepath.Join(temp, "normalize.duckdb")
 	spill := filepath.Join(temp, "normalize-spill")
-	dsn := stagePath + "?threads=1&memory_limit=128MB&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
+	dsn := stagePath + "?threads=1&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
 	stage, err := sql.Open("duckdb", dsn)
 	if err != nil {
 		return err
@@ -190,9 +290,13 @@ CREATE TABLE input_relationships(from_key VARCHAR,to_key VARCHAR,kind VARCHAR,ev
 CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`); err != nil {
 		return err
 	}
-	manifestRaw, schemaVersion, err := stageJSON(ctx, stage, input)
+	inputStarted := time.Now()
+	manifestRaw, schemaVersion, err := stageInput(stage)
 	if err != nil {
 		return err
+	}
+	if observe != nil {
+		observe("input_staging", time.Since(inputStarted))
 	}
 	if schemaVersion != 1 || len(manifestRaw) == 0 || !json.Valid(manifestRaw) {
 		return fmt.Errorf("unsupported or empty bundle")
@@ -201,6 +305,7 @@ CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`);
 	if err = json.Unmarshal(manifestRaw, &scope); err != nil {
 		return err
 	}
+	normalizeStarted := time.Now()
 	if err = validateStage(ctx, stage); err != nil {
 		return err
 	}
@@ -426,7 +531,11 @@ ORDER BY 1,2,3,4`)
 	}
 	_ = os.Remove(stagePath)
 	_ = os.RemoveAll(spill)
-	if err = buildIndexJSON(ctx, filepath.Join(temp, IndexName), filepath.Join(temp, "entities*.parquet"), entities.rows, manifestRaw, identitiesJSON); err != nil {
+	if observe != nil {
+		observe("normalization_parquet", time.Since(normalizeStarted))
+	}
+	catalogStarted := time.Now()
+	if err = buildIndexJSONWithMemoryLimit(ctx, filepath.Join(temp, IndexName), filepath.Join(temp, "entities*.parquet"), entities.rows, manifestRaw, identitiesJSON, catalogMemoryLimit, shardedSchema); err != nil {
 		return fmt.Errorf("build serving catalog: %w", err)
 	}
 	indexDigest, err := importer.Checksum(filepath.Join(temp, IndexName))
@@ -434,11 +543,18 @@ ORDER BY 1,2,3,4`)
 		return err
 	}
 	manifest.Files = append(manifest.Files, File{Name: IndexName, Role: "serving", SHA256: indexDigest, Rows: entities.rows})
+	if observe != nil {
+		observe("catalog", time.Since(catalogStarted))
+	}
 	if err = importer.WriteJSON(filepath.Join(temp, ManifestName), manifest); err != nil {
 		return err
 	}
+	verifyStarted := time.Now()
 	if _, err = Verify(temp); err != nil {
 		return err
+	}
+	if observe != nil {
+		observe("validation", time.Since(verifyStarted))
 	}
 	return os.Rename(temp, abs)
 }

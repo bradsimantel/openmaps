@@ -114,7 +114,9 @@ func buildIndexJSON(ctx context.Context, path, entitiesPath string, entityCount 
 
 func buildIndexJSONWithMemoryLimit(ctx context.Context, path, entitiesPath string, entityCount int, sourceManifest json.RawMessage, identitiesJSON, memoryLimit, schemaSQL string) error {
 	spill := filepath.Join(filepath.Dir(path), "duckdb-spill")
-	dsn := path + "?threads=4&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
+	// Catalog construction is an offline, memory-bounded operation. One DuckDB
+	// thread avoids multiplying sort/hash state for large generations.
+	dsn := path + "?threads=1&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
 	db, err := sql.Open("duckdb", dsn)
 	if err != nil {
 		return err
@@ -337,6 +339,20 @@ LEFT JOIN entity_locator e ON e.id=s.entity_id WHERE e.id IS NULL`, sourcesPath)
 	}
 	if badSources != 0 {
 		return manifest, fmt.Errorf("DuckDB source integrity: %d", badSources)
+	}
+	var identitiesJSON string
+	if err = db.QueryRow("SELECT value FROM metadata WHERE key='identities'").Scan(&identitiesJSON); err != nil {
+		return manifest, err
+	}
+	if identitiesJSON == "{}" {
+		var unstableSources int
+		if err = db.QueryRow(`SELECT count(*) FROM read_parquet(?)
+WHERE entity_id<>'om_'||substr(sha256('openmaps:entity:v1:'||source_key),1,32)`, sourcesPath).Scan(&unstableSources); err != nil {
+			return manifest, err
+		}
+		if unstableSources != 0 {
+			return manifest, fmt.Errorf("DuckDB stable source identity: %d", unstableSources)
+		}
 	}
 	var sourceRows, locatedSources, provenanceRows, locatedProvenance int
 	if err = db.QueryRow(`SELECT count(*) FROM read_parquet(?)`, sourcesPath).Scan(&sourceRows); err != nil {

@@ -197,6 +197,78 @@ UNION ALL
 	}
 }
 
+func TestStreamBuildMatchesRegionalBundleInBoundedBatches(t *testing.T) {
+	bundle := fixture(t)
+	root := t.TempDir()
+	regional, streamed := filepath.Join(root, "regional"), filepath.Join(root, "streamed")
+	if err := placeduckdb.Build(context.Background(), regional, bundle); err != nil {
+		t.Fatal(err)
+	}
+	maxBatch := 2
+	if err := placeduckdb.BuildStream(context.Background(), streamed, bundle.Manifest, bundle.Identities, "128MB", "256MB", nil, func(ctx context.Context, out placeduckdb.StreamWriter) error {
+		for end := len(bundle.Records); end > 0; {
+			start := max(0, end-maxBatch)
+			if err := out.WriteRecords(ctx, bundle.Records[start:end]); err != nil {
+				return err
+			}
+			end = start
+		}
+		for i := range bundle.Relationships {
+			if err := out.WriteRelationships(ctx, bundle.Relationships[i:i+1]); err != nil {
+				return err
+			}
+		}
+		for i := range bundle.Rejections {
+			if err := out.WriteRejections(ctx, bundle.Rejections[i:i+1]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want, err := placeduckdb.Verify(regional)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := placeduckdb.Verify(streamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.NormalizedSHA256 != want.NormalizedSHA256 {
+		readMetadata := func(path string) map[string]string {
+			db, openErr := sql.Open("duckdb", ":memory:")
+			if openErr != nil {
+				t.Fatal(openErr)
+			}
+			defer db.Close()
+			rows, queryErr := db.Query("SELECT key,value FROM read_parquet(?) ORDER BY key", filepath.Join(path, placeduckdb.MetadataName))
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			defer rows.Close()
+			values := map[string]string{}
+			for rows.Next() {
+				var key, value string
+				if scanErr := rows.Scan(&key, &value); scanErr != nil {
+					t.Fatal(scanErr)
+				}
+				values[key] = value
+			}
+			return values
+		}
+		t.Fatalf("streamed normalized output differs: got %s want %s\ngot metadata=%q\nwant metadata=%q\ngot files=%+v\nwant files=%+v", got.NormalizedSHA256, want.NormalizedSHA256, readMetadata(streamed), readMetadata(regional), got.Files, want.Files)
+	}
+	store, err := placeduckdb.Open(streamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err = store.Details(context.Background(), importer.PublicID("fixture:place:tavern")); err != nil {
+		t.Fatal("streamed relationship fixture lost its business entity", err)
+	}
+}
+
 func TestSelectionReplacementRollbackAndConcurrentLeases(t *testing.T) {
 	bundle := fixture(t)
 	root := t.TempDir()

@@ -17,12 +17,27 @@ import (
 // Input pins a concrete source export or original download. Bounds use WGS84
 // longitude,latitude. Catalog pins select Overture assets, never "latest".
 type Input struct {
-	File        string    `json:"file"`
-	SHA256      string    `json:"sha256"`
-	Release     string    `json:"release"`
-	URL         string    `json:"url"`
-	BBox        []float64 `json:"bbox,omitempty"`
-	Attribution string    `json:"attribution"`
+	File                string    `json:"file"`
+	SHA256              string    `json:"sha256"`
+	AssetsSHA256        string    `json:"assets_sha256,omitempty"`
+	AssetVersionsSHA256 string    `json:"asset_versions_sha256,omitempty"`
+	Release             string    `json:"release"`
+	URL                 string    `json:"url"`
+	BBox                []float64 `json:"bbox,omitempty"`
+	Attribution         string    `json:"attribution"`
+}
+type Scope struct {
+	Name    string     `json:"name"`
+	BBox    [4]float64 `json:"bbox"`
+	Regions []string   `json:"regions,omitempty"`
+}
+type Streaming struct {
+	BatchRows            int    `json:"batch_rows"`
+	MemoryLimit          string `json:"memory_limit"`
+	CatalogMemoryLimit   string `json:"catalog_memory_limit"`
+	FreeDiskFloorGiB     int64  `json:"free_disk_floor_gib"`
+	GoMemoryLimitMiB     int64  `json:"go_memory_limit_mib"`
+	EstimatedBytesPerRow int64  `json:"estimated_peak_bytes_per_candidate_row"`
 }
 type Manifest struct {
 	Schema          int        `json:"schema"`
@@ -32,6 +47,8 @@ type Manifest struct {
 	BundleSHA256    string     `json:"bundle_sha256,omitempty"`
 	Inputs          []Input    `json:"inputs"`
 	Catalog         *Input     `json:"catalog,omitempty"`
+	Scopes          []Scope    `json:"scopes,omitempty"`
+	Streaming       *Streaming `json:"streaming,omitempty"`
 }
 
 func ReadManifest(path string) (Manifest, error) {
@@ -44,19 +61,49 @@ func ReadManifest(path string) (Manifest, error) {
 	if e != nil {
 		return m, e
 	}
-	if m.Schema != 1 || m.Region == "" || m.CoordinateOrder != "longitude,latitude" || !validBounds(m.BBox) {
-		return m, fmt.Errorf("invalid regional manifest")
+	if (m.Schema != 1 && m.Schema != 2) || m.Region == "" || m.CoordinateOrder != "longitude,latitude" || !validBounds(m.BBox) {
+		return m, fmt.Errorf("invalid Places/geocoding manifest")
 	}
-	if _, e := hex.DecodeString(m.BundleSHA256); e != nil || len(m.BundleSHA256) != 64 {
+	if m.Schema == 1 && (len(m.BundleSHA256) != 64 || !validDigest(m.BundleSHA256)) {
 		return m, fmt.Errorf("invalid normalized bundle SHA-256")
+	}
+	if m.Schema == 2 {
+		if m.BundleSHA256 != "" || m.Catalog == nil || len(m.Scopes) == 0 || m.Streaming == nil || m.Streaming.BatchRows < 1 || m.Streaming.BatchRows > 32768 || m.Streaming.MemoryLimit == "" || m.Streaming.CatalogMemoryLimit == "" || m.Streaming.FreeDiskFloorGiB < 60 || m.Streaming.GoMemoryLimitMiB < 512 || m.Streaming.GoMemoryLimitMiB > 2048 || m.Streaming.EstimatedBytesPerRow < 1 {
+			return m, fmt.Errorf("invalid streaming manifest")
+		}
+		for index, scope := range m.Scopes {
+			if scope.Name == "" || !validBounds(scope.BBox) {
+				return m, fmt.Errorf("invalid streaming scope")
+			}
+			if scope.BBox[0] < m.BBox[0] || scope.BBox[1] < m.BBox[1] || scope.BBox[2] > m.BBox[2] || scope.BBox[3] > m.BBox[3] {
+				return m, fmt.Errorf("streaming scope outside manifest bounds")
+			}
+			for prior := 0; prior < index; prior++ {
+				other := m.Scopes[prior].BBox
+				if scope.BBox[0] < other[2] && scope.BBox[2] > other[0] && scope.BBox[1] < other[3] && scope.BBox[3] > other[1] {
+					return m, fmt.Errorf("streaming scopes overlap")
+				}
+			}
+		}
 	}
 	seen := map[string]bool{}
 	for _, i := range append(append([]Input{}, m.Inputs...), catalogInputs(m)...) {
 		if i.File == "" || filepath.Base(i.File) != i.File || seen[i.File] || i.Release == "" || i.URL == "" || i.Attribution == "" {
 			return m, fmt.Errorf("invalid or duplicate input: %s", i.File)
 		}
-		if _, e := hex.DecodeString(i.SHA256); e != nil || len(i.SHA256) != 64 {
-			return m, fmt.Errorf("invalid SHA-256: %s", i.File)
+		isCatalog := m.Catalog != nil && i.File == m.Catalog.File
+		if m.Schema == 1 || isCatalog {
+			if !validDigest(i.SHA256) {
+				return m, fmt.Errorf("invalid SHA-256: %s", i.File)
+			}
+		} else if i.SHA256 != "" {
+			return m, fmt.Errorf("streaming source %s pins assets, not a regional file", i.File)
+		}
+		if m.Schema == 2 && !isCatalog && !validDigest(i.AssetsSHA256) {
+			return m, fmt.Errorf("invalid asset-set SHA-256: %s", i.File)
+		}
+		if m.Schema == 2 && !isCatalog && !validDigest(i.AssetVersionsSHA256) {
+			return m, fmt.Errorf("invalid asset-version SHA-256: %s", i.File)
 		}
 		if len(i.BBox) != 0 && (len(i.BBox) != 4 || !validBounds([4]float64(i.BBox))) {
 			return m, fmt.Errorf("invalid input bounds")
@@ -64,6 +111,10 @@ func ReadManifest(path string) (Manifest, error) {
 		seen[i.File] = true
 	}
 	return m, nil
+}
+func validDigest(value string) bool {
+	_, err := hex.DecodeString(value)
+	return err == nil && len(value) == 64
 }
 func catalogInputs(m Manifest) []Input {
 	if m.Catalog != nil {

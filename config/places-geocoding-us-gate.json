@@ -1,0 +1,24 @@
+{
+  "schema": 2,
+  "region": "Intermediate scale gate: Washington, Oregon, Idaho, Montana, and Wyoming",
+  "bbox": [-125, 41.9, -104, 49.1],
+  "coordinate_order": "longitude,latitude",
+  "scopes": [
+    {"name": "northwest five-state envelope", "bbox": [-125, 41.9, -104, 49.1], "regions": ["WA", "OR", "ID", "MT", "WY"]}
+  ],
+  "streaming": {
+    "batch_rows": 2048,
+    "memory_limit": "1GB",
+    "catalog_memory_limit": "3GB",
+    "free_disk_floor_gib": 60,
+    "go_memory_limit_mib": 1536,
+    "estimated_peak_bytes_per_candidate_row": 1536
+  },
+  "inputs": [
+    {"file":"place.parquet","assets_sha256":"eb6406e749a914a797e34156bd008b4f3db805b27cf5442e15a9ca9587e2c5a7","asset_versions_sha256":"33dbbd8478d4b41da0b0f7a2a3789ca2916ef9443fb366e28b9850aa6f5b81e0","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=places/type=place/","attribution":"https://docs.overturemaps.org/attribution/"},
+    {"file":"address.parquet","assets_sha256":"41784de8d96586bd9c57d27d387dd0171da0ba78cfae8238c774c94f6d836a36","asset_versions_sha256":"3d571c15cba1275b9c6d600b0d0f0ae194ee6f714f56eab74137bb9c49adcaa0","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=addresses/type=address/","attribution":"https://docs.overturemaps.org/attribution/"},
+    {"file":"division.parquet","assets_sha256":"e68e38e369aa5dc95b0574d4e641f4842373b2da77c2924f14c01e32997426da","asset_versions_sha256":"fd61b96bbfa7d33a59591549a34b7c97ec8db4f68a5eecb7ba50f2e5843f56d5","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=divisions/type=division/","attribution":"https://docs.overturemaps.org/attribution/"},
+    {"file":"segment.parquet","assets_sha256":"90848f9fdc5b259c1ad55a3dabc1e6e7267a90c558b62ed9a7d75eb31bf7ea7e","asset_versions_sha256":"92deb1a5981be2e1960eedb1b2e6fe6b61f8696df0335235f2795aad66250387","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=transportation/type=segment/","attribution":"https://docs.overturemaps.org/attribution/"}
+  ],
+  "catalog":{"file":"collections.parquet","sha256":"35ebf80fa9ae679ce353d7b8a58a95c1522471aec093967614fb1bc96254c71d","release":"2026-08-19.0","url":"https://stac.overturemaps.org/2026-08-19.0/collections.parquet","attribution":"https://docs.overturemaps.org/attribution/"}
+}

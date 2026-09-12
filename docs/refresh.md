@@ -36,8 +36,11 @@ The generation contains:
 
 Normalized Parquet bytes and the logical generation checksum are deterministic.
 DuckDB physical bytes are not assumed reproducible; each derived catalog has its
-own manifest-bound checksum. Both build stages cap DuckDB memory (128 MB for
-normalization staging and 256 MB for the serving catalog) and may spill inside
+own manifest-bound checksum. The regional JSON path caps normalization staging
+at 128 MB; schema 2 streaming manifests explicitly configure preparation and
+normalization (currently 1 GB for the national candidate). Schema 2 catalog
+construction uses one DuckDB thread and its separately configured 3 GB limit;
+regional JSON builds retain their 256 MB catalog limit. All may spill inside
 the temporary generation directory. Interrupted builds leave no published
 generation, and the builder refuses an existing output directory.
 

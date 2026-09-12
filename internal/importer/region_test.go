@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,29 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 )
+
+type capturePreparedSink struct {
+	records       []Record
+	relationships []Relationship
+	rejections    []Rejection
+	maxBatch      int
+}
+
+func (s *capturePreparedSink) WriteRecords(_ context.Context, rows []Record) error {
+	s.maxBatch = max(s.maxBatch, len(rows))
+	s.records = append(s.records, rows...)
+	return nil
+}
+func (s *capturePreparedSink) WriteRelationships(_ context.Context, rows []Relationship) error {
+	s.maxBatch = max(s.maxBatch, len(rows))
+	s.relationships = append(s.relationships, rows...)
+	return nil
+}
+func (s *capturePreparedSink) WriteRejections(_ context.Context, rows []Rejection) error {
+	s.maxBatch = max(s.maxBatch, len(rows))
+	s.rejections = append(s.rejections, rows...)
+	return nil
+}
 
 func testFeature(id string, properties map[string]any) map[string]any {
 	properties["id"] = id
@@ -133,6 +157,74 @@ func TestPreparationCancellation(t *testing.T) {
 		t.Fatal("ignored cancellation")
 	}
 }
+
+func TestStreamingSpillableLinksAndOutsideParentRetention(t *testing.T) {
+	db, err := sql.Open("duckdb", filepath.Join(t.TempDir(), "prepare.duckdb")+"?threads=1&memory_limit=32MB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec(`CREATE TABLE divisions(id VARCHAR,parent VARCHAR,inside BOOLEAN,candidate BOOLEAN,rejection VARCHAR,release VARCHAR,raw VARCHAR);
+CREATE TABLE link_addresses(source_key VARCHAR,address_key VARCHAR,postcode VARCHAR,lat DOUBLE,lng DOUBLE);
+CREATE TABLE link_businesses(source_key VARCHAR,address_key VARCHAR,postcode VARCHAR,lat DOUBLE,lng DOUBLE);`); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	aux := newAuxStager(ctx, db, 2)
+	sink := &capturePreparedSink{}
+	addRecord := func(record Record) error { return sink.WriteRecords(ctx, []Record{record}) }
+	addRejection := func(rejection Rejection) error { return sink.WriteRejections(ctx, []Rejection{rejection}) }
+	scope := []Scope{{Name: "fixture", BBox: [4]float64{-122.5, 47.5, -122.0, 48.0}, Regions: []string{"WA"}}}
+	features := []struct {
+		kind string
+		raw  map[string]any
+	}{
+		{"address", testFeature("address", map[string]any{"number": "1", "street": "Pine St", "postcode": "98101", "country": "US", "address_levels": []any{map[string]any{"value": "WA"}}})},
+		{"place", testFeature("business", map[string]any{"names": map[string]any{"primary": "Fixture Shop"}, "addresses": []any{map[string]any{"freeform": "1 Pine Street", "postcode": "98101", "country": "US", "region": "WA"}}})},
+		{"division", testFeature("child", map[string]any{"names": map[string]any{"primary": "Child"}, "country": "US", "subtype": "locality", "parent_division_id": "parent"})},
+		{"division", testFeature("parent", map[string]any{"names": map[string]any{"primary": "Parent"}, "country": "US", "subtype": "region"})},
+	}
+	for i := 0; i < 3; i++ {
+		features[i].raw["geometry"].(map[string]any)["coordinates"] = []float64{-122.3, 47.7}
+	}
+	features[3].raw["geometry"].(map[string]any)["coordinates"] = []float64{-100, 40}
+	for _, feature := range features {
+		raw, _ := json.Marshal(feature.raw)
+		if err = streamFeature(aux, feature.kind, "fixture-v1", raw, scope, addRecord, addRejection); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = aux.flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	audit := StreamingAudit{ImportedCounts: map[string]int64{}, RejectedCounts: map[string]int64{}, Relationships: map[string]int64{}}
+	if err = emitDivisions(ctx, db, 2, sink, &audit); err != nil {
+		t.Fatal(err)
+	}
+	if err = emitAddressLinks(ctx, db, 2, sink, &audit); err != nil {
+		t.Fatal(err)
+	}
+	if sink.maxBatch > 2 {
+		t.Fatalf("batch exceeded configured bound: %d", sink.maxBatch)
+	}
+	if len(sink.relationships) != 2 {
+		t.Fatalf("missing spillable relationships: %+v", sink.relationships)
+	}
+	want := map[string]bool{"address": false, "parent_area": false}
+	for _, relationship := range sink.relationships {
+		want[relationship.Kind] = true
+	}
+	if !want["address"] || !want["parent_area"] {
+		t.Fatalf("missing relationship kinds: %+v", sink.relationships)
+	}
+	foundParent := false
+	for _, record := range sink.records {
+		foundParent = foundParent || record.SourceID == "parent"
+	}
+	if !foundParent {
+		t.Fatal("outside parent was not retained")
+	}
+}
 func TestTransportationRepresentativeCoordinateBoundaries(t *testing.T) {
 	bounds := [4]float64{-1, -1, 1, 1}
 	for _, tc := range []struct {
@@ -163,6 +255,40 @@ func TestDistanceAndBounds(t *testing.T) {
 		t.Fatal("region edges")
 	}
 }
+
+func TestValidWebsiteRequiresHTTPHost(t *testing.T) {
+	for _, value := range []string{"https://example.com/path", "http://example.com"} {
+		if !validWebsite(value) {
+			t.Fatalf("rejected valid website %q", value)
+		}
+	}
+	for _, value := range []string{"https://", "https:// invalid.example", "mailto:hello@example.com", "example.com"} {
+		if validWebsite(value) {
+			t.Fatalf("accepted invalid website %q", value)
+		}
+	}
+}
+
+func TestSearchTextValidation(t *testing.T) {
+	if recordSearchable(Record{Attributes: map[string]json.RawMessage{"name": rawValue("&"), "aliases": rawValue([]string{"+"})}}) {
+		t.Fatal("accepted record without a searchable token")
+	}
+	if !recordSearchable(Record{Attributes: map[string]json.RawMessage{"name": rawValue("&"), "aliases": rawValue([]string{"Coffee"})}}) {
+		t.Fatal("ignored searchable alias")
+	}
+	var props overtureProperties
+	if err := json.Unmarshal([]byte(`{"names":{"primary":"&","common":[["en","County"]]}}`), &props); err != nil {
+		t.Fatal(err)
+	}
+	if reason, err := divisionSearchRejection(props); err != nil || reason != "" {
+		t.Fatal("searchable division alias rejected", reason, err)
+	}
+	props.Names.Common = json.RawMessage(`[["en","+"]]`)
+	if reason, err := divisionSearchRejection(props); err != nil || reason != "missing_search_text" {
+		t.Fatal("division without tokens accepted", reason, err)
+	}
+}
+
 func TestParquetNamesAndCoordinates(t *testing.T) {
 	type names struct {
 		Primary string             `parquet:"primary"`

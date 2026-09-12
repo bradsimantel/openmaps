@@ -1,0 +1,26 @@
+{
+  "schema": 2,
+  "region": "United States: 50 states and District of Columbia",
+  "bbox": [-180, 18, -66, 72],
+  "coordinate_order": "longitude,latitude",
+  "scopes": [
+    {"name": "contiguous United States envelope", "bbox": [-125, 24, -66, 50]},
+    {"name": "Alaska envelope", "bbox": [-180, 50, -129, 72]},
+    {"name": "Hawaii envelope", "bbox": [-161, 18, -154, 23]}
+  ],
+  "streaming": {
+    "batch_rows": 2048,
+    "memory_limit": "1GB",
+    "catalog_memory_limit": "3GB",
+    "free_disk_floor_gib": 60,
+    "go_memory_limit_mib": 1536,
+    "estimated_peak_bytes_per_candidate_row": 1536
+  },
+  "inputs": [
+    {"file":"place.parquet","assets_sha256":"c8405fecea7d3f3423de58d8ea286305c82320a40fcdac9655c13bc38e6b1b91","asset_versions_sha256":"1a596c93dbda68c0f68117f8def22df834387378427387a3337dd97c585def8b","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=places/type=place/","attribution":"https://docs.overturemaps.org/attribution/"},
+    {"file":"address.parquet","assets_sha256":"b2d8de9e17a54eb8ce6808690a174bd0afb5ad829a4e87ca1f073584d0b675dd","asset_versions_sha256":"60cef2cfda7c641c7f79bf5ca1c64b120a20b38e167efea22822eb3ce4436858","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=addresses/type=address/","attribution":"https://docs.overturemaps.org/attribution/"},
+    {"file":"division.parquet","assets_sha256":"e68e38e369aa5dc95b0574d4e641f4842373b2da77c2924f14c01e32997426da","asset_versions_sha256":"fd61b96bbfa7d33a59591549a34b7c97ec8db4f68a5eecb7ba50f2e5843f56d5","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=divisions/type=division/","attribution":"https://docs.overturemaps.org/attribution/"},
+    {"file":"segment.parquet","assets_sha256":"9e2e89e85fb0d1fc85a06dfbbbf1d9cde08e46b4e47bfbd16a61fd33581a10ee","asset_versions_sha256":"63225e4c6a9e39b4463aec70a2ab771db1efb917d937c53a1a463b7f1d7a69b1","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=transportation/type=segment/","attribution":"https://docs.overturemaps.org/attribution/"}
+  ],
+  "catalog":{"file":"collections.parquet","sha256":"35ebf80fa9ae679ce353d7b8a58a95c1522471aec093967614fb1bc96254c71d","release":"2026-08-19.0","url":"https://stac.overturemaps.org/2026-08-19.0/collections.parquet","attribution":"https://docs.overturemaps.org/attribution/"}
+}
