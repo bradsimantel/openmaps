@@ -62,11 +62,13 @@ division ancestry. Business links require exact normalized number/street and
 five-character postcode, one candidate within 50 spherical metres, and no
 second qualifying candidate. Normalization externally sorts public identity
 groups and retains only one entity's contributing source records in Go. The
-configuration caps both preparation and normalization DuckDB instances at
-1 GB and the Go runtime has a 1.5 GiB soft memory limit. Parquet dictionaries
+national and qualification profiles use four source workers and four DuckDB
+threads, cap each concurrently open preparation/normalization database at
+16 GB, and give the Go runtime a 4 GiB soft memory limit. Parquet dictionaries
 fall back to plain encoding at 4 MiB per column. Serving-catalog construction
-uses one DuckDB thread and a separately pinned 3 GB limit. A process supervisor is still
-required because these component limits are not a hard whole-process RSS bound.
+uses four DuckDB threads and a separately pinned 32 GB limit. A 48 GiB process
+supervisor is still required because these component limits are not a hard
+whole-process RSS bound.
 
 Public IDs continue to hash immutable source-qualified identity anchors.
 Provider source IDs, release, original records, winning-attribute paths,
@@ -76,8 +78,11 @@ groups, and rotate at a row-group boundary near 384 MiB. The output layout is
 the same `entities*`, `source-records*`, `attribute-provenance*`,
 `relationships*`, `rejections*`, `metadata.parquet`, `serving.duckdb`, and
 `manifest.json` layout documented in [refresh and rollback](refresh.md).
-Normalized Parquet checksums are reproducible; physical DuckDB files are bound
-by their own checksums but are compared logically rather than assumed to be
+Normalized Parquet checksums are reproducible. `data_sha256` binds the entities,
+sources, provenance, relationships, and rejections while deliberately excluding
+operational source-manifest metadata, so a tuning-only change can reproduce it.
+`normalized_sha256` also binds that metadata. Physical DuckDB files are bound by
+their own checksums but are compared logically rather than assumed to be
 byte-reproducible.
 
 ## Commands
@@ -101,15 +106,37 @@ build is refused when its conservative estimate would leave less than the
 checked-in 60 GiB free-disk floor on either the preparation-data volume or the
 generation-output volume. When those are different filesystems, each is required
 to pass the complete conservative estimate because temporary preparation and
-generation files coexist. Do not
-run the following until that preflight passes on a suitably provisioned host:
+generation files coexist.
+
+Before a national build, run the checked-in qualification slice on the intended
+host with the same concurrency and memory profile. Its
+`expected_data_sha256` is the retained-data digest from the previously qualified
+gate. A mismatch aborts before publication; the complete normalized checksum is
+expected to change because its metadata records the new controls:
+
+```sh
+go run ./cmd/places-geocoding-prepare \
+  -config config/places-geocoding-us-gate.json -data data -fetch -preflight
+go build -o /tmp/openmaps-places-prepare ./cmd/places-geocoding-prepare
+go build -o /tmp/openmaps-run-bounded ./cmd/scout-run-bounded
+/tmp/openmaps-run-bounded \
+  -root "$PWD/data" -report "$PWD/data/us-parallel-gate-resources.json" \
+  -rss-mib 49152 -reserve-gib 60 \
+  /tmp/openmaps-places-prepare \
+  -config config/places-geocoding-us-gate.json -data data \
+  -stream-out data/openmaps-us-parallel-gate-20260819 \
+  -audit data/openmaps-us-parallel-gate-20260819-audit.json
+```
+
+Do not run the national command until both that gate and the national preflight
+pass on the provisioned host:
 
 ```sh
 go build -o /tmp/openmaps-places-prepare ./cmd/places-geocoding-prepare
 go build -o /tmp/openmaps-run-bounded ./cmd/scout-run-bounded
 /tmp/openmaps-run-bounded \
   -root "$PWD/data" -report "$PWD/data/us-build-resources.json" \
-  -rss-mib 6144 -reserve-gib 60 \
+  -rss-mib 49152 -reserve-gib 60 \
   /tmp/openmaps-places-prepare \
   -config config/places-geocoding-us.json -data data \
   -stream-out data/openmaps-us-20260819 \
@@ -123,6 +150,13 @@ an existing output. Remote Parquet is not retained locally; retaining an
 independently archived copy for long-term rebuilds is an operator decision that
 is not implemented by this command. Interrupted builds currently restart the
 range-read preparation phase; partial publication is never resumed.
+
+The 48 GiB sampled RSS ceiling deliberately leaves roughly 14 GiB on the 64 GB
+host for the kernel, filesystem cache, and sampling delay. The checked-in gate
+uses the same four-worker, four-thread, and memory controls as the national
+profile and must reproduce its expected retained-data checksum before these
+controls are used for a later nationwide rebuild. Progress is logged every
+30 seconds and whenever a remote asset completes.
 
 Before activation, run representative queries against the candidate, compare
 it with the selected generation using reviewed scope-appropriate query

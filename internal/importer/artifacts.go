@@ -33,11 +33,16 @@ type Scope struct {
 }
 type Streaming struct {
 	BatchRows            int    `json:"batch_rows"`
+	SourceWorkers        int    `json:"source_workers"`
+	DatabaseThreads      int    `json:"database_threads"`
+	CatalogThreads       int    `json:"catalog_threads"`
+	ProgressSeconds      int    `json:"progress_interval_seconds"`
 	MemoryLimit          string `json:"memory_limit"`
 	CatalogMemoryLimit   string `json:"catalog_memory_limit"`
 	FreeDiskFloorGiB     int64  `json:"free_disk_floor_gib"`
 	GoMemoryLimitMiB     int64  `json:"go_memory_limit_mib"`
 	EstimatedBytesPerRow int64  `json:"estimated_peak_bytes_per_candidate_row"`
+	ExpectedDataSHA256   string `json:"expected_data_sha256,omitempty"`
 }
 type Manifest struct {
 	Schema          int        `json:"schema"`
@@ -68,7 +73,24 @@ func ReadManifest(path string) (Manifest, error) {
 		return m, fmt.Errorf("invalid normalized bundle SHA-256")
 	}
 	if m.Schema == 2 {
-		if m.BundleSHA256 != "" || m.Catalog == nil || len(m.Scopes) == 0 || m.Streaming == nil || m.Streaming.BatchRows < 1 || m.Streaming.BatchRows > 32768 || m.Streaming.MemoryLimit == "" || m.Streaming.CatalogMemoryLimit == "" || m.Streaming.FreeDiskFloorGiB < 60 || m.Streaming.GoMemoryLimitMiB < 512 || m.Streaming.GoMemoryLimitMiB > 2048 || m.Streaming.EstimatedBytesPerRow < 1 {
+		// Schema 2 predates explicit concurrency controls. Omitted fields retain
+		// the original single-threaded behavior so pinned external manifests stay
+		// readable; explicit profiles serialize these defaults on their next use.
+		if m.Streaming != nil {
+			if m.Streaming.SourceWorkers == 0 {
+				m.Streaming.SourceWorkers = 1
+			}
+			if m.Streaming.DatabaseThreads == 0 {
+				m.Streaming.DatabaseThreads = 1
+			}
+			if m.Streaming.CatalogThreads == 0 {
+				m.Streaming.CatalogThreads = 1
+			}
+			if m.Streaming.ProgressSeconds == 0 {
+				m.Streaming.ProgressSeconds = 30
+			}
+		}
+		if m.BundleSHA256 != "" || m.Catalog == nil || len(m.Scopes) == 0 || m.Streaming == nil || m.Streaming.BatchRows < 1 || m.Streaming.BatchRows > 32768 || m.Streaming.SourceWorkers < 1 || m.Streaming.SourceWorkers > 64 || m.Streaming.DatabaseThreads < 1 || m.Streaming.DatabaseThreads > 64 || m.Streaming.CatalogThreads < 1 || m.Streaming.CatalogThreads > 64 || m.Streaming.ProgressSeconds < 5 || m.Streaming.ProgressSeconds > 3600 || m.Streaming.MemoryLimit == "" || m.Streaming.CatalogMemoryLimit == "" || m.Streaming.FreeDiskFloorGiB < 60 || m.Streaming.GoMemoryLimitMiB < 512 || m.Streaming.GoMemoryLimitMiB > 32768 || m.Streaming.EstimatedBytesPerRow < 1 || m.Streaming.ExpectedDataSHA256 != "" && (len(m.Streaming.ExpectedDataSHA256) != 64 || !validDigest(m.Streaming.ExpectedDataSHA256)) {
 			return m, fmt.Errorf("invalid streaming manifest")
 		}
 		for index, scope := range m.Scopes {

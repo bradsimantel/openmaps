@@ -125,8 +125,9 @@ func run() error {
 		defer debug.SetMemoryLimit(oldMemoryLimit)
 		phases := map[string]float64{}
 		started := time.Now()
-		err = placeduckdb.BuildStream(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, func(name string, elapsed time.Duration) {
+		err = placeduckdb.BuildStreamConfigured(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, m.Streaming.DatabaseThreads, m.Streaming.CatalogThreads, m.Streaming.ExpectedDataSHA256, func(name string, elapsed time.Duration) {
 			phases[name] = elapsed.Seconds()
+			log.Printf("Places/geocoding build phase complete phase=%s elapsed=%s", name, elapsed.Round(time.Second))
 		}, func(buildCtx context.Context, sink placeduckdb.StreamWriter) error {
 			var prepareErr error
 			audit, prepareErr = importer.PrepareStreaming(buildCtx, m, *data, sink)

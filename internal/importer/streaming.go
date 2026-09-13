@@ -8,11 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
@@ -28,6 +32,88 @@ type PreparedSink interface {
 	WriteRecords(context.Context, []Record) error
 	WriteRelationships(context.Context, []Relationship) error
 	WriteRejections(context.Context, []Rejection) error
+}
+
+type preparedBatch struct {
+	records       []Record
+	relationships []Relationship
+	rejections    []Rejection
+}
+
+// asyncPreparedSink separates parallel decoding from the single DuckDB writer.
+// Its bounded queue lets workers continue parsing while a prior batch is
+// appended without allowing source-sized state to accumulate in Go.
+type asyncPreparedSink struct {
+	ctx       context.Context
+	sink      PreparedSink
+	queue     chan preparedBatch
+	done      chan struct{}
+	closeOnce sync.Once
+	err       error
+}
+
+func newAsyncPreparedSink(ctx context.Context, sink PreparedSink, capacity int) *asyncPreparedSink {
+	s := &asyncPreparedSink{ctx: ctx, sink: sink, queue: make(chan preparedBatch, max(2, capacity)), done: make(chan struct{})}
+	go s.run()
+	return s
+}
+
+func (s *asyncPreparedSink) run() {
+	defer close(s.done)
+	for batch := range s.queue {
+		switch {
+		case batch.records != nil:
+			s.err = s.sink.WriteRecords(s.ctx, batch.records)
+		case batch.relationships != nil:
+			s.err = s.sink.WriteRelationships(s.ctx, batch.relationships)
+		case batch.rejections != nil:
+			s.err = s.sink.WriteRejections(s.ctx, batch.rejections)
+		}
+		if s.err != nil {
+			return
+		}
+	}
+}
+
+func (s *asyncPreparedSink) submit(batch preparedBatch) error {
+	select {
+	case s.queue <- batch:
+		return nil
+	case <-s.done:
+		if s.err != nil {
+			return s.err
+		}
+		return fmt.Errorf("prepared sink is closed")
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+}
+
+func (s *asyncPreparedSink) WriteRecords(_ context.Context, rows []Record) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	return s.submit(preparedBatch{records: append([]Record(nil), rows...)})
+}
+
+func (s *asyncPreparedSink) WriteRelationships(_ context.Context, rows []Relationship) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	return s.submit(preparedBatch{relationships: append([]Relationship(nil), rows...)})
+}
+
+func (s *asyncPreparedSink) WriteRejections(_ context.Context, rows []Rejection) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	return s.submit(preparedBatch{rejections: append([]Rejection(nil), rows...)})
+}
+
+func (s *asyncPreparedSink) Close() error {
+	s.closeOnce.Do(func() { close(s.queue) })
+	<-s.done
+	return s.err
 }
 
 type AssetPreflight struct {
@@ -183,12 +269,14 @@ func overlapsAnyStatsFormat(group format.RowGroup, bounds [][4]float64) bool {
 // preparation database used for division ancestry and business/address joins.
 func PrepareStreaming(ctx context.Context, m Manifest, dataDir string, sink PreparedSink) (StreamingAudit, error) {
 	audit := StreamingAudit{Region: m.Region, BatchRows: m.Streaming.BatchRows, SourceRows: map[string]int64{}, ImportedCounts: map[string]int64{}, RejectedCounts: map[string]int64{}, Relationships: map[string]int64{}, PhaseSeconds: map[string]float64{}}
+	staged := newAsyncPreparedSink(ctx, sink, m.Streaming.SourceWorkers*2)
+	defer staged.Close()
 	temp, err := os.MkdirTemp(dataDir, ".places-stream-*")
 	if err != nil {
 		return audit, err
 	}
 	defer os.RemoveAll(temp)
-	dsn := filepath.Join(temp, "prepare.duckdb") + "?threads=1&memory_limit=" + url.QueryEscape(m.Streaming.MemoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(filepath.Join(temp, "spill"))
+	dsn := filepath.Join(temp, "prepare.duckdb") + "?threads=" + strconv.Itoa(m.Streaming.DatabaseThreads) + "&memory_limit=" + url.QueryEscape(m.Streaming.MemoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(filepath.Join(temp, "spill"))
 	db, err := sql.Open("duckdb", dsn)
 	if err != nil {
 		return audit, err
@@ -205,63 +293,116 @@ CREATE TABLE link_businesses(source_key VARCHAR,address_key VARCHAR,postcode VAR
 
 	records := make([]Record, 0, m.Streaming.BatchRows)
 	rejections := make([]Rejection, 0, m.Streaming.BatchRows)
-	flushRecords := func() error {
+	var outputMu sync.Mutex
+	takeRecordsUnlocked := func() []Record {
 		audit.MaxSubmittedBatch = max(audit.MaxSubmittedBatch, len(records))
-		err := sink.WriteRecords(ctx, records)
-		records = records[:0]
-		return err
+		batch := records
+		records = make([]Record, 0, m.Streaming.BatchRows)
+		return batch
+	}
+	takeRejectionsUnlocked := func() []Rejection {
+		audit.MaxSubmittedBatch = max(audit.MaxSubmittedBatch, len(rejections))
+		batch := rejections
+		rejections = make([]Rejection, 0, m.Streaming.BatchRows)
+		return batch
+	}
+	flushRecords := func() error {
+		outputMu.Lock()
+		batch := takeRecordsUnlocked()
+		outputMu.Unlock()
+		return staged.WriteRecords(ctx, batch)
 	}
 	flushRejections := func() error {
-		audit.MaxSubmittedBatch = max(audit.MaxSubmittedBatch, len(rejections))
-		err := sink.WriteRejections(ctx, rejections)
-		rejections = rejections[:0]
-		return err
+		outputMu.Lock()
+		batch := takeRejectionsUnlocked()
+		outputMu.Unlock()
+		return staged.WriteRejections(ctx, batch)
 	}
 	addRecord := func(record Record) error {
+		outputMu.Lock()
 		records = append(records, record)
 		audit.ImportedCounts[record.Kind]++
-		if len(records) == cap(records) {
-			return flushRecords()
+		var batch []Record
+		if len(records) == m.Streaming.BatchRows {
+			batch = takeRecordsUnlocked()
 		}
-		return nil
+		outputMu.Unlock()
+		if batch == nil {
+			return nil
+		}
+		return staged.WriteRecords(ctx, batch)
 	}
 	addRejection := func(rejection Rejection) error {
+		outputMu.Lock()
 		rejections = append(rejections, rejection)
 		audit.RejectedCounts[rejection.Reason]++
-		if len(rejections) == cap(rejections) {
-			return flushRejections()
+		var batch []Rejection
+		if len(rejections) == m.Streaming.BatchRows {
+			batch = takeRejectionsUnlocked()
 		}
-		return nil
+		outputMu.Unlock()
+		if batch == nil {
+			return nil
+		}
+		return staged.WriteRejections(ctx, batch)
 	}
 
 	for _, input := range m.Inputs {
 		kind := sourceKind(input.URL)
 		phaseStarted := time.Now()
+		phaseCtx, cancelPhase := context.WithCancel(ctx)
 		assets, assetErr := streamingAssets(filepath.Join(dataDir, m.Catalog.File), input, m.Scopes)
 		if assetErr != nil {
+			cancelPhase()
 			return audit, assetErr
 		}
 		if got := assetDigest(assets); got != input.AssetsSHA256 {
+			cancelPhase()
 			return audit, fmt.Errorf("%s asset-set checksum mismatch: got %s", kind, got)
 		}
 		remotes := make([]*rangeFile, 0, len(assets))
+		releaseRemotes := func() {
+			for _, remote := range remotes {
+				remote.releaseCache()
+			}
+		}
 		versionHash := sha256.New()
 		for _, asset := range assets {
-			remote, openErr := openRange(ctx, asset)
+			remote, openErr := openRange(phaseCtx, asset)
 			if openErr != nil {
+				cancelPhase()
+				releaseRemotes()
 				return audit, openErr
 			}
 			fmt.Fprintf(versionHash, "%s\t%d\t%s\n", asset, remote.size, remote.etag)
 			remotes = append(remotes, remote)
 		}
 		if got := hex.EncodeToString(versionHash.Sum(nil)); got != input.AssetVersionsSHA256 {
+			cancelPhase()
+			releaseRemotes()
 			return audit, fmt.Errorf("%s asset-version checksum mismatch: got %s", kind, got)
 		}
-		for assetIndex := range assets {
+
+		assetRows := make([]int64, len(assets))
+		assetBytes := make([]int64, len(assets))
+		var completedAssets, completedGroups, processedRows atomic.Int64
+		var progressMu sync.Mutex
+		lastProgress := phaseStarted
+		reportProgress := func(force bool) {
+			progressMu.Lock()
+			defer progressMu.Unlock()
+			now := time.Now()
+			if !force && now.Sub(lastProgress) < time.Duration(m.Streaming.ProgressSeconds)*time.Second {
+				return
+			}
+			lastProgress = now
+			log.Printf("Places/geocoding source progress kind=%s assets=%d/%d row_groups=%d source_rows=%d elapsed=%s", kind, completedAssets.Load(), len(assets), completedGroups.Load(), processedRows.Load(), now.Sub(phaseStarted).Round(time.Second))
+		}
+		processAsset := func(assetIndex int) error {
 			remote := remotes[assetIndex]
 			file, openErr := parquet.OpenFile(remote, remote.size, parquet.SkipPageIndex(true), parquet.SkipBloomFilters(true))
 			if openErr != nil {
-				return audit, openErr
+				return openErr
 			}
 			for groupIndex, group := range file.RowGroups() {
 				if kind != "division" && !overlapsAnyStatsFormat(file.Metadata().RowGroups[groupIndex], scopeBounds(m.Scopes)) {
@@ -269,6 +410,7 @@ CREATE TABLE link_businesses(source_key VARCHAR,address_key VARCHAR,postcode VAR
 				}
 				reader := parquet.NewGenericRowGroupReader[any](group)
 				rows := make([]any, 128)
+				var groupRows int64
 				for {
 					n, readErr := reader.Read(rows)
 					for _, value := range rows[:n] {
@@ -279,33 +421,101 @@ CREATE TABLE link_businesses(source_key VARCHAR,address_key VARCHAR,postcode VAR
 						feature, featureErr := parquetFeature(row, file.Schema())
 						if featureErr != nil {
 							reader.Close()
-							return audit, featureErr
+							return featureErr
 						}
 						encoded, featureErr := json.Marshal(feature)
 						if featureErr != nil {
-							return audit, featureErr
+							return featureErr
 						}
-						audit.SourceRows[kind]++
+						assetRows[assetIndex]++
+						groupRows++
 						if featureErr = streamFeature(aux, kind, input.Release, encoded, m.Scopes, addRecord, addRejection); featureErr != nil {
 							reader.Close()
-							return audit, featureErr
+							return featureErr
 						}
 					}
 					if readErr != nil {
 						reader.Close()
 						if readErr != io.EOF {
-							return audit, readErr
+							return readErr
 						}
 						break
 					}
-					if err = ctx.Err(); err != nil {
+					if contextErr := phaseCtx.Err(); contextErr != nil {
 						reader.Close()
-						return audit, err
+						return contextErr
 					}
 				}
+				processedRows.Add(groupRows)
+				completedGroups.Add(1)
+				reportProgress(false)
 			}
-			audit.RemoteBytesRead += remote.fetched
+			assetBytes[assetIndex] = remote.fetched
 			remote.releaseCache()
+			completedAssets.Add(1)
+			reportProgress(true)
+			return nil
+		}
+
+		workers := min(m.Streaming.SourceWorkers, len(assets))
+		jobs := make(chan int)
+		var work sync.WaitGroup
+		var firstErr error
+		var failOnce sync.Once
+		fail := func(workerErr error) {
+			failOnce.Do(func() {
+				firstErr = workerErr
+				cancelPhase()
+			})
+		}
+		for range workers {
+			work.Add(1)
+			go func() {
+				defer work.Done()
+				for assetIndex := range jobs {
+					if workerErr := processAsset(assetIndex); workerErr != nil {
+						fail(workerErr)
+						return
+					}
+				}
+			}()
+		}
+		progressDone := make(chan struct{})
+		var progressWork sync.WaitGroup
+		progressWork.Add(1)
+		go func() {
+			defer progressWork.Done()
+			ticker := time.NewTicker(time.Duration(m.Streaming.ProgressSeconds) * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					reportProgress(true)
+				case <-progressDone:
+					return
+				}
+			}
+		}()
+	sendAssets:
+		for assetIndex := range assets {
+			select {
+			case jobs <- assetIndex:
+			case <-phaseCtx.Done():
+				break sendAssets
+			}
+		}
+		close(jobs)
+		work.Wait()
+		close(progressDone)
+		progressWork.Wait()
+		cancelPhase()
+		releaseRemotes()
+		if firstErr != nil {
+			return audit, firstErr
+		}
+		for assetIndex := range assets {
+			audit.SourceRows[kind] += assetRows[assetIndex]
+			audit.RemoteBytesRead += assetBytes[assetIndex]
 		}
 		audit.PhaseSeconds["source_"+kind] = time.Since(phaseStarted).Seconds()
 	}
@@ -313,16 +523,19 @@ CREATE TABLE link_businesses(source_key VARCHAR,address_key VARCHAR,postcode VAR
 	if err = aux.flush(ctx); err != nil {
 		return audit, err
 	}
-	if err = emitDivisions(ctx, db, m.Streaming.BatchRows, sink, &audit); err != nil {
+	if err = emitDivisions(ctx, db, m.Streaming.BatchRows, staged, &audit); err != nil {
 		return audit, err
 	}
-	if err = emitAddressLinks(ctx, db, m.Streaming.BatchRows, sink, &audit); err != nil {
+	if err = emitAddressLinks(ctx, db, m.Streaming.BatchRows, staged, &audit); err != nil {
 		return audit, err
 	}
 	if err = flushRecords(); err != nil {
 		return audit, err
 	}
 	if err = flushRejections(); err != nil {
+		return audit, err
+	}
+	if err = staged.Close(); err != nil {
 		return audit, err
 	}
 	audit.PhaseSeconds["joins_and_hierarchy"] = time.Since(joinsStarted).Seconds()
@@ -424,6 +637,7 @@ type auxLink struct {
 }
 
 type auxStager struct {
+	mu                    sync.Mutex
 	ctx                   context.Context
 	db                    *sql.DB
 	batch                 int
@@ -436,6 +650,8 @@ func newAuxStager(ctx context.Context, db *sql.DB, batch int) *auxStager {
 }
 
 func (s *auxStager) addDivision(row auxDivision) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.divisions = append(s.divisions, row)
 	if len(s.divisions) == s.batch {
 		return s.flushDivisions()
@@ -444,6 +660,8 @@ func (s *auxStager) addDivision(row auxDivision) error {
 }
 
 func (s *auxStager) addAddress(row auxLink) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.addresses = append(s.addresses, row)
 	if len(s.addresses) == s.batch {
 		return s.flushAddresses()
@@ -452,6 +670,8 @@ func (s *auxStager) addAddress(row auxLink) error {
 }
 
 func (s *auxStager) addBusiness(row auxLink) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.businesses = append(s.businesses, row)
 	if len(s.businesses) == s.batch {
 		return s.flushBusinesses()
@@ -460,6 +680,8 @@ func (s *auxStager) addBusiness(row auxLink) error {
 }
 
 func (s *auxStager) flush(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.flushDivisions(); err != nil {
 		return err
 	}

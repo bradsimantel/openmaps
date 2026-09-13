@@ -11,10 +11,14 @@
   ],
   "streaming": {
     "batch_rows": 2048,
-    "memory_limit": "1GB",
-    "catalog_memory_limit": "3GB",
+    "source_workers": 4,
+    "database_threads": 4,
+    "catalog_threads": 4,
+    "progress_interval_seconds": 30,
+    "memory_limit": "16GB",
+    "catalog_memory_limit": "32GB",
     "free_disk_floor_gib": 60,
-    "go_memory_limit_mib": 1536,
+    "go_memory_limit_mib": 4096,
     "estimated_peak_bytes_per_candidate_row": 1536
   },
   "inputs": [

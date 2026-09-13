@@ -23,6 +23,8 @@ type Comparison struct {
 	Candidate            Reference         `json:"candidate"`
 	BaselineNormalized   string            `json:"baseline_normalized_sha256"`
 	CandidateNormalized  string            `json:"candidate_normalized_sha256"`
+	BaselineData         string            `json:"baseline_data_sha256,omitempty"`
+	CandidateData        string            `json:"candidate_data_sha256,omitempty"`
 	BeforeCounts         map[string]int    `json:"before_counts"`
 	AfterCounts          map[string]int    `json:"after_counts"`
 	Added                int               `json:"added"`
@@ -56,6 +58,8 @@ func Compare(ctx context.Context, baselinePath, candidatePath string, checks []i
 	}
 	report.BaselineNormalized = baselineManifest.NormalizedSHA256
 	report.CandidateNormalized = candidateManifest.NormalizedSHA256
+	report.BaselineData = baselineManifest.DataSHA256
+	report.CandidateData = candidateManifest.DataSHA256
 
 	db, err := openDatabase(filepath.Join(baselinePath, IndexName))
 	if err != nil {

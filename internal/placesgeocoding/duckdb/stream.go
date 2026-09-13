@@ -5,15 +5,19 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	duckdbdriver "github.com/duckdb/duckdb-go/v2"
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/zstd"
 
@@ -158,7 +162,7 @@ func (sink *parquetSink[T]) close() error { return sink.closeCurrent() }
 // relationships; Go retains only one entity's contributing source records at
 // a time while writing deterministic Parquet row groups.
 func BuildJSON(ctx context.Context, path string, input io.Reader) (err error) {
-	return buildStaged(ctx, path, "128MB", "256MB", nil, func(stage *sql.DB) (json.RawMessage, int, error) {
+	return buildStaged(ctx, path, "128MB", "256MB", 1, 1, "", nil, func(stage *sql.DB) (json.RawMessage, int, error) {
 		return stageJSON(ctx, stage, input)
 	})
 }
@@ -175,76 +179,97 @@ type StreamWriter interface {
 type stageWriter struct{ db *sql.DB }
 
 func (w stageWriter) WriteRecords(ctx context.Context, rows []importer.Record) error {
-	return writeStageBatch(ctx, w.db, "INSERT INTO input_records VALUES (?,?,?,?)", len(rows), func(stmt *sql.Stmt, i int) error {
+	return appendStageBatch(ctx, w.db, "input_records", len(rows), func(i int) ([]driver.Value, error) {
 		raw, err := json.Marshal(rows[i])
 		if err != nil {
-			return err
+			return nil, err
 		}
-		_, err = stmt.ExecContext(ctx, rows[i].Key(), rows[i].Kind, rows[i].Priority, string(raw))
-		return err
+		return []driver.Value{rows[i].Key(), rows[i].Kind, int64(rows[i].Priority), string(raw)}, nil
 	})
 }
 
 func (w stageWriter) WriteRelationships(ctx context.Context, rows []importer.Relationship) error {
-	return writeStageBatch(ctx, w.db, "INSERT INTO input_relationships VALUES (?,?,?,?)", len(rows), func(stmt *sql.Stmt, i int) error {
-		_, err := stmt.ExecContext(ctx, rows[i].From, rows[i].To, rows[i].Kind, rows[i].Evidence)
-		return err
+	return appendStageBatch(ctx, w.db, "input_relationships", len(rows), func(i int) ([]driver.Value, error) {
+		return []driver.Value{rows[i].From, rows[i].To, rows[i].Kind, rows[i].Evidence}, nil
 	})
 }
 
 func (w stageWriter) WriteRejections(ctx context.Context, rows []importer.Rejection) error {
-	return writeStageBatch(ctx, w.db, "INSERT INTO input_rejections VALUES (?,?,?)", len(rows), func(stmt *sql.Stmt, i int) error {
-		_, err := stmt.ExecContext(ctx, rows[i].SourceKey, rows[i].Reason, string(rows[i].Raw))
-		return err
+	return appendStageBatch(ctx, w.db, "input_rejections", len(rows), func(i int) ([]driver.Value, error) {
+		return []driver.Value{rows[i].SourceKey, rows[i].Reason, string(rows[i].Raw)}, nil
 	})
 }
 
-func writeStageBatch(ctx context.Context, db *sql.DB, query string, count int, write func(*sql.Stmt, int) error) error {
+func appendStageBatch(ctx context.Context, db *sql.DB, table string, count int, values func(int) ([]driver.Value, error)) error {
 	if count == 0 {
 		return nil
 	}
-	tx, err := db.BeginTx(ctx, nil)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	stmt, err := tx.PrepareContext(ctx, query)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-	for i := 0; i < count; i++ {
-		if err = write(stmt, i); err != nil {
-			return err
+	defer conn.Close()
+	return conn.Raw(func(raw any) error {
+		driverConn, ok := raw.(driver.Conn)
+		if !ok {
+			return fmt.Errorf("DuckDB driver connection does not implement database/sql/driver.Conn")
 		}
-	}
-	if err = stmt.Close(); err != nil {
-		return err
-	}
-	return tx.Commit()
+		appender, appendErr := duckdbdriver.NewAppenderFromConn(driverConn, "main", table)
+		if appendErr != nil {
+			return appendErr
+		}
+		fail := func(primary error) error {
+			return errors.Join(primary, appender.Clear(), appender.Close())
+		}
+		for i := 0; i < count; i++ {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return fail(contextErr)
+			}
+			row, rowErr := values(i)
+			if rowErr != nil {
+				return fail(rowErr)
+			}
+			if rowErr = appender.AppendRow(row...); rowErr != nil {
+				return fail(rowErr)
+			}
+		}
+		return appender.CloseWithCancel(ctx)
+	})
 }
 
 // BuildStream constructs a generation directly from a provider adapter. It is
 // the national-safe counterpart to BuildJSON: both paths share the same
 // bounded DuckDB normalization and Parquet/catalog publication code.
 func BuildStream(ctx context.Context, path string, manifest json.RawMessage, identities map[string]string, memoryLimit, catalogMemoryLimit string, observe func(string, time.Duration), produce func(context.Context, StreamWriter) error) error {
+	return BuildStreamConfigured(ctx, path, manifest, identities, memoryLimit, catalogMemoryLimit, 1, 1, "", observe, produce)
+}
+
+// BuildStreamConfigured is BuildStream with explicit DuckDB worker counts.
+// Sorting at every publication boundary keeps normalized Parquet deterministic
+// even when staging and catalog construction use multiple workers.
+func BuildStreamConfigured(ctx context.Context, path string, manifest json.RawMessage, identities map[string]string, memoryLimit, catalogMemoryLimit string, databaseThreads, catalogThreads int, expectedDataSHA256 string, observe func(string, time.Duration), produce func(context.Context, StreamWriter) error) error {
 	if len(manifest) == 0 || !json.Valid(manifest) || memoryLimit == "" || catalogMemoryLimit == "" || produce == nil {
 		return fmt.Errorf("valid manifest, memory limits and stream producer are required")
+	}
+	if databaseThreads < 1 || databaseThreads > 64 || catalogThreads < 1 || catalogThreads > 64 {
+		return fmt.Errorf("database and catalog threads must be 1..64")
+	}
+	if expectedDataSHA256 != "" && (len(expectedDataSHA256) != 64 || strings.Trim(expectedDataSHA256, "0123456789abcdef") != "") {
+		return fmt.Errorf("expected data SHA-256 must be lowercase hexadecimal")
 	}
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, manifest); err != nil {
 		return err
 	}
 	manifest = compact.Bytes()
-	return buildStaged(ctx, path, memoryLimit, catalogMemoryLimit, observe, func(stage *sql.DB) (json.RawMessage, int, error) {
+	return buildStaged(ctx, path, memoryLimit, catalogMemoryLimit, databaseThreads, catalogThreads, expectedDataSHA256, observe, func(stage *sql.DB) (json.RawMessage, int, error) {
 		writer := stageWriter{db: stage}
 		identityRows := make([][2]string, 0, len(identities))
 		for source, target := range identities {
 			identityRows = append(identityRows, [2]string{source, target})
 		}
-		if err := writeStageBatch(ctx, stage, "INSERT INTO input_identities VALUES (?,?)", len(identityRows), func(stmt *sql.Stmt, i int) error {
-			_, err := stmt.ExecContext(ctx, identityRows[i][0], identityRows[i][1])
-			return err
+		if err := appendStageBatch(ctx, stage, "input_identities", len(identityRows), func(i int) ([]driver.Value, error) {
+			return []driver.Value{identityRows[i][0], identityRows[i][1]}, nil
 		}); err != nil {
 			return nil, 0, err
 		}
@@ -255,7 +280,7 @@ func BuildStream(ctx context.Context, path string, manifest json.RawMessage, ide
 	})
 }
 
-func buildStaged(ctx context.Context, path, memoryLimit, catalogMemoryLimit string, observe func(string, time.Duration), stageInput func(*sql.DB) (json.RawMessage, int, error)) (err error) {
+func buildStaged(ctx context.Context, path, memoryLimit, catalogMemoryLimit string, databaseThreads, catalogThreads int, expectedDataSHA256 string, observe func(string, time.Duration), stageInput func(*sql.DB) (json.RawMessage, int, error)) (err error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -276,7 +301,7 @@ func buildStaged(ctx context.Context, path, memoryLimit, catalogMemoryLimit stri
 
 	stagePath := filepath.Join(temp, "normalize.duckdb")
 	spill := filepath.Join(temp, "normalize-spill")
-	dsn := stagePath + "?threads=1&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
+	dsn := stagePath + "?threads=" + strconv.Itoa(databaseThreads) + "&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
 	stage, err := sql.Open("duckdb", dsn)
 	if err != nil {
 		return err
@@ -511,6 +536,7 @@ ORDER BY 1,2,3,4`)
 
 	manifest := Manifest{Schema: 2, CoordinateOrder: "longitude,latitude"}
 	var logical bytes.Buffer
+	var dataLogical bytes.Buffer
 	for _, set := range []struct {
 		role  string
 		files []shardFile
@@ -522,10 +548,18 @@ ORDER BY 1,2,3,4`)
 			}
 			manifest.Files = append(manifest.Files, File{Name: file.name, Role: set.role, SHA256: digest, Rows: file.rows})
 			fmt.Fprintf(&logical, "%s\x00%s\x00%s\x00%d\n", set.role, file.name, digest, file.rows)
+			if set.role != "metadata" {
+				fmt.Fprintf(&dataLogical, "%s\x00%s\x00%s\x00%d\n", set.role, file.name, digest, file.rows)
+			}
 		}
 	}
 	logicalDigest := sha256.Sum256(logical.Bytes())
 	manifest.NormalizedSHA256 = fmt.Sprintf("%x", logicalDigest)
+	dataDigest := sha256.Sum256(dataLogical.Bytes())
+	manifest.DataSHA256 = fmt.Sprintf("%x", dataDigest)
+	if expectedDataSHA256 != "" && manifest.DataSHA256 != expectedDataSHA256 {
+		return fmt.Errorf("normalized data checksum mismatch: got %s want %s; output was not published", manifest.DataSHA256, expectedDataSHA256)
+	}
 	if err = stage.Close(); err != nil {
 		return fmt.Errorf("close normalization stage: %w", err)
 	}
@@ -535,7 +569,7 @@ ORDER BY 1,2,3,4`)
 		observe("normalization_parquet", time.Since(normalizeStarted))
 	}
 	catalogStarted := time.Now()
-	if err = buildIndexJSONWithMemoryLimit(ctx, filepath.Join(temp, IndexName), filepath.Join(temp, "entities*.parquet"), entities.rows, manifestRaw, identitiesJSON, catalogMemoryLimit, shardedSchema); err != nil {
+	if err = buildIndexJSONWithOptions(ctx, filepath.Join(temp, IndexName), filepath.Join(temp, "entities*.parquet"), entities.rows, manifestRaw, identitiesJSON, catalogMemoryLimit, catalogThreads, shardedSchema); err != nil {
 		return fmt.Errorf("build serving catalog: %w", err)
 	}
 	indexDigest, err := importer.Checksum(filepath.Join(temp, IndexName))

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	_ "github.com/duckdb/duckdb-go/v2"
@@ -60,6 +61,7 @@ type Manifest struct {
 	Schema           int    `json:"schema"`
 	CoordinateOrder  string `json:"coordinate_order"`
 	NormalizedSHA256 string `json:"normalized_sha256"`
+	DataSHA256       string `json:"data_sha256,omitempty"`
 	Files            []File `json:"files"`
 }
 
@@ -113,10 +115,18 @@ func buildIndexJSON(ctx context.Context, path, entitiesPath string, entityCount 
 }
 
 func buildIndexJSONWithMemoryLimit(ctx context.Context, path, entitiesPath string, entityCount int, sourceManifest json.RawMessage, identitiesJSON, memoryLimit, schemaSQL string) error {
+	return buildIndexJSONWithOptions(ctx, path, entitiesPath, entityCount, sourceManifest, identitiesJSON, memoryLimit, 1, schemaSQL)
+}
+
+func buildIndexJSONWithOptions(ctx context.Context, path, entitiesPath string, entityCount int, sourceManifest json.RawMessage, identitiesJSON, memoryLimit string, threads int, schemaSQL string) error {
 	spill := filepath.Join(filepath.Dir(path), "duckdb-spill")
-	// Catalog construction is an offline, memory-bounded operation. One DuckDB
-	// thread avoids multiplying sort/hash state for large generations.
-	dsn := path + "?threads=1&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
+	if threads < 1 || threads > 64 {
+		return fmt.Errorf("catalog threads must be 1..64")
+	}
+	// Catalog construction remains memory-bounded. The manifest explicitly
+	// chooses the thread count because parallel sort/hash state consumes part of
+	// the same declared memory budget.
+	dsn := path + "?threads=" + strconv.Itoa(threads) + "&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
 	db, err := sql.Open("duckdb", dsn)
 	if err != nil {
 		return err
@@ -174,7 +184,7 @@ func Verify(path string) (Manifest, error) {
 	if err = json.Unmarshal(raw, &manifest); err != nil {
 		return manifest, err
 	}
-	if manifest.Schema != 2 || manifest.CoordinateOrder != "longitude,latitude" || len(manifest.NormalizedSHA256) != 64 || len(manifest.Files) < 7 {
+	if manifest.Schema != 2 || manifest.CoordinateOrder != "longitude,latitude" || len(manifest.NormalizedSHA256) != 64 || manifest.DataSHA256 != "" && len(manifest.DataSHA256) != 64 || len(manifest.Files) < 7 {
 		return manifest, fmt.Errorf("unsupported DuckDB manifest")
 	}
 	roleOrder := map[string]int{"entities": 0, "sources": 1, "provenance": 2, "relationships": 3, "rejections": 4, "metadata": 5, "serving": 6}
@@ -183,6 +193,7 @@ func Verify(path string) (Manifest, error) {
 	seen := map[string]bool{}
 	entityRows := 0
 	var logical bytes.Buffer
+	var dataLogical bytes.Buffer
 	lastRole := -1
 	for _, file := range manifest.Files {
 		order, known := roleOrder[file.Role]
@@ -219,6 +230,9 @@ func Verify(path string) (Manifest, error) {
 		if file.Role != "serving" {
 			fmt.Fprintf(&logical, "%s\x00%s\x00%s\x00%d\n", file.Role, file.Name, file.SHA256, file.Rows)
 		}
+		if file.Role != "metadata" && file.Role != "serving" {
+			fmt.Fprintf(&dataLogical, "%s\x00%s\x00%s\x00%d\n", file.Role, file.Name, file.SHA256, file.Rows)
+		}
 		seen[file.Name] = true
 	}
 	for role := range roleOrder {
@@ -239,6 +253,14 @@ func Verify(path string) (Manifest, error) {
 	if fmt.Sprintf("%x", logicalDigest) != manifest.NormalizedSHA256 {
 		return manifest, fmt.Errorf("normalized generation checksum mismatch")
 	}
+	dataDigest := sha256.Sum256(dataLogical.Bytes())
+	computedDataSHA256 := fmt.Sprintf("%x", dataDigest)
+	if manifest.DataSHA256 != "" && computedDataSHA256 != manifest.DataSHA256 {
+		return manifest, fmt.Errorf("normalized data checksum mismatch")
+	}
+	// Older schema-2 manifests predate data_sha256. Return the independently
+	// recomputed value so they can still serve as qualification baselines.
+	manifest.DataSHA256 = computedDataSHA256
 	db, err := openDatabase(filepath.Join(path, IndexName))
 	if err != nil {
 		return manifest, err

@@ -112,3 +112,17 @@ func TestPreflightDiskRejection(t *testing.T) {
 		t.Fatal(r, e)
 	}
 }
+
+func TestNationalRSSBudgetIsAccepted(t *testing.T) {
+	o := options(t)
+	o.RSSMiB = 49152
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+
+	o = options(t)
+	o.RSSMiB = 65537
+	if _, err := Run(context.Background(), o); err == nil {
+		t.Fatal("accepted RSS budget above the supported maximum")
+	}
+}

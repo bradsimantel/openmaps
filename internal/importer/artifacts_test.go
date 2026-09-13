@@ -40,6 +40,22 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	if manifest.Schema != 2 || manifest.Streaming.BatchRows != 2048 || len(manifest.Scopes) != 4 {
 		t.Fatalf("unexpected streaming config: %+v", manifest)
 	}
+	if manifest.Streaming.SourceWorkers != 4 || manifest.Streaming.DatabaseThreads != 4 || manifest.Streaming.CatalogThreads != 4 || manifest.Streaming.ProgressSeconds != 30 {
+		t.Fatalf("unexpected national concurrency controls: %+v", manifest.Streaming)
+	}
+	if manifest.Streaming.MemoryLimit != "16GB" || manifest.Streaming.CatalogMemoryLimit != "32GB" || manifest.Streaming.GoMemoryLimitMiB != 4096 {
+		t.Fatalf("unexpected national memory controls: %+v", manifest.Streaming)
+	}
+	gate, err := ReadManifest(filepath.Join("..", "..", "config", "places-geocoding-us-gate.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gate.Streaming.SourceWorkers != manifest.Streaming.SourceWorkers || gate.Streaming.DatabaseThreads != manifest.Streaming.DatabaseThreads || gate.Streaming.CatalogThreads != manifest.Streaming.CatalogThreads || gate.Streaming.ProgressSeconds != manifest.Streaming.ProgressSeconds || gate.Streaming.MemoryLimit != manifest.Streaming.MemoryLimit || gate.Streaming.CatalogMemoryLimit != manifest.Streaming.CatalogMemoryLimit || gate.Streaming.FreeDiskFloorGiB != manifest.Streaming.FreeDiskFloorGiB || gate.Streaming.GoMemoryLimitMiB != manifest.Streaming.GoMemoryLimitMiB {
+		t.Fatalf("gate does not exercise national resource controls: gate=%+v national=%+v", gate.Streaming, manifest.Streaming)
+	}
+	if gate.Streaming.ExpectedDataSHA256 != "9690930164a409293f0040d0f8c9f148ac9cf7bec8c69bdb7dbff852ca578896" {
+		t.Fatalf("gate does not pin the qualified retained-data checksum: %+v", gate.Streaming)
+	}
 	if !insideScopes([2]float64{173.18, 52.88}, manifest.Scopes) {
 		t.Fatal("national scope omits eastern-hemisphere Alaska")
 	}
@@ -50,5 +66,29 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	}
 	if _, err = ReadManifest(invalid); err == nil || !strings.Contains(err.Error(), "overlap") {
 		t.Fatal("accepted overlapping streaming scopes", err)
+	}
+
+	manifest.Scopes[1].BBox = [4]float64{-178, 45, -130, 72}
+	manifest.Streaming.SourceWorkers = -1
+	if err = WriteJSON(invalid, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = ReadManifest(invalid); err == nil || !strings.Contains(err.Error(), "streaming manifest") {
+		t.Fatal("accepted negative source workers", err)
+	}
+
+	manifest.Streaming.SourceWorkers = 0
+	manifest.Streaming.DatabaseThreads = 0
+	manifest.Streaming.CatalogThreads = 0
+	manifest.Streaming.ProgressSeconds = 0
+	if err = WriteJSON(invalid, manifest); err != nil {
+		t.Fatal(err)
+	}
+	compatible, err := ReadManifest(invalid)
+	if err != nil {
+		t.Fatal("rejected a schema-2 manifest that predates concurrency controls", err)
+	}
+	if compatible.Streaming.SourceWorkers != 1 || compatible.Streaming.DatabaseThreads != 1 || compatible.Streaming.CatalogThreads != 1 || compatible.Streaming.ProgressSeconds != 30 {
+		t.Fatalf("legacy concurrency defaults changed: %+v", compatible.Streaming)
 	}
 }

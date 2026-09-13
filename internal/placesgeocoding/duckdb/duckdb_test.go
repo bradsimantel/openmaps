@@ -205,7 +205,7 @@ func TestStreamBuildMatchesRegionalBundleInBoundedBatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	maxBatch := 2
-	if err := placeduckdb.BuildStream(context.Background(), streamed, bundle.Manifest, bundle.Identities, "128MB", "256MB", nil, func(ctx context.Context, out placeduckdb.StreamWriter) error {
+	produce := func(ctx context.Context, out placeduckdb.StreamWriter) error {
 		for end := len(bundle.Records); end > 0; {
 			start := max(0, end-maxBatch)
 			if err := out.WriteRecords(ctx, bundle.Records[start:end]); err != nil {
@@ -224,7 +224,8 @@ func TestStreamBuildMatchesRegionalBundleInBoundedBatches(t *testing.T) {
 			}
 		}
 		return nil
-	}); err != nil {
+	}
+	if err := placeduckdb.BuildStreamConfigured(context.Background(), streamed, bundle.Manifest, bundle.Identities, "128MB", "256MB", 4, 4, "", nil, produce); err != nil {
 		t.Fatal(err)
 	}
 	want, err := placeduckdb.Verify(regional)
@@ -258,6 +259,25 @@ func TestStreamBuildMatchesRegionalBundleInBoundedBatches(t *testing.T) {
 			return values
 		}
 		t.Fatalf("streamed normalized output differs: got %s want %s\ngot metadata=%q\nwant metadata=%q\ngot files=%+v\nwant files=%+v", got.NormalizedSHA256, want.NormalizedSHA256, readMetadata(streamed), readMetadata(regional), got.Files, want.Files)
+	}
+	if got.DataSHA256 == "" || got.DataSHA256 != want.DataSHA256 {
+		t.Fatalf("streamed normalized data differs: got %s want %s", got.DataSHA256, want.DataSHA256)
+	}
+	legacyManifest := want
+	legacyManifest.DataSHA256 = ""
+	if err = importer.WriteJSON(filepath.Join(regional, placeduckdb.ManifestName), legacyManifest); err != nil {
+		t.Fatal(err)
+	}
+	legacyVerified, err := placeduckdb.Verify(regional)
+	if err != nil || legacyVerified.DataSHA256 != want.DataSHA256 {
+		t.Fatalf("could not derive retained-data checksum for a legacy manifest: got %+v err=%v", legacyVerified, err)
+	}
+	rejected := filepath.Join(root, "rejected")
+	if err = placeduckdb.BuildStreamConfigured(context.Background(), rejected, bundle.Manifest, bundle.Identities, "128MB", "256MB", 4, 4, strings.Repeat("0", 64), nil, produce); err == nil || !strings.Contains(err.Error(), "data checksum mismatch") {
+		t.Fatal("accepted an unexpected normalized data checksum", err)
+	}
+	if _, err = os.Stat(rejected); !os.IsNotExist(err) {
+		t.Fatal("published a generation after its data checksum failed", err)
 	}
 	store, err := placeduckdb.Open(streamed)
 	if err != nil {

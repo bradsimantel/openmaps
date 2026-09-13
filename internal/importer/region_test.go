@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +29,12 @@ type capturePreparedSink struct {
 	relationships []Relationship
 	rejections    []Rejection
 	maxBatch      int
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 func (s *capturePreparedSink) WriteRecords(_ context.Context, rows []Record) error {
@@ -223,6 +231,142 @@ CREATE TABLE link_businesses(source_key VARCHAR,address_key VARCHAR,postcode VAR
 	}
 	if !foundParent {
 		t.Fatal("outside parent was not retained")
+	}
+}
+
+func TestPrepareStreamingUsesBoundedSourceWorkers(t *testing.T) {
+	type bbox struct {
+		XMin float64 `parquet:"xmin"`
+		YMin float64 `parquet:"ymin"`
+		XMax float64 `parquet:"xmax"`
+		YMax float64 `parquet:"ymax"`
+	}
+	type names struct {
+		Primary string `parquet:"primary"`
+	}
+	type placeRow struct {
+		ID       string `parquet:"id"`
+		Geometry []byte `parquet:"geometry"`
+		BBox     bbox   `parquet:"bbox"`
+		Names    names  `parquet:"names"`
+	}
+	type catalogAsset struct {
+		Href string `parquet:"href"`
+	}
+	type catalogAssets struct {
+		AWS catalogAsset `parquet:"aws"`
+	}
+	type catalogRow struct {
+		Type       string        `parquet:"type"`
+		Collection string        `parquet:"collection"`
+		BBox       bbox          `parquet:"bbox"`
+		Assets     catalogAssets `parquet:"assets"`
+	}
+
+	pointWKB := func(lng, lat float64) []byte {
+		wkb := make([]byte, 21)
+		wkb[0] = 1
+		binary.LittleEndian.PutUint32(wkb[1:], 1)
+		binary.LittleEndian.PutUint64(wkb[5:], math.Float64bits(lng))
+		binary.LittleEndian.PutUint64(wkb[13:], math.Float64bits(lat))
+		return wkb
+	}
+
+	const etag = `"parallel-fixture"`
+	prefix := "https://fixture.s3.us-west-2.amazonaws.com/release/fixture/theme=places/type=place/"
+	assetData := map[string][]byte{}
+	assets := make([]string, 4)
+	catalogRows := make([]catalogRow, 4)
+	for index := range assets {
+		assets[index] = fmt.Sprintf("%sasset-%d.parquet", prefix, index)
+		var encoded bytes.Buffer
+		writer := parquet.NewGenericWriter[placeRow](&encoded)
+		row := placeRow{ID: fmt.Sprintf("place-%d", index), Geometry: pointWKB(-71.31, 41.49), BBox: bbox{-71.32, 41.48, -71.30, 41.50}, Names: names{Primary: fmt.Sprintf("Place %d", index)}}
+		if _, err := writer.Write([]placeRow{row}); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		assetData[assets[index]] = bytes.Clone(encoded.Bytes())
+		catalogRows[index] = catalogRow{Type: "Feature", Collection: "place", BBox: row.BBox, Assets: catalogAssets{AWS: catalogAsset{Href: assets[index]}}}
+	}
+
+	dataDir := t.TempDir()
+	catalogPath := filepath.Join(dataDir, "collections.parquet")
+	catalogFile, err := os.Create(catalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogWriter := parquet.NewGenericWriter[catalogRow](catalogFile)
+	if _, err = catalogWriter.Write(catalogRows); err != nil {
+		t.Fatal(err)
+	}
+	if err = catalogWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = catalogFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var requestMu sync.Mutex
+	active, peak := 0, 0
+	allWorkersActive := make(chan struct{})
+	var releaseOnce sync.Once
+	oldClient := downloadClient
+	downloadClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		data, ok := assetData[request.URL.String()]
+		if !ok {
+			return nil, fmt.Errorf("unexpected fixture URL %s", request.URL)
+		}
+		header := make(http.Header)
+		header.Set("ETag", etag)
+		if request.Method == http.MethodHead {
+			return &http.Response{StatusCode: http.StatusOK, Header: header, ContentLength: int64(len(data)), Body: http.NoBody, Request: request}, nil
+		}
+		requestMu.Lock()
+		active++
+		peak = max(peak, active)
+		if active == 4 {
+			releaseOnce.Do(func() { close(allWorkersActive) })
+		}
+		requestMu.Unlock()
+		select {
+		case <-allWorkersActive:
+		case <-time.After(3 * time.Second):
+			return nil, fmt.Errorf("source workers did not overlap")
+		}
+		requestMu.Lock()
+		active--
+		requestMu.Unlock()
+		header.Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(data)-1, len(data)))
+		return &http.Response{StatusCode: http.StatusPartialContent, Header: header, ContentLength: int64(len(data)), Body: io.NopCloser(bytes.NewReader(data)), Request: request}, nil
+	})}
+	defer func() { downloadClient = oldClient }()
+
+	assetHash := sha256.New()
+	versionHash := sha256.New()
+	for _, asset := range assets {
+		fmt.Fprintln(assetHash, asset)
+		fmt.Fprintf(versionHash, "%s\t%d\t%s\n", asset, len(assetData[asset]), etag)
+	}
+	manifest := Manifest{
+		Schema:          2,
+		Region:          "parallel fixture",
+		BBox:            [4]float64{-72, 41, -70, 42},
+		CoordinateOrder: "longitude,latitude",
+		Scopes:          []Scope{{Name: "fixture", BBox: [4]float64{-72, 41, -70, 42}}},
+		Streaming:       &Streaming{BatchRows: 2, SourceWorkers: 4, DatabaseThreads: 2, CatalogThreads: 2, ProgressSeconds: 30, MemoryLimit: "128MB", CatalogMemoryLimit: "256MB", FreeDiskFloorGiB: 60, GoMemoryLimitMiB: 512, EstimatedBytesPerRow: 1},
+		Inputs:          []Input{{File: "place.parquet", AssetsSHA256: hex.EncodeToString(assetHash.Sum(nil)), AssetVersionsSHA256: hex.EncodeToString(versionHash.Sum(nil)), Release: "fixture", URL: "s3://fixture/release/fixture/theme=places/type=place/", Attribution: "synthetic"}},
+		Catalog:         &Input{File: filepath.Base(catalogPath)},
+	}
+	sink := &capturePreparedSink{}
+	audit, err := PrepareStreaming(context.Background(), manifest, dataDir, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if peak != 4 || audit.SourceRows["place"] != 4 || audit.ImportedCounts["business"] != 4 || len(sink.records) != 4 {
+		t.Fatalf("parallel source result peak=%d audit=%+v records=%d", peak, audit, len(sink.records))
 	}
 }
 func TestTransportationRepresentativeCoordinateBoundaries(t *testing.T) {

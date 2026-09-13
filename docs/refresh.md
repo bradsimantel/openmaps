@@ -32,17 +32,19 @@ The generation contains:
 | `rejections*.parquet` | Stable source key, explicit rejection reason and original record |
 | `metadata.parquet` | Pinned source manifest and identity mappings |
 | `serving.duckdb` | Query projections, sorted tokens/postings, short-prefix heads, exact addresses, spatial grid and Parquet locators |
-| `manifest.json` | Schema, coordinate order, logical normalized checksum, and per-file checksums/row counts |
+| `manifest.json` | Schema, coordinate order, retained-data and metadata-bound logical checksums, and per-file checksums/row counts |
 
-Normalized Parquet bytes and the logical generation checksum are deterministic.
-DuckDB physical bytes are not assumed reproducible; each derived catalog has its
-own manifest-bound checksum. The regional JSON path caps normalization staging
-at 128 MB; schema 2 streaming manifests explicitly configure preparation and
-normalization (currently 1 GB for the national candidate). Schema 2 catalog
-construction uses one DuckDB thread and its separately configured 3 GB limit;
-regional JSON builds retain their 256 MB catalog limit. All may spill inside
-the temporary generation directory. Interrupted builds leave no published
-generation, and the builder refuses an existing output directory.
+Normalized Parquet bytes are deterministic. `data_sha256` covers retained data
+roles while excluding operational metadata; `normalized_sha256` additionally
+binds `metadata.parquet`. DuckDB physical bytes are not assumed reproducible;
+each derived catalog has its own manifest-bound checksum. The regional JSON path
+caps normalization staging at 128 MB. Schema 2 streaming manifests explicitly
+configure preparation, normalization, and catalog worker and memory limits; the
+current national profile is documented in
+[national Places/geocoding builds](places-geocoding-national.md). Regional JSON
+builds retain their 256 MB catalog limit. All may spill inside the temporary
+generation directory. Interrupted builds leave no published generation, and
+the builder refuses an existing output directory.
 
 The normal import initializes `data/lookup-selection.json`, or advances it while
 retaining the previous generation. For a controlled build without selection:
