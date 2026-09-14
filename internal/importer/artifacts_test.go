@@ -53,7 +53,7 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	if gate.Streaming.SourceWorkers != manifest.Streaming.SourceWorkers || gate.Streaming.DatabaseThreads != manifest.Streaming.DatabaseThreads || gate.Streaming.CatalogThreads != manifest.Streaming.CatalogThreads || gate.Streaming.ProgressSeconds != manifest.Streaming.ProgressSeconds || gate.Streaming.MemoryLimit != manifest.Streaming.MemoryLimit || gate.Streaming.CatalogMemoryLimit != manifest.Streaming.CatalogMemoryLimit || gate.Streaming.FreeDiskFloorGiB != manifest.Streaming.FreeDiskFloorGiB || gate.Streaming.GoMemoryLimitMiB != manifest.Streaming.GoMemoryLimitMiB {
 		t.Fatalf("gate does not exercise national resource controls: gate=%+v national=%+v", gate.Streaming, manifest.Streaming)
 	}
-	if gate.Streaming.ExpectedDataSHA256 != "9690930164a409293f0040d0f8c9f148ac9cf7bec8c69bdb7dbff852ca578896" {
+	if gate.Streaming.ExpectedDataSHA256 != "3b4f68333e1508d33f1c4610dfc630e5735871a0f6f0b5475e95a7462c56c359" {
 		t.Fatalf("gate does not pin the qualified retained-data checksum: %+v", gate.Streaming)
 	}
 	if !insideScopes([2]float64{173.18, 52.88}, manifest.Scopes) {

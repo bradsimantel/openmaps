@@ -110,9 +110,10 @@ generation files coexist.
 
 Before a national build, run the checked-in qualification slice on the intended
 host with the same concurrency and memory profile. Its
-`expected_data_sha256` is the retained-data digest from the previously qualified
-gate. A mismatch aborts before publication; the complete normalized checksum is
-expected to change because its metadata records the new controls:
+`expected_data_sha256` is the retained-data digest from the gate qualified on
+the intended Linux/amd64 build host. A mismatch aborts before publication; the
+complete normalized checksum is expected to change because its metadata records
+the new controls:
 
 ```sh
 go run ./cmd/places-geocoding-prepare \

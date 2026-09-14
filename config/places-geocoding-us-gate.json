@@ -17,7 +17,7 @@
     "free_disk_floor_gib": 60,
     "go_memory_limit_mib": 4096,
     "estimated_peak_bytes_per_candidate_row": 1536,
-    "expected_data_sha256": "9690930164a409293f0040d0f8c9f148ac9cf7bec8c69bdb7dbff852ca578896"
+    "expected_data_sha256": "3b4f68333e1508d33f1c4610dfc630e5735871a0f6f0b5475e95a7462c56c359"
   },
   "inputs": [
     {"file":"place.parquet","assets_sha256":"eb6406e749a914a797e34156bd008b4f3db805b27cf5442e15a9ca9587e2c5a7","asset_versions_sha256":"33dbbd8478d4b41da0b0f7a2a3789ca2916ef9443fb366e28b9850aa6f5b81e0","release":"2026-08-19.0","url":"s3://overturemaps-us-west-2/release/2026-08-19.0/theme=places/type=place/","attribution":"https://docs.overturemaps.org/attribution/"},
