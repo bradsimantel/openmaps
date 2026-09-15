@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -249,21 +250,93 @@ func BuildStream(ctx context.Context, path string, manifest json.RawMessage, ide
 // Sorting at every publication boundary keeps normalized Parquet deterministic
 // even when staging and catalog construction use multiple workers.
 func BuildStreamConfigured(ctx context.Context, path string, manifest json.RawMessage, identities map[string]string, memoryLimit, catalogMemoryLimit string, databaseThreads, catalogThreads int, expectedDataSHA256 string, observe func(string, time.Duration), produce func(context.Context, StreamWriter) error) error {
+	if produce == nil {
+		return fmt.Errorf("stream producer is required")
+	}
+	_, err := BuildStreamResumable(ctx, path, manifest, identities, memoryLimit, catalogMemoryLimit, databaseThreads, catalogThreads, expectedDataSHA256, StreamCheckpointOptions{}, observe, func(ctx context.Context, writer StreamWriter) (json.RawMessage, error) {
+		return nil, produce(ctx, writer)
+	})
+	return err
+}
+
+// StreamCheckpointOptions enables an explicit, durable boundary between input
+// staging and normalization. BuildIdentity must identify an exact clean build
+// revision and target architecture; callers are responsible for constructing it.
+type StreamCheckpointOptions struct {
+	Path          string
+	Resume        bool
+	BuildIdentity string
+}
+
+type streamCheckpointIdentity struct {
+	OutputPath         string `json:"output_path"`
+	ManifestSHA256     string `json:"manifest_sha256"`
+	IdentitiesSHA256   string `json:"identities_sha256"`
+	MemoryLimit        string `json:"memory_limit"`
+	CatalogMemoryLimit string `json:"catalog_memory_limit"`
+	DatabaseThreads    int    `json:"database_threads"`
+	CatalogThreads     int    `json:"catalog_threads"`
+	ExpectedDataSHA256 string `json:"expected_data_sha256,omitempty"`
+	BuildIdentity      string `json:"build_identity"`
+}
+
+type streamCheckpoint struct {
+	Schema              int                      `json:"schema"`
+	Identity            streamCheckpointIdentity `json:"identity"`
+	TableRows           map[string]int64         `json:"table_rows"`
+	InputStagingSeconds float64                  `json:"input_staging_seconds"`
+	State               json.RawMessage          `json:"state,omitempty"`
+}
+
+type stagedInput struct {
+	manifest json.RawMessage
+	schema   int
+	state    json.RawMessage
+}
+
+const streamCheckpointName = "input-staging-checkpoint.json"
+
+// BuildStreamResumable is BuildStreamConfigured with an optional durable input
+// checkpoint. A resumed build reuses only fully checkpointed input tables; all
+// derived normalization and catalog files are rebuilt and reverified.
+func BuildStreamResumable(ctx context.Context, path string, manifest json.RawMessage, identities map[string]string, memoryLimit, catalogMemoryLimit string, databaseThreads, catalogThreads int, expectedDataSHA256 string, checkpoint StreamCheckpointOptions, observe func(string, time.Duration), produce func(context.Context, StreamWriter) (json.RawMessage, error)) (json.RawMessage, error) {
 	if len(manifest) == 0 || !json.Valid(manifest) || memoryLimit == "" || catalogMemoryLimit == "" || produce == nil {
-		return fmt.Errorf("valid manifest, memory limits and stream producer are required")
+		return nil, fmt.Errorf("valid manifest, memory limits and stream producer are required")
 	}
 	if databaseThreads < 1 || databaseThreads > 64 || catalogThreads < 1 || catalogThreads > 64 {
-		return fmt.Errorf("database and catalog threads must be 1..64")
+		return nil, fmt.Errorf("database and catalog threads must be 1..64")
 	}
 	if expectedDataSHA256 != "" && (len(expectedDataSHA256) != 64 || strings.Trim(expectedDataSHA256, "0123456789abcdef") != "") {
-		return fmt.Errorf("expected data SHA-256 must be lowercase hexadecimal")
+		return nil, fmt.Errorf("expected data SHA-256 must be lowercase hexadecimal")
+	}
+	if checkpoint.Resume && checkpoint.Path == "" {
+		return nil, fmt.Errorf("resume requires a checkpoint path")
+	}
+	if checkpoint.Path != "" && checkpoint.BuildIdentity == "" {
+		return nil, fmt.Errorf("checkpoint build identity is required")
 	}
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, manifest); err != nil {
-		return err
+		return nil, err
 	}
 	manifest = compact.Bytes()
-	return buildStaged(ctx, path, memoryLimit, catalogMemoryLimit, databaseThreads, catalogThreads, expectedDataSHA256, observe, func(stage *sql.DB) (json.RawMessage, int, error) {
+	identityJSON, err := json.Marshal(identities)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	manifestDigest := sha256.Sum256(manifest)
+	identitiesDigest := sha256.Sum256(identityJSON)
+	checkpointIdentity := streamCheckpointIdentity{
+		OutputPath: abs, ManifestSHA256: fmt.Sprintf("%x", manifestDigest), IdentitiesSHA256: fmt.Sprintf("%x", identitiesDigest),
+		MemoryLimit: memoryLimit, CatalogMemoryLimit: catalogMemoryLimit, DatabaseThreads: databaseThreads,
+		CatalogThreads: catalogThreads, ExpectedDataSHA256: expectedDataSHA256, BuildIdentity: checkpoint.BuildIdentity,
+	}
+	var checkpointState json.RawMessage
+	err = buildStagedResumable(ctx, path, memoryLimit, catalogMemoryLimit, databaseThreads, catalogThreads, expectedDataSHA256, checkpoint, checkpointIdentity, manifest, &checkpointState, observe, func(stage *sql.DB) (stagedInput, error) {
 		writer := stageWriter{db: stage}
 		identityRows := make([][2]string, 0, len(identities))
 		for source, target := range identities {
@@ -272,16 +345,29 @@ func BuildStreamConfigured(ctx context.Context, path string, manifest json.RawMe
 		if err := appendStageBatch(ctx, stage, "input_identities", len(identityRows), func(i int) ([]driver.Value, error) {
 			return []driver.Value{identityRows[i][0], identityRows[i][1]}, nil
 		}); err != nil {
-			return nil, 0, err
+			return stagedInput{}, err
 		}
-		if err := produce(ctx, writer); err != nil {
-			return nil, 0, err
+		state, err := produce(ctx, writer)
+		if err != nil {
+			return stagedInput{}, err
 		}
-		return manifest, 1, nil
+		if len(state) != 0 && !json.Valid(state) {
+			return stagedInput{}, fmt.Errorf("checkpoint state must be valid JSON")
+		}
+		return stagedInput{manifest: manifest, schema: 1, state: state}, nil
 	})
+	return checkpointState, err
 }
 
 func buildStaged(ctx context.Context, path, memoryLimit, catalogMemoryLimit string, databaseThreads, catalogThreads int, expectedDataSHA256 string, observe func(string, time.Duration), stageInput func(*sql.DB) (json.RawMessage, int, error)) (err error) {
+	err = buildStagedResumable(ctx, path, memoryLimit, catalogMemoryLimit, databaseThreads, catalogThreads, expectedDataSHA256, StreamCheckpointOptions{}, streamCheckpointIdentity{}, nil, nil, observe, func(stage *sql.DB) (stagedInput, error) {
+		manifest, schema, stageErr := stageInput(stage)
+		return stagedInput{manifest: manifest, schema: schema}, stageErr
+	})
+	return err
+}
+
+func buildStagedResumable(ctx context.Context, path, memoryLimit, catalogMemoryLimit string, databaseThreads, catalogThreads int, expectedDataSHA256 string, checkpointOptions StreamCheckpointOptions, checkpointIdentity streamCheckpointIdentity, resumeManifest json.RawMessage, checkpointState *json.RawMessage, observe func(string, time.Duration), stageInput func(*sql.DB) (stagedInput, error)) (err error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -294,16 +380,64 @@ func buildStaged(ctx context.Context, path, memoryLimit, catalogMemoryLimit stri
 	if err = os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
 		return err
 	}
-	temp, err := os.MkdirTemp(filepath.Dir(abs), ".duckdb-generation-*")
-	if err != nil {
-		return err
+	temp := ""
+	preserveCheckpoint := false
+	var savedCheckpoint streamCheckpoint
+	if checkpointOptions.Path == "" {
+		temp, err = os.MkdirTemp(filepath.Dir(abs), ".duckdb-generation-*")
+		if err != nil {
+			return err
+		}
+	} else {
+		checkpointPath, pathErr := filepath.Abs(checkpointOptions.Path)
+		if pathErr != nil {
+			return pathErr
+		}
+		if checkpointPath == abs || filepath.Dir(checkpointPath) != filepath.Dir(abs) {
+			return fmt.Errorf("checkpoint and output must be distinct sibling paths")
+		}
+		buildingPath := checkpointPath + ".building"
+		if checkpointOptions.Resume {
+			if _, statErr := os.Stat(buildingPath); statErr == nil {
+				return fmt.Errorf("incomplete checkpoint staging directory requires inspection: %s", buildingPath)
+			} else if !os.IsNotExist(statErr) {
+				return statErr
+			}
+			if err = readStreamCheckpoint(checkpointPath, &savedCheckpoint); err != nil {
+				return err
+			}
+			if savedCheckpoint.Schema != 1 || !reflect.DeepEqual(savedCheckpoint.Identity, checkpointIdentity) {
+				return fmt.Errorf("checkpoint identity does not match this build")
+			}
+			temp = checkpointPath
+			preserveCheckpoint = true
+		} else {
+			for _, reserved := range []string{checkpointPath, buildingPath} {
+				if _, statErr := os.Stat(reserved); statErr == nil {
+					return fmt.Errorf("checkpoint path exists; resume it or choose a new path: %s", reserved)
+				} else if !os.IsNotExist(statErr) {
+					return statErr
+				}
+			}
+			if err = os.Mkdir(buildingPath, 0700); err != nil {
+				return err
+			}
+			temp = buildingPath
+		}
 	}
-	defer func() { _ = os.RemoveAll(temp) }()
+	defer func() {
+		if !preserveCheckpoint {
+			_ = os.RemoveAll(temp)
+		}
+		if err != nil && preserveCheckpoint {
+			err = fmt.Errorf("%w; resumable checkpoint retained at %s", err, temp)
+		}
+	}()
 
-	stagePath := filepath.Join(temp, "normalize.duckdb")
-	spill := filepath.Join(temp, "normalize-spill")
-	dsn := stagePath + "?threads=" + strconv.Itoa(databaseThreads) + "&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
+	stagePath := func() string { return filepath.Join(temp, "normalize.duckdb") }
+	spill := func() string { return filepath.Join(temp, "normalize-spill") }
 	openStage := func() (*sql.DB, error) {
+		dsn := stagePath() + "?threads=" + strconv.Itoa(databaseThreads) + "&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill())
 		db, openErr := sql.Open("duckdb", dsn)
 		if openErr == nil {
 			db.SetMaxOpenConns(1)
@@ -319,28 +453,91 @@ func buildStaged(ctx context.Context, path, memoryLimit, catalogMemoryLimit stri
 			_ = stage.Close()
 		}
 	}()
-	if _, err = stage.ExecContext(ctx, `SET autoinstall_known_extensions=false; SET autoload_known_extensions=false;
+	var input stagedInput
+	if !checkpointOptions.Resume {
+		if _, err = stage.ExecContext(ctx, `SET autoinstall_known_extensions=false; SET autoload_known_extensions=false;
 CREATE TABLE input_records(source_key VARCHAR,kind VARCHAR,priority INTEGER,record_json VARCHAR);
 CREATE TABLE input_identities(source_key VARCHAR,target VARCHAR);
 CREATE TABLE input_relationships(from_key VARCHAR,to_key VARCHAR,kind VARCHAR,evidence VARCHAR);
 CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`); err != nil {
+			return err
+		}
+		inputStarted := time.Now()
+		input, err = stageInput(stage)
+		if err != nil {
+			return err
+		}
+		if _, err = stage.ExecContext(ctx, "CHECKPOINT"); err != nil {
+			return fmt.Errorf("checkpoint normalization input: %w", err)
+		}
+		rows, countErr := checkpointTableRows(ctx, stage)
+		if countErr != nil {
+			return countErr
+		}
+		if err = stage.Close(); err != nil {
+			return fmt.Errorf("close normalization input: %w", err)
+		}
+		stage = nil
+		inputElapsed := time.Since(inputStarted)
+		if checkpointOptions.Path != "" {
+			savedCheckpoint = streamCheckpoint{Schema: 1, Identity: checkpointIdentity, TableRows: rows, InputStagingSeconds: inputElapsed.Seconds(), State: input.state}
+			if err = importer.WriteJSON(filepath.Join(temp, streamCheckpointName), savedCheckpoint); err != nil {
+				return fmt.Errorf("write input checkpoint marker: %w", err)
+			}
+			checkpointPath, _ := filepath.Abs(checkpointOptions.Path)
+			if err = os.Rename(temp, checkpointPath); err != nil {
+				return fmt.Errorf("publish input checkpoint: %w", err)
+			}
+			temp = checkpointPath
+			preserveCheckpoint = true
+		}
+		if observe != nil {
+			observe("input_staging", inputElapsed)
+		}
+	} else {
+		input = stagedInput{manifest: resumeManifest, schema: 1, state: savedCheckpoint.State}
+	}
+	if checkpointState != nil {
+		*checkpointState = input.state
+	}
+	if input.schema != 1 || len(input.manifest) == 0 || !json.Valid(input.manifest) {
+		return fmt.Errorf("unsupported or empty bundle")
+	}
+	manifestRaw := input.manifest
+	var scope importer.Manifest
+	if err = json.Unmarshal(manifestRaw, &scope); err != nil {
 		return err
 	}
-	inputStarted := time.Now()
-	manifestRaw, schemaVersion, err := stageInput(stage)
-	if err != nil {
-		return err
+	// Input staging can overlap the provider preparation database. Reopen the
+	// stage at this boundary so DuckDB and Go ingestion buffers are not carried
+	// into normalization. A resume additionally discards only derived state from
+	// the previous normalization attempt.
+	if checkpointOptions.Resume {
+		if _, err = stage.ExecContext(ctx, "SET autoinstall_known_extensions=false; SET autoload_known_extensions=false"); err != nil {
+			return err
+		}
+		rows, countErr := checkpointTableRows(ctx, stage)
+		if countErr != nil {
+			return countErr
+		}
+		if !reflect.DeepEqual(rows, savedCheckpoint.TableRows) {
+			return fmt.Errorf("checkpoint staging row counts changed")
+		}
+		if _, err = stage.ExecContext(ctx, "DROP TABLE IF EXISTS resolved_keys; CHECKPOINT"); err != nil {
+			return fmt.Errorf("reset resumed normalization state: %w", err)
+		}
 	}
-	// Input staging overlaps this database with the provider preparation
-	// database. Reopen it at the phase boundary so DuckDB and Go ingestion
-	// buffers cannot remain resident while normalization starts its large sort.
-	if _, err = stage.ExecContext(ctx, "CHECKPOINT"); err != nil {
-		return fmt.Errorf("checkpoint normalization input: %w", err)
+	if stage != nil {
+		if err = stage.Close(); err != nil {
+			return fmt.Errorf("close normalization input boundary: %w", err)
+		}
+		stage = nil
 	}
-	if err = stage.Close(); err != nil {
-		return fmt.Errorf("close normalization input: %w", err)
+	if checkpointOptions.Resume {
+		if err = os.RemoveAll(spill()); err != nil {
+			return fmt.Errorf("remove abandoned normalization spill: %w", err)
+		}
 	}
-	stage = nil
 	debug.FreeOSMemory()
 	if stage, err = openStage(); err != nil {
 		return fmt.Errorf("reopen normalization input: %w", err)
@@ -348,15 +545,16 @@ CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`);
 	if _, err = stage.ExecContext(ctx, "SET autoinstall_known_extensions=false; SET autoload_known_extensions=false"); err != nil {
 		return err
 	}
-	if observe != nil {
-		observe("input_staging", time.Since(inputStarted))
+	if checkpointOptions.Resume && observe != nil {
+		observe("input_staging", time.Duration(savedCheckpoint.InputStagingSeconds*float64(time.Second)))
 	}
-	if schemaVersion != 1 || len(manifestRaw) == 0 || !json.Valid(manifestRaw) {
-		return fmt.Errorf("unsupported or empty bundle")
-	}
-	var scope importer.Manifest
-	if err = json.Unmarshal(manifestRaw, &scope); err != nil {
-		return err
+	generation := temp
+	if checkpointOptions.Path != "" {
+		generation, err = os.MkdirTemp(filepath.Dir(abs), ".duckdb-generation-*")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = os.RemoveAll(generation) }()
 	}
 	normalizeStarted := time.Now()
 	if err = validateStage(ctx, stage); err != nil {
@@ -370,17 +568,17 @@ ORDER BY entity_id,source_key`); err != nil {
 		return err
 	}
 
-	entities, err := newParquetSink[entityRow](filepath.Join(temp, EntitiesName))
+	entities, err := newParquetSink[entityRow](filepath.Join(generation, EntitiesName))
 	if err != nil {
 		return err
 	}
 	defer entities.close()
-	sources, err := newParquetSink[sourceRow](filepath.Join(temp, SourcesName))
+	sources, err := newParquetSink[sourceRow](filepath.Join(generation, SourcesName))
 	if err != nil {
 		return err
 	}
 	defer sources.close()
-	provenance, err := newParquetSink[provenanceRow](filepath.Join(temp, ProvenanceName))
+	provenance, err := newParquetSink[provenanceRow](filepath.Join(generation, ProvenanceName))
 	if err != nil {
 		return err
 	}
@@ -485,7 +683,7 @@ ORDER BY k.entity_id,r.priority DESC,r.source_key`)
 		return err
 	}
 
-	relationships, err := newParquetSink[relationshipRow](filepath.Join(temp, RelationshipsName))
+	relationships, err := newParquetSink[relationshipRow](filepath.Join(generation, RelationshipsName))
 	if err != nil {
 		return err
 	}
@@ -525,7 +723,7 @@ ORDER BY 1,2,3,4`)
 		return err
 	}
 
-	rejections, err := newParquetSink[rejectionRow](filepath.Join(temp, RejectionsName))
+	rejections, err := newParquetSink[rejectionRow](filepath.Join(generation, RejectionsName))
 	if err != nil {
 		return err
 	}
@@ -558,7 +756,7 @@ ORDER BY 1,2,3,4`)
 		return err
 	}
 	metadataRows := []metadataRow{{Key: "identities", Value: identitiesJSON}, {Key: "source_manifest", Value: string(manifestRaw)}}
-	if err = writeParquet(filepath.Join(temp, MetadataName), metadataRows); err != nil {
+	if err = writeParquet(filepath.Join(generation, MetadataName), metadataRows); err != nil {
 		return err
 	}
 
@@ -570,7 +768,7 @@ ORDER BY 1,2,3,4`)
 		files []shardFile
 	}{{"entities", entities.files}, {"sources", sources.files}, {"provenance", provenance.files}, {"relationships", relationships.files}, {"rejections", rejections.files}, {"metadata", []shardFile{{name: MetadataName, rows: len(metadataRows)}}}} {
 		for _, file := range set.files {
-			digest, checksumErr := importer.Checksum(filepath.Join(temp, file.name))
+			digest, checksumErr := importer.Checksum(filepath.Join(generation, file.name))
 			if checksumErr != nil {
 				return checksumErr
 			}
@@ -591,16 +789,19 @@ ORDER BY 1,2,3,4`)
 	if err = stage.Close(); err != nil {
 		return fmt.Errorf("close normalization stage: %w", err)
 	}
-	_ = os.Remove(stagePath)
-	_ = os.RemoveAll(spill)
+	stage = nil
+	if checkpointOptions.Path == "" {
+		_ = os.Remove(stagePath())
+		_ = os.RemoveAll(spill())
+	}
 	if observe != nil {
 		observe("normalization_parquet", time.Since(normalizeStarted))
 	}
 	catalogStarted := time.Now()
-	if err = buildIndexJSONWithOptions(ctx, filepath.Join(temp, IndexName), filepath.Join(temp, "entities*.parquet"), entities.rows, manifestRaw, identitiesJSON, catalogMemoryLimit, catalogThreads, shardedSchema); err != nil {
+	if err = buildIndexJSONWithOptions(ctx, filepath.Join(generation, IndexName), filepath.Join(generation, "entities*.parquet"), entities.rows, manifestRaw, identitiesJSON, catalogMemoryLimit, catalogThreads, shardedSchema); err != nil {
 		return fmt.Errorf("build serving catalog: %w", err)
 	}
-	indexDigest, err := importer.Checksum(filepath.Join(temp, IndexName))
+	indexDigest, err := importer.Checksum(filepath.Join(generation, IndexName))
 	if err != nil {
 		return err
 	}
@@ -608,17 +809,65 @@ ORDER BY 1,2,3,4`)
 	if observe != nil {
 		observe("catalog", time.Since(catalogStarted))
 	}
-	if err = importer.WriteJSON(filepath.Join(temp, ManifestName), manifest); err != nil {
+	if err = importer.WriteJSON(filepath.Join(generation, ManifestName), manifest); err != nil {
 		return err
 	}
 	verifyStarted := time.Now()
-	if _, err = Verify(temp); err != nil {
+	if _, err = Verify(generation); err != nil {
 		return err
 	}
 	if observe != nil {
 		observe("validation", time.Since(verifyStarted))
 	}
-	return os.Rename(temp, abs)
+	if err = os.Rename(generation, abs); err != nil {
+		return err
+	}
+	if checkpointOptions.Path != "" {
+		preserveCheckpoint = false
+		if err = os.RemoveAll(temp); err != nil {
+			return fmt.Errorf("candidate published but checkpoint cleanup failed: %w", err)
+		}
+	}
+	return nil
+}
+
+func readStreamCheckpoint(path string, checkpoint *streamCheckpoint) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("read checkpoint: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("checkpoint is not a directory: %s", path)
+	}
+	raw, err := os.ReadFile(filepath.Join(path, streamCheckpointName))
+	if err != nil {
+		return fmt.Errorf("read checkpoint marker: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(checkpoint); err != nil {
+		return fmt.Errorf("decode checkpoint marker: %w", err)
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return fmt.Errorf("trailing data in checkpoint marker")
+	}
+	if checkpoint.InputStagingSeconds <= 0 || len(checkpoint.State) != 0 && !json.Valid(checkpoint.State) {
+		return fmt.Errorf("invalid checkpoint marker")
+	}
+	return nil
+}
+
+func checkpointTableRows(ctx context.Context, db *sql.DB) (map[string]int64, error) {
+	tables := []string{"input_records", "input_identities", "input_relationships", "input_rejections"}
+	rows := make(map[string]int64, len(tables))
+	for _, table := range tables {
+		var count int64
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil {
+			return nil, fmt.Errorf("count checkpoint table %s: %w", table, err)
+		}
+		rows[table] = count
+	}
+	return rows, nil
 }
 
 func stageJSON(ctx context.Context, db *sql.DB, input io.Reader) (json.RawMessage, int, error) {

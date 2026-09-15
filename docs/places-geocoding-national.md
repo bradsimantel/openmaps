@@ -128,6 +128,7 @@ go build -o /tmp/openmaps-run-bounded ./cmd/scout-run-bounded
   /tmp/openmaps-places-prepare \
   -config config/places-geocoding-us-gate.json -data data \
   -stream-out data/openmaps-us-parallel-gate-20260819 \
+  -checkpoint data/openmaps-us-parallel-gate-20260819-checkpoint \
   -audit data/openmaps-us-parallel-gate-20260819-audit.json
 ```
 
@@ -143,16 +144,46 @@ go build -o /tmp/openmaps-run-bounded ./cmd/scout-run-bounded
   /tmp/openmaps-places-prepare \
   -config config/places-geocoding-us.json -data data \
   -stream-out data/openmaps-us-20260819 \
+  -checkpoint data/openmaps-us-20260819-checkpoint \
   -audit data/openmaps-us-20260819-audit.json
 ```
 
-That one atomic command performs range acquisition, provider preparation,
-normalization, catalog construction, checksum verification, and referential
-integrity validation. It publishes only after every phase succeeds and refuses
-an existing output. Remote Parquet is not retained locally; retaining an
-independently archived copy for long-term rebuilds is an operator decision that
-is not implemented by this command. Interrupted builds currently restart the
-range-read preparation phase; partial publication is never resumed.
+That command performs range acquisition, provider preparation, normalization,
+catalog construction, checksum verification, and referential integrity
+validation. It publishes only after every phase succeeds and refuses an
+existing output. After input staging completes, it checkpoints and closes the
+DuckDB staging database, records the preparation audit and exact build identity,
+and atomically publishes the checkpoint directory. The identity covers the
+output path, manifest and source pins, identity mappings, expected retained-data
+checksum, memory and thread controls, clean Git revision, and OS/architecture.
+Resume also validates all staging table counts, discards only derived work from
+the failed attempt, and reruns the normal input integrity checks before rebuilding.
+
+If normalization, catalog construction, or validation fails after that marker
+is published, preserve the checkpoint and rerun the same supervised command
+with `-resume`. Do not use `-resume` after changing the revision, configuration,
+controls, identities, expected checksum, output, or target architecture:
+
+```sh
+/tmp/openmaps-run-bounded \
+  -root "$PWD/data" -report "$PWD/data/us-build-resources.json" \
+  -rss-mib 49152 -reserve-gib 60 \
+  /tmp/openmaps-places-prepare \
+  -config config/places-geocoding-us.json -data data \
+  -stream-out data/openmaps-us-20260819 \
+  -checkpoint data/openmaps-us-20260819-checkpoint -resume \
+  -audit data/openmaps-us-20260819-audit.json
+```
+
+An interruption before the marker completes still restarts source ingestion;
+a leftover `-checkpoint` path ending in `.building` is deliberately refused and
+must be inspected as an incomplete failed-run directory. A resumed attempt
+rebuilds normalization and catalog artifacts from the durable staged inputs and
+still enforces the expected data checksum and complete verification. On success,
+the candidate is atomically published and the checkpoint is removed. Remote
+Parquet is not retained locally; retaining an independently archived copy for
+long-term rebuilds remains an operator decision that this command does not
+implement.
 
 The 48 GiB sampled RSS ceiling deliberately leaves roughly 14 GiB on the 64 GB
 host for the kernel, filesystem cache, and sampling delay. The checked-in gate

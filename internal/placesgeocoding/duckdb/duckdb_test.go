@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 
@@ -286,6 +287,71 @@ func TestStreamBuildMatchesRegionalBundleInBoundedBatches(t *testing.T) {
 	defer store.Close()
 	if _, err = store.Details(context.Background(), importer.PublicID("fixture:place:tavern")); err != nil {
 		t.Fatal("streamed relationship fixture lost its business entity", err)
+	}
+}
+
+func TestStreamBuildResumesFromValidatedInputCheckpoint(t *testing.T) {
+	bundle := fixture(t)
+	root := t.TempDir()
+	output := filepath.Join(root, "resumed")
+	checkpoint := filepath.Join(root, "resumed-checkpoint")
+	wantState := json.RawMessage(`{"preparation":"complete"}`)
+	producerCalls := 0
+	produce := func(ctx context.Context, out placeduckdb.StreamWriter) (json.RawMessage, error) {
+		producerCalls++
+		if err := out.WriteRecords(ctx, bundle.Records); err != nil {
+			return nil, err
+		}
+		if err := out.WriteRelationships(ctx, bundle.Relationships); err != nil {
+			return nil, err
+		}
+		if err := out.WriteRejections(ctx, bundle.Rejections); err != nil {
+			return nil, err
+		}
+		return wantState, nil
+	}
+	options := placeduckdb.StreamCheckpointOptions{Path: checkpoint, BuildIdentity: "test-revision/linux-amd64"}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := placeduckdb.BuildStreamResumable(ctx, output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", options, func(name string, _ time.Duration) {
+		if name == "input_staging" {
+			cancel()
+		}
+	}, produce)
+	if err == nil || !strings.Contains(err.Error(), "checkpoint retained") {
+		t.Fatalf("interrupted build did not retain a checkpoint: %v", err)
+	}
+	if producerCalls != 1 {
+		t.Fatalf("producer calls=%d want 1", producerCalls)
+	}
+	if _, err = os.Stat(checkpoint); err != nil {
+		t.Fatal("checkpoint was not published", err)
+	}
+
+	mismatched := options
+	mismatched.Resume = true
+	mismatched.BuildIdentity = "different-revision/linux-amd64"
+	if _, err = placeduckdb.BuildStreamResumable(context.Background(), output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", mismatched, nil, produce); err == nil || !strings.Contains(err.Error(), "identity does not match") {
+		t.Fatal("accepted a checkpoint from a different build identity", err)
+	}
+
+	options.Resume = true
+	resumedState, err := placeduckdb.BuildStreamResumable(context.Background(), output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", options, nil, func(context.Context, placeduckdb.StreamWriter) (json.RawMessage, error) {
+		return nil, fmt.Errorf("producer must not run during resume")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(resumedState, wantState) {
+		t.Fatalf("resumed state=%s want %s", resumedState, wantState)
+	}
+	if producerCalls != 1 {
+		t.Fatalf("producer ran during resume: calls=%d", producerCalls)
+	}
+	if _, err = os.Stat(checkpoint); !os.IsNotExist(err) {
+		t.Fatal("checkpoint remained after publication", err)
+	}
+	if _, err = placeduckdb.Verify(output); err != nil {
+		t.Fatal(err)
 	}
 }
 

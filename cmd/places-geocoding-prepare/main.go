@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"syscall"
 	"time"
@@ -36,9 +37,17 @@ func run() error {
 	preflight := flag.Bool("preflight", false, "inspect pinned Parquet assets and estimate bounded-build workspace use")
 	streamOut := flag.String("stream-out", "", "build a normalized Parquet/DuckDB generation directly from pinned Parquet (schema 2 configs)")
 	auditPath := flag.String("audit", "", "optional new streaming audit JSON path")
+	checkpointPath := flag.String("checkpoint", "", "durable input-staging checkpoint directory for a streaming build")
+	resume := flag.Bool("resume", false, "resume normalization from the completed input-staging checkpoint")
 	flag.Parse()
 	if *acceptSourceUpdate && !*fetch {
 		return fmt.Errorf("-accept-reviewed-source-update requires -fetch")
+	}
+	if *resume && *checkpointPath == "" {
+		return fmt.Errorf("-resume requires -checkpoint")
+	}
+	if *checkpointPath != "" && *streamOut == "" {
+		return fmt.Errorf("-checkpoint requires -stream-out")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -123,18 +132,35 @@ func run() error {
 		var audit importer.StreamingAudit
 		oldMemoryLimit := debug.SetMemoryLimit(m.Streaming.GoMemoryLimitMiB << 20)
 		defer debug.SetMemoryLimit(oldMemoryLimit)
+		buildIdentity := ""
+		if *checkpointPath != "" {
+			buildIdentity, err = cleanBuildIdentity()
+			if err != nil {
+				return err
+			}
+		}
 		phases := map[string]float64{}
 		started := time.Now()
-		err = placeduckdb.BuildStreamConfigured(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, m.Streaming.DatabaseThreads, m.Streaming.CatalogThreads, m.Streaming.ExpectedDataSHA256, func(name string, elapsed time.Duration) {
+		checkpointState, err := placeduckdb.BuildStreamResumable(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, m.Streaming.DatabaseThreads, m.Streaming.CatalogThreads, m.Streaming.ExpectedDataSHA256, placeduckdb.StreamCheckpointOptions{Path: *checkpointPath, Resume: *resume, BuildIdentity: buildIdentity}, func(name string, elapsed time.Duration) {
 			phases[name] = elapsed.Seconds()
 			log.Printf("Places/geocoding build phase complete phase=%s elapsed=%s", name, elapsed.Round(time.Second))
-		}, func(buildCtx context.Context, sink placeduckdb.StreamWriter) error {
+		}, func(buildCtx context.Context, sink placeduckdb.StreamWriter) (json.RawMessage, error) {
 			var prepareErr error
 			audit, prepareErr = importer.PrepareStreaming(buildCtx, m, *data, sink)
-			return prepareErr
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
+			state, marshalErr := json.Marshal(audit)
+			return state, marshalErr
 		})
 		if err != nil {
 			return err
+		}
+		if err = json.Unmarshal(checkpointState, &audit); err != nil {
+			return fmt.Errorf("decode checkpointed preparation audit: %w", err)
+		}
+		if audit.Region != m.Region || audit.BatchRows != m.Streaming.BatchRows {
+			return fmt.Errorf("checkpointed preparation audit does not match the streaming manifest")
 		}
 		artifact, err := placeduckdb.Verify(*streamOut)
 		if err != nil {
@@ -187,6 +213,29 @@ func run() error {
 	out, _ := json.MarshalIndent(audit, "", "  ")
 	fmt.Println(string(out))
 	return nil
+}
+
+func cleanBuildIdentity() (string, error) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "", fmt.Errorf("checkpointing requires embedded Go build information")
+	}
+	revision, modified := "", ""
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value
+		}
+	}
+	if revision == "" {
+		return "", fmt.Errorf("checkpointing requires an embedded VCS revision")
+	}
+	if modified != "false" {
+		return "", fmt.Errorf("checkpointing requires a clean VCS build")
+	}
+	return fmt.Sprintf("revision=%s;target=%s/%s", revision, runtime.GOOS, runtime.GOARCH), nil
 }
 
 func freeDisk(path string) (int64, error) {
