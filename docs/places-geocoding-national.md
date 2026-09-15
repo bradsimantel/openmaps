@@ -63,12 +63,14 @@ five-character postcode, one candidate within 50 spherical metres, and no
 second qualifying candidate. Normalization externally sorts public identity
 groups and retains only one entity's contributing source records in Go. The
 national and qualification profiles use four source workers and four DuckDB
-threads, cap each concurrently open preparation/normalization database at
-16 GB, and give the Go runtime a 4 GiB soft memory limit. Parquet dictionaries
-fall back to plain encoding at 4 MiB per column. Serving-catalog construction
-uses four DuckDB threads and a separately pinned 32 GB limit. A 48 GiB process
-supervisor is still required because these component limits are not a hard
-whole-process RSS bound.
+threads. The concurrently open preparation and normalization databases have
+separate 4 GB and 16 GB limits, respectively, and the Go runtime has a 4 GiB
+soft memory limit. The normalization database is checkpointed, closed, and
+reopened after input staging so ingestion buffers do not remain resident during
+the normalization sort. Parquet dictionaries fall back to plain encoding at
+4 MiB per column. Serving-catalog construction uses four DuckDB threads and a
+separately pinned 32 GB limit. A 48 GiB process supervisor is still required
+because these component limits are not a hard whole-process RSS bound.
 
 Public IDs continue to hash immutable source-qualified identity anchors.
 Provider source IDs, release, original records, winning-attribute paths,

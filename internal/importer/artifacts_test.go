@@ -43,14 +43,14 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	if manifest.Streaming.SourceWorkers != 4 || manifest.Streaming.DatabaseThreads != 4 || manifest.Streaming.CatalogThreads != 4 || manifest.Streaming.ProgressSeconds != 30 {
 		t.Fatalf("unexpected national concurrency controls: %+v", manifest.Streaming)
 	}
-	if manifest.Streaming.MemoryLimit != "16GB" || manifest.Streaming.CatalogMemoryLimit != "32GB" || manifest.Streaming.GoMemoryLimitMiB != 4096 {
+	if manifest.Streaming.PreparationMemoryLimit != "4GB" || manifest.Streaming.MemoryLimit != "16GB" || manifest.Streaming.CatalogMemoryLimit != "32GB" || manifest.Streaming.GoMemoryLimitMiB != 4096 {
 		t.Fatalf("unexpected national memory controls: %+v", manifest.Streaming)
 	}
 	gate, err := ReadManifest(filepath.Join("..", "..", "config", "places-geocoding-us-gate.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gate.Streaming.SourceWorkers != manifest.Streaming.SourceWorkers || gate.Streaming.DatabaseThreads != manifest.Streaming.DatabaseThreads || gate.Streaming.CatalogThreads != manifest.Streaming.CatalogThreads || gate.Streaming.ProgressSeconds != manifest.Streaming.ProgressSeconds || gate.Streaming.MemoryLimit != manifest.Streaming.MemoryLimit || gate.Streaming.CatalogMemoryLimit != manifest.Streaming.CatalogMemoryLimit || gate.Streaming.FreeDiskFloorGiB != manifest.Streaming.FreeDiskFloorGiB || gate.Streaming.GoMemoryLimitMiB != manifest.Streaming.GoMemoryLimitMiB {
+	if gate.Streaming.SourceWorkers != manifest.Streaming.SourceWorkers || gate.Streaming.DatabaseThreads != manifest.Streaming.DatabaseThreads || gate.Streaming.CatalogThreads != manifest.Streaming.CatalogThreads || gate.Streaming.ProgressSeconds != manifest.Streaming.ProgressSeconds || gate.Streaming.PreparationMemoryLimit != manifest.Streaming.PreparationMemoryLimit || gate.Streaming.MemoryLimit != manifest.Streaming.MemoryLimit || gate.Streaming.CatalogMemoryLimit != manifest.Streaming.CatalogMemoryLimit || gate.Streaming.FreeDiskFloorGiB != manifest.Streaming.FreeDiskFloorGiB || gate.Streaming.GoMemoryLimitMiB != manifest.Streaming.GoMemoryLimitMiB {
 		t.Fatalf("gate does not exercise national resource controls: gate=%+v national=%+v", gate.Streaming, manifest.Streaming)
 	}
 	if gate.Streaming.ExpectedDataSHA256 != "3b4f68333e1508d33f1c4610dfc630e5735871a0f6f0b5475e95a7462c56c359" {
@@ -81,6 +81,7 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	manifest.Streaming.DatabaseThreads = 0
 	manifest.Streaming.CatalogThreads = 0
 	manifest.Streaming.ProgressSeconds = 0
+	manifest.Streaming.PreparationMemoryLimit = ""
 	if err = WriteJSON(invalid, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal("rejected a schema-2 manifest that predates concurrency controls", err)
 	}
-	if compatible.Streaming.SourceWorkers != 1 || compatible.Streaming.DatabaseThreads != 1 || compatible.Streaming.CatalogThreads != 1 || compatible.Streaming.ProgressSeconds != 30 {
+	if compatible.Streaming.SourceWorkers != 1 || compatible.Streaming.DatabaseThreads != 1 || compatible.Streaming.CatalogThreads != 1 || compatible.Streaming.ProgressSeconds != 30 || compatible.Streaming.PreparationMemoryLimit != compatible.Streaming.MemoryLimit {
 		t.Fatalf("legacy concurrency defaults changed: %+v", compatible.Streaming)
 	}
 }

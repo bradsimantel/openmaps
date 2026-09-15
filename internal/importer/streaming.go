@@ -276,7 +276,11 @@ func PrepareStreaming(ctx context.Context, m Manifest, dataDir string, sink Prep
 		return audit, err
 	}
 	defer os.RemoveAll(temp)
-	dsn := filepath.Join(temp, "prepare.duckdb") + "?threads=" + strconv.Itoa(m.Streaming.DatabaseThreads) + "&memory_limit=" + url.QueryEscape(m.Streaming.MemoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(filepath.Join(temp, "spill"))
+	preparationMemoryLimit := m.Streaming.PreparationMemoryLimit
+	if preparationMemoryLimit == "" {
+		preparationMemoryLimit = m.Streaming.MemoryLimit
+	}
+	dsn := filepath.Join(temp, "prepare.duckdb") + "?threads=" + strconv.Itoa(m.Streaming.DatabaseThreads) + "&memory_limit=" + url.QueryEscape(preparationMemoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(filepath.Join(temp, "spill"))
 	db, err := sql.Open("duckdb", dsn)
 	if err != nil {
 		return audit, err

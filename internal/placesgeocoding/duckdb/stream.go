@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -302,12 +303,22 @@ func buildStaged(ctx context.Context, path, memoryLimit, catalogMemoryLimit stri
 	stagePath := filepath.Join(temp, "normalize.duckdb")
 	spill := filepath.Join(temp, "normalize-spill")
 	dsn := stagePath + "?threads=" + strconv.Itoa(databaseThreads) + "&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill)
-	stage, err := sql.Open("duckdb", dsn)
+	openStage := func() (*sql.DB, error) {
+		db, openErr := sql.Open("duckdb", dsn)
+		if openErr == nil {
+			db.SetMaxOpenConns(1)
+		}
+		return db, openErr
+	}
+	stage, err := openStage()
 	if err != nil {
 		return err
 	}
-	stage.SetMaxOpenConns(1)
-	defer stage.Close()
+	defer func() {
+		if stage != nil {
+			_ = stage.Close()
+		}
+	}()
 	if _, err = stage.ExecContext(ctx, `SET autoinstall_known_extensions=false; SET autoload_known_extensions=false;
 CREATE TABLE input_records(source_key VARCHAR,kind VARCHAR,priority INTEGER,record_json VARCHAR);
 CREATE TABLE input_identities(source_key VARCHAR,target VARCHAR);
@@ -318,6 +329,23 @@ CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`);
 	inputStarted := time.Now()
 	manifestRaw, schemaVersion, err := stageInput(stage)
 	if err != nil {
+		return err
+	}
+	// Input staging overlaps this database with the provider preparation
+	// database. Reopen it at the phase boundary so DuckDB and Go ingestion
+	// buffers cannot remain resident while normalization starts its large sort.
+	if _, err = stage.ExecContext(ctx, "CHECKPOINT"); err != nil {
+		return fmt.Errorf("checkpoint normalization input: %w", err)
+	}
+	if err = stage.Close(); err != nil {
+		return fmt.Errorf("close normalization input: %w", err)
+	}
+	stage = nil
+	debug.FreeOSMemory()
+	if stage, err = openStage(); err != nil {
+		return fmt.Errorf("reopen normalization input: %w", err)
+	}
+	if _, err = stage.ExecContext(ctx, "SET autoinstall_known_extensions=false; SET autoload_known_extensions=false"); err != nil {
 		return err
 	}
 	if observe != nil {
