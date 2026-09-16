@@ -37,7 +37,7 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Schema != 2 || manifest.Streaming.BatchRows != 2048 || len(manifest.Scopes) != 4 {
+	if manifest.Schema != 2 || manifest.Streaming.BatchRows != 16384 || len(manifest.Scopes) != 4 {
 		t.Fatalf("unexpected streaming config: %+v", manifest)
 	}
 	if manifest.Streaming.SourceWorkers != 4 || manifest.Streaming.DatabaseThreads != 4 || manifest.Streaming.CatalogThreads != 4 || manifest.Streaming.ProgressSeconds != 30 {
@@ -50,7 +50,7 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gate.Streaming.SourceWorkers != manifest.Streaming.SourceWorkers || gate.Streaming.DatabaseThreads != manifest.Streaming.DatabaseThreads || gate.Streaming.CatalogThreads != manifest.Streaming.CatalogThreads || gate.Streaming.ProgressSeconds != manifest.Streaming.ProgressSeconds || gate.Streaming.PreparationMemoryLimit != manifest.Streaming.PreparationMemoryLimit || gate.Streaming.MemoryLimit != manifest.Streaming.MemoryLimit || gate.Streaming.CatalogMemoryLimit != manifest.Streaming.CatalogMemoryLimit || gate.Streaming.FreeDiskFloorGiB != manifest.Streaming.FreeDiskFloorGiB || gate.Streaming.GoMemoryLimitMiB != manifest.Streaming.GoMemoryLimitMiB {
+	if gate.Streaming.BatchRows != manifest.Streaming.BatchRows || gate.Streaming.SourceWorkers != manifest.Streaming.SourceWorkers || gate.Streaming.DatabaseThreads != manifest.Streaming.DatabaseThreads || gate.Streaming.CatalogThreads != manifest.Streaming.CatalogThreads || gate.Streaming.ProgressSeconds != manifest.Streaming.ProgressSeconds || gate.Streaming.PreparationMemoryLimit != manifest.Streaming.PreparationMemoryLimit || gate.Streaming.MemoryLimit != manifest.Streaming.MemoryLimit || gate.Streaming.CatalogMemoryLimit != manifest.Streaming.CatalogMemoryLimit || gate.Streaming.FreeDiskFloorGiB != manifest.Streaming.FreeDiskFloorGiB || gate.Streaming.GoMemoryLimitMiB != manifest.Streaming.GoMemoryLimitMiB {
 		t.Fatalf("gate does not exercise national resource controls: gate=%+v national=%+v", gate.Streaming, manifest.Streaming)
 	}
 	if gate.Streaming.ExpectedDataSHA256 != "3b4f68333e1508d33f1c4610dfc630e5735871a0f6f0b5475e95a7462c56c359" {

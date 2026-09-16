@@ -7,7 +7,7 @@
     {"name": "northwest five-state envelope", "bbox": [-125, 41.9, -104, 49.1], "regions": ["WA", "OR", "ID", "MT", "WY"]}
   ],
   "streaming": {
-    "batch_rows": 2048,
+    "batch_rows": 16384,
     "source_workers": 4,
     "database_threads": 4,
     "catalog_threads": 4,

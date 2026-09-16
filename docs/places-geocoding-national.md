@@ -56,14 +56,17 @@ valid area and is rejected rather than assigned a fabricated name.
 
 ## Bounded construction and output
 
-The adapter submits at most 2,048 provider records, relationships, or
-rejections per call. Temporary DuckDB tables own business/address matching and
+The adapter submits at most 16,384 provider records, relationships, or
+rejections per call. Four concurrent staging writers use independent DuckDB
+connections and bulk appenders; temporary DuckDB tables own business/address
+matching and
 division ancestry. Business links require exact normalized number/street and
 five-character postcode, one candidate within 50 spherical metres, and no
 second qualifying candidate. Normalization externally sorts public identity
 groups and retains only one entity's contributing source records in Go. The
-national and qualification profiles use four source workers and four DuckDB
-threads. The concurrently open preparation and normalization databases have
+national and qualification profiles use four source workers, four staging
+writers, and four DuckDB threads. The concurrently open preparation and
+normalization databases have
 separate 4 GB and 16 GB limits, respectively, and the Go runtime has a 4 GiB
 soft memory limit. The normalization database is checkpointed, closed, and
 reopened after input staging so ingestion buffers do not remain resident during

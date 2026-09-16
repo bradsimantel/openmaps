@@ -198,7 +198,7 @@ UNION ALL
 	}
 }
 
-func TestStreamBuildMatchesRegionalBundleInBoundedBatches(t *testing.T) {
+func TestStreamBuildMatchesRegionalBundleWithConcurrentBatches(t *testing.T) {
 	bundle := fixture(t)
 	root := t.TempDir()
 	regional, streamed := filepath.Join(root, "regional"), filepath.Join(root, "streamed")
@@ -207,22 +207,44 @@ func TestStreamBuildMatchesRegionalBundleInBoundedBatches(t *testing.T) {
 	}
 	maxBatch := 2
 	produce := func(ctx context.Context, out placeduckdb.StreamWriter) error {
+		var work sync.WaitGroup
+		errs := make(chan error, len(bundle.Records)+len(bundle.Relationships)+len(bundle.Rejections))
 		for end := len(bundle.Records); end > 0; {
 			start := max(0, end-maxBatch)
-			if err := out.WriteRecords(ctx, bundle.Records[start:end]); err != nil {
-				return err
-			}
+			batch := bundle.Records[start:end]
+			work.Add(1)
+			go func() {
+				defer work.Done()
+				if err := out.WriteRecords(ctx, batch); err != nil {
+					errs <- err
+				}
+			}()
 			end = start
 		}
 		for i := range bundle.Relationships {
-			if err := out.WriteRelationships(ctx, bundle.Relationships[i:i+1]); err != nil {
-				return err
-			}
+			batch := bundle.Relationships[i : i+1]
+			work.Add(1)
+			go func() {
+				defer work.Done()
+				if err := out.WriteRelationships(ctx, batch); err != nil {
+					errs <- err
+				}
+			}()
 		}
 		for i := range bundle.Rejections {
-			if err := out.WriteRejections(ctx, bundle.Rejections[i:i+1]); err != nil {
-				return err
-			}
+			batch := bundle.Rejections[i : i+1]
+			work.Add(1)
+			go func() {
+				defer work.Done()
+				if err := out.WriteRejections(ctx, batch); err != nil {
+					errs <- err
+				}
+			}()
+		}
+		work.Wait()
+		close(errs)
+		for err := range errs {
+			return err
 		}
 		return nil
 	}

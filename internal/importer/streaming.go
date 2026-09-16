@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	_ "github.com/duckdb/duckdb-go/v2"
+	duckdbdriver "github.com/duckdb/duckdb-go/v2"
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/format"
 
@@ -27,7 +29,8 @@ import (
 )
 
 // PreparedSink accepts bounded batches of provider-independent preparation
-// output. The DuckDB generation builder implements this interface.
+// output. Methods may be called concurrently. The DuckDB generation builder
+// implements this interface with independent in-process connections.
 type PreparedSink interface {
 	WriteRecords(context.Context, []Record) error
 	WriteRelationships(context.Context, []Relationship) error
@@ -40,39 +43,66 @@ type preparedBatch struct {
 	rejections    []Rejection
 }
 
-// asyncPreparedSink separates parallel decoding from the single DuckDB writer.
-// Its bounded queue lets workers continue parsing while a prior batch is
+// asyncPreparedSink separates parallel decoding from bounded DuckDB writers.
+// Its bounded queue lets workers continue parsing while prior batches are
 // appended without allowing source-sized state to accumulate in Go.
 type asyncPreparedSink struct {
 	ctx       context.Context
+	cancel    context.CancelFunc
 	sink      PreparedSink
 	queue     chan preparedBatch
 	done      chan struct{}
 	closeOnce sync.Once
+	work      sync.WaitGroup
+	errMu     sync.Mutex
 	err       error
 }
 
-func newAsyncPreparedSink(ctx context.Context, sink PreparedSink, capacity int) *asyncPreparedSink {
-	s := &asyncPreparedSink{ctx: ctx, sink: sink, queue: make(chan preparedBatch, max(2, capacity)), done: make(chan struct{})}
-	go s.run()
+func newAsyncPreparedSink(ctx context.Context, sink PreparedSink, workers, capacity int) *asyncPreparedSink {
+	workerCtx, cancel := context.WithCancel(ctx)
+	s := &asyncPreparedSink{ctx: workerCtx, cancel: cancel, sink: sink, queue: make(chan preparedBatch, max(2, capacity)), done: make(chan struct{})}
+	s.work.Add(max(1, workers))
+	for range max(1, workers) {
+		go s.run()
+	}
+	go func() {
+		s.work.Wait()
+		close(s.done)
+	}()
 	return s
 }
 
 func (s *asyncPreparedSink) run() {
-	defer close(s.done)
+	defer s.work.Done()
 	for batch := range s.queue {
+		if s.ctx.Err() != nil {
+			return
+		}
+		var err error
 		switch {
 		case batch.records != nil:
-			s.err = s.sink.WriteRecords(s.ctx, batch.records)
+			err = s.sink.WriteRecords(s.ctx, batch.records)
 		case batch.relationships != nil:
-			s.err = s.sink.WriteRelationships(s.ctx, batch.relationships)
+			err = s.sink.WriteRelationships(s.ctx, batch.relationships)
 		case batch.rejections != nil:
-			s.err = s.sink.WriteRejections(s.ctx, batch.rejections)
+			err = s.sink.WriteRejections(s.ctx, batch.rejections)
 		}
-		if s.err != nil {
+		if err != nil {
+			s.errMu.Lock()
+			if s.err == nil {
+				s.err = err
+				s.cancel()
+			}
+			s.errMu.Unlock()
 			return
 		}
 	}
+}
+
+func (s *asyncPreparedSink) result() error {
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	return s.err
 }
 
 func (s *asyncPreparedSink) submit(batch preparedBatch) error {
@@ -80,11 +110,14 @@ func (s *asyncPreparedSink) submit(batch preparedBatch) error {
 	case s.queue <- batch:
 		return nil
 	case <-s.done:
-		if s.err != nil {
-			return s.err
+		if err := s.result(); err != nil {
+			return err
 		}
 		return fmt.Errorf("prepared sink is closed")
 	case <-s.ctx.Done():
+		if err := s.result(); err != nil {
+			return err
+		}
 		return s.ctx.Err()
 	}
 }
@@ -113,7 +146,8 @@ func (s *asyncPreparedSink) WriteRejections(_ context.Context, rows []Rejection)
 func (s *asyncPreparedSink) Close() error {
 	s.closeOnce.Do(func() { close(s.queue) })
 	<-s.done
-	return s.err
+	s.cancel()
+	return s.result()
 }
 
 type AssetPreflight struct {
@@ -269,7 +303,8 @@ func overlapsAnyStatsFormat(group format.RowGroup, bounds [][4]float64) bool {
 // preparation database used for division ancestry and business/address joins.
 func PrepareStreaming(ctx context.Context, m Manifest, dataDir string, sink PreparedSink) (StreamingAudit, error) {
 	audit := StreamingAudit{Region: m.Region, BatchRows: m.Streaming.BatchRows, SourceRows: map[string]int64{}, ImportedCounts: map[string]int64{}, RejectedCounts: map[string]int64{}, Relationships: map[string]int64{}, PhaseSeconds: map[string]float64{}}
-	staged := newAsyncPreparedSink(ctx, sink, m.Streaming.SourceWorkers*2)
+	writerWorkers := min(m.Streaming.SourceWorkers, m.Streaming.DatabaseThreads)
+	staged := newAsyncPreparedSink(ctx, sink, writerWorkers, writerWorkers*2)
 	defer staged.Close()
 	temp, err := os.MkdirTemp(dataDir, ".places-stream-*")
 	if err != nil {
@@ -285,7 +320,8 @@ func PrepareStreaming(ctx context.Context, m Manifest, dataDir string, sink Prep
 	if err != nil {
 		return audit, err
 	}
-	db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(writerWorkers)
+	db.SetMaxIdleConns(writerWorkers)
 	defer db.Close()
 	if _, err = db.ExecContext(ctx, `SET autoinstall_known_extensions=false; SET autoload_known_extensions=false;
 CREATE TABLE divisions(id VARCHAR,parent VARCHAR,inside BOOLEAN,candidate BOOLEAN,rejection VARCHAR,release VARCHAR,raw VARCHAR);
@@ -655,99 +691,112 @@ func newAuxStager(ctx context.Context, db *sql.DB, batch int) *auxStager {
 
 func (s *auxStager) addDivision(row auxDivision) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.divisions = append(s.divisions, row)
+	var batch []auxDivision
 	if len(s.divisions) == s.batch {
-		return s.flushDivisions()
+		batch = s.divisions
+		s.divisions = make([]auxDivision, 0, s.batch)
 	}
-	return nil
+	s.mu.Unlock()
+	return s.appendDivisions(batch)
 }
 
 func (s *auxStager) addAddress(row auxLink) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.addresses = append(s.addresses, row)
+	var batch []auxLink
 	if len(s.addresses) == s.batch {
-		return s.flushAddresses()
+		batch = s.addresses
+		s.addresses = make([]auxLink, 0, s.batch)
 	}
-	return nil
+	s.mu.Unlock()
+	return s.appendAddresses(batch)
 }
 
 func (s *auxStager) addBusiness(row auxLink) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.businesses = append(s.businesses, row)
+	var batch []auxLink
 	if len(s.businesses) == s.batch {
-		return s.flushBusinesses()
+		batch = s.businesses
+		s.businesses = make([]auxLink, 0, s.batch)
 	}
-	return nil
+	s.mu.Unlock()
+	return s.appendBusinesses(batch)
 }
 
 func (s *auxStager) flush(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.flushDivisions(); err != nil {
+	divisions, addresses, businesses := s.divisions, s.addresses, s.businesses
+	s.divisions = make([]auxDivision, 0, s.batch)
+	s.addresses = make([]auxLink, 0, s.batch)
+	s.businesses = make([]auxLink, 0, s.batch)
+	s.mu.Unlock()
+	if err := s.appendDivisions(divisions); err != nil {
 		return err
 	}
-	if err := s.flushAddresses(); err != nil {
+	if err := s.appendAddresses(addresses); err != nil {
 		return err
 	}
-	return s.flushBusinesses()
+	return s.appendBusinesses(businesses)
 }
 
-func (s *auxStager) flushDivisions() error {
-	err := insertAuxBatch(s.ctx, s.db, "INSERT INTO divisions VALUES (?,?,?,?,?,?,?)", len(s.divisions), func(stmt *sql.Stmt, i int) error {
-		r := s.divisions[i]
-		_, err := stmt.ExecContext(s.ctx, r.id, r.parent, r.inside, r.candidate, r.rejection, r.release, r.raw)
-		return err
+func (s *auxStager) appendDivisions(rows []auxDivision) error {
+	return appendAuxBatch(s.ctx, s.db, "divisions", len(rows), func(i int) ([]driver.Value, error) {
+		r := rows[i]
+		return []driver.Value{r.id, r.parent, r.inside, r.candidate, r.rejection, r.release, r.raw}, nil
 	})
-	s.divisions = s.divisions[:0]
-	return err
 }
 
-func (s *auxStager) flushAddresses() error {
-	err := insertAuxBatch(s.ctx, s.db, "INSERT INTO link_addresses VALUES (?,?,?,?,?)", len(s.addresses), func(stmt *sql.Stmt, i int) error {
-		r := s.addresses[i]
-		_, err := stmt.ExecContext(s.ctx, r.key, r.address, r.postcode, r.lat, r.lng)
-		return err
+func (s *auxStager) appendAddresses(rows []auxLink) error {
+	return appendAuxBatch(s.ctx, s.db, "link_addresses", len(rows), func(i int) ([]driver.Value, error) {
+		r := rows[i]
+		return []driver.Value{r.key, r.address, r.postcode, r.lat, r.lng}, nil
 	})
-	s.addresses = s.addresses[:0]
-	return err
 }
 
-func (s *auxStager) flushBusinesses() error {
-	err := insertAuxBatch(s.ctx, s.db, "INSERT INTO link_businesses VALUES (?,?,?,?,?)", len(s.businesses), func(stmt *sql.Stmt, i int) error {
-		r := s.businesses[i]
-		_, err := stmt.ExecContext(s.ctx, r.key, r.address, r.postcode, r.lat, r.lng)
-		return err
+func (s *auxStager) appendBusinesses(rows []auxLink) error {
+	return appendAuxBatch(s.ctx, s.db, "link_businesses", len(rows), func(i int) ([]driver.Value, error) {
+		r := rows[i]
+		return []driver.Value{r.key, r.address, r.postcode, r.lat, r.lng}, nil
 	})
-	s.businesses = s.businesses[:0]
-	return err
 }
 
-func insertAuxBatch(ctx context.Context, db *sql.DB, query string, count int, add func(*sql.Stmt, int) error) error {
+func appendAuxBatch(ctx context.Context, db *sql.DB, table string, count int, values func(int) ([]driver.Value, error)) error {
 	if count == 0 {
 		return nil
 	}
-	tx, err := db.BeginTx(ctx, nil)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	stmt, err := tx.PrepareContext(ctx, query)
-	if err != nil {
-		return err
-	}
-	for i := 0; i < count; i++ {
-		if err = add(stmt, i); err != nil {
-			stmt.Close()
-			return err
+	defer conn.Close()
+	return conn.Raw(func(raw any) error {
+		driverConn, ok := raw.(driver.Conn)
+		if !ok {
+			return fmt.Errorf("DuckDB driver connection does not implement database/sql/driver.Conn")
 		}
-	}
-	if err = stmt.Close(); err != nil {
-		return err
-	}
-	return tx.Commit()
+		appender, appendErr := duckdbdriver.NewAppenderFromConn(driverConn, "main", table)
+		if appendErr != nil {
+			return appendErr
+		}
+		fail := func(primary error) error {
+			return errors.Join(primary, appender.Clear(), appender.Close())
+		}
+		for i := 0; i < count; i++ {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return fail(contextErr)
+			}
+			row, rowErr := values(i)
+			if rowErr != nil {
+				return fail(rowErr)
+			}
+			if rowErr = appender.AppendRow(row...); rowErr != nil {
+				return fail(rowErr)
+			}
+		}
+		return appender.CloseWithCancel(ctx)
+	})
 }
 
 func countryAllowed(props overtureProperties, kind string) bool {

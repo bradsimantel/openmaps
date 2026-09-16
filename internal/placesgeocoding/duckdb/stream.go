@@ -440,7 +440,8 @@ func buildStagedResumable(ctx context.Context, path, memoryLimit, catalogMemoryL
 		dsn := stagePath() + "?threads=" + strconv.Itoa(databaseThreads) + "&memory_limit=" + url.QueryEscape(memoryLimit) + "&preserve_insertion_order=false&temp_directory=" + url.QueryEscape(spill())
 		db, openErr := sql.Open("duckdb", dsn)
 		if openErr == nil {
-			db.SetMaxOpenConns(1)
+			db.SetMaxOpenConns(databaseThreads)
+			db.SetMaxIdleConns(databaseThreads)
 		}
 		return db, openErr
 	}

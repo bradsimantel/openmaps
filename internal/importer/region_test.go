@@ -25,6 +25,7 @@ import (
 )
 
 type capturePreparedSink struct {
+	mu            sync.Mutex
 	records       []Record
 	relationships []Relationship
 	rejections    []Rejection
@@ -38,16 +39,22 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 }
 
 func (s *capturePreparedSink) WriteRecords(_ context.Context, rows []Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.maxBatch = max(s.maxBatch, len(rows))
 	s.records = append(s.records, rows...)
 	return nil
 }
 func (s *capturePreparedSink) WriteRelationships(_ context.Context, rows []Relationship) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.maxBatch = max(s.maxBatch, len(rows))
 	s.relationships = append(s.relationships, rows...)
 	return nil
 }
 func (s *capturePreparedSink) WriteRejections(_ context.Context, rows []Rejection) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.maxBatch = max(s.maxBatch, len(rows))
 	s.rejections = append(s.rejections, rows...)
 	return nil
