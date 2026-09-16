@@ -43,7 +43,7 @@ func TestReadStreamingManifestAndRejectOverlappingScopes(t *testing.T) {
 	if manifest.Streaming.SourceWorkers != 4 || manifest.Streaming.DatabaseThreads != 4 || manifest.Streaming.CatalogThreads != 4 || manifest.Streaming.ProgressSeconds != 30 {
 		t.Fatalf("unexpected national concurrency controls: %+v", manifest.Streaming)
 	}
-	if manifest.Streaming.PreparationMemoryLimit != "4GB" || manifest.Streaming.MemoryLimit != "16GB" || manifest.Streaming.CatalogMemoryLimit != "32GB" || manifest.Streaming.GoMemoryLimitMiB != 4096 {
+	if manifest.Streaming.PreparationMemoryLimit != "4GB" || manifest.Streaming.MemoryLimit != "8GB" || manifest.Streaming.CatalogMemoryLimit != "32GB" || manifest.Streaming.GoMemoryLimitMiB != 4096 {
 		t.Fatalf("unexpected national memory controls: %+v", manifest.Streaming)
 	}
 	gate, err := ReadManifest(filepath.Join("..", "..", "config", "places-geocoding-us-gate.json"))

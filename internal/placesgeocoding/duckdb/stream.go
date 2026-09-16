@@ -296,6 +296,11 @@ type stagedInput struct {
 
 const streamCheckpointName = "input-staging-checkpoint.json"
 
+// Public entity IDs end in a lowercase hexadecimal SHA-256 prefix. Processing
+// one leading digit at a time preserves the same global entity-ID order while
+// bounding DuckDB's external-sort merge to one sixteenth of the national input.
+const normalizationEntityBuckets = "0123456789abcdef"
+
 // BuildStreamResumable is BuildStreamConfigured with an optional durable input
 // checkpoint. A resumed build reuses only fully checkpointed input tables; all
 // derived normalization and catalog files are rebuilt and reverified.
@@ -562,10 +567,12 @@ CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`);
 		return err
 	}
 	if _, err = stage.ExecContext(ctx, `CREATE TABLE resolved_keys AS
-SELECT r.source_key,r.kind,
-       'om_'||substr(sha256('openmaps:entity:v1:'||coalesce(i.target,r.source_key)),1,32) AS entity_id
-FROM input_records r LEFT JOIN input_identities i USING(source_key)
-ORDER BY entity_id,source_key`); err != nil {
+SELECT source_key,kind,entity_id,substr(entity_id,4,1) AS entity_bucket
+FROM (
+  SELECT r.source_key,r.kind,
+         'om_'||substr(sha256('openmaps:entity:v1:'||coalesce(i.target,r.source_key)),1,32) AS entity_id
+  FROM input_records r LEFT JOIN input_identities i USING(source_key)
+)`); err != nil {
 		return err
 	}
 
@@ -585,12 +592,6 @@ ORDER BY entity_id,source_key`); err != nil {
 	}
 	defer provenance.close()
 
-	rows, err := stage.QueryContext(ctx, `SELECT k.entity_id,r.record_json
-FROM resolved_keys k JOIN input_records r USING(source_key)
-ORDER BY k.entity_id,r.priority DESC,r.source_key`)
-	if err != nil {
-		return err
-	}
 	var currentID string
 	group := []importer.Record{}
 	writeGroup := func() error {
@@ -643,36 +644,52 @@ ORDER BY k.entity_id,r.priority DESC,r.source_key`)
 			AddressKey: addressKey, AddressContext: addressContext,
 		})
 	}
-	for rows.Next() {
-		var id string
-		var raw []byte
-		if err = rows.Scan(&id, &raw); err != nil {
-			rows.Close()
-			return err
+	readBucket := func(bucket string) (bucketErr error) {
+		rows, queryErr := stage.QueryContext(ctx, `SELECT k.entity_id,r.record_json
+FROM resolved_keys k JOIN input_records r USING(source_key)
+WHERE k.entity_bucket=?
+ORDER BY k.entity_id,r.priority DESC,r.source_key`, bucket)
+		if queryErr != nil {
+			return queryErr
 		}
-		if currentID != "" && id != currentID {
-			if err = writeGroup(); err != nil {
-				rows.Close()
-				return err
+		defer func() { bucketErr = errors.Join(bucketErr, rows.Close()) }()
+		for rows.Next() {
+			var id string
+			var raw []byte
+			if scanErr := rows.Scan(&id, &raw); scanErr != nil {
+				return scanErr
 			}
-			group = group[:0]
+			if currentID != "" && id != currentID {
+				if groupErr := writeGroup(); groupErr != nil {
+					return groupErr
+				}
+				group = group[:0]
+			}
+			currentID = id
+			var record importer.Record
+			if decodeErr := json.Unmarshal(raw, &record); decodeErr != nil {
+				return decodeErr
+			}
+			group = append(group, record)
 		}
-		currentID = id
-		var record importer.Record
-		if err = json.Unmarshal(raw, &record); err != nil {
-			rows.Close()
-			return err
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return rowsErr
 		}
-		group = append(group, record)
+		if groupErr := writeGroup(); groupErr != nil {
+			return groupErr
+		}
+		currentID = ""
+		group = group[:0]
+		return nil
 	}
-	if err = rows.Err(); err == nil {
-		err = writeGroup()
-	}
-	if closeErr := rows.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
+	for _, bucket := range normalizationEntityBuckets {
+		bucketStarted := time.Now()
+		if err = readBucket(string(bucket)); err != nil {
+			return fmt.Errorf("normalize entity bucket %c: %w", bucket, err)
+		}
+		if observe != nil {
+			observe("normalization_entities_"+string(bucket), time.Since(bucketStarted))
+		}
 	}
 	if err = entities.close(); err != nil {
 		return err

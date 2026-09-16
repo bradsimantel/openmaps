@@ -16,7 +16,7 @@
     "catalog_threads": 4,
     "progress_interval_seconds": 30,
     "preparation_memory_limit": "4GB",
-    "memory_limit": "16GB",
+    "memory_limit": "8GB",
     "catalog_memory_limit": "32GB",
     "free_disk_floor_gib": 60,
     "go_memory_limit_mib": 4096,

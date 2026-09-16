@@ -248,8 +248,16 @@ func TestStreamBuildMatchesRegionalBundleWithConcurrentBatches(t *testing.T) {
 		}
 		return nil
 	}
-	if err := placeduckdb.BuildStreamConfigured(context.Background(), streamed, bundle.Manifest, bundle.Identities, "128MB", "256MB", 4, 4, "", nil, produce); err != nil {
+	phases := map[string]bool{}
+	if err := placeduckdb.BuildStreamConfigured(context.Background(), streamed, bundle.Manifest, bundle.Identities, "128MB", "256MB", 4, 4, "", func(name string, _ time.Duration) {
+		phases[name] = true
+	}, produce); err != nil {
 		t.Fatal(err)
+	}
+	for _, bucket := range "0123456789abcdef" {
+		if !phases["normalization_entities_"+string(bucket)] {
+			t.Fatalf("missing normalization phase for entity bucket %c", bucket)
+		}
 	}
 	want, err := placeduckdb.Verify(regional)
 	if err != nil {
