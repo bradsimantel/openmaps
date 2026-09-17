@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	duckdbdriver "github.com/duckdb/duckdb-go/v2"
 	"github.com/parquet-go/parquet-go"
@@ -301,6 +302,17 @@ const streamCheckpointName = "input-staging-checkpoint.json"
 // bounding DuckDB's external-sort merge to one sixteenth of the national input.
 const normalizationEntityBuckets = "0123456789abcdef"
 
+// Blocking lexical sorts are planned into prefix ranges no larger than this.
+// Four million rejection rows are below the already-qualified five-state sort,
+// while national inputs are split without changing their canonical row order.
+const normalizationPartitionRows int64 = 4_000_000
+
+type lexicalPartition struct {
+	prefix string
+	exact  bool
+	rows   int64
+}
+
 // BuildStreamResumable is BuildStreamConfigured with an optional durable input
 // checkpoint. A resumed build reuses only fully checkpointed input tables; all
 // derived normalization and catalog files are rebuilt and reverified.
@@ -530,6 +542,8 @@ CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`);
 			return fmt.Errorf("checkpoint staging row counts changed")
 		}
 		if _, err = stage.ExecContext(ctx, `DROP TABLE IF EXISTS relationship_endpoint_bucket;
+DROP TABLE IF EXISTS resolved_relationships;
+DROP TABLE IF EXISTS relationship_from;
 DROP TABLE IF EXISTS relationship_keys;
 DROP TABLE IF EXISTS resolved_keys;
 CHECKPOINT`); err != nil {
@@ -705,14 +719,14 @@ ORDER BY k.entity_id,r.priority DESC,r.source_key`, bucket)
 		return err
 	}
 
-	// Relationship endpoints are a small subset of all source keys, but joining
-	// them directly against resolved_keys twice can still make DuckDB build a
-	// hash table over the complete national key map. Resolve distinct endpoints
-	// in source-key hash buckets first, keeping every join build bounded to about
-	// one sixteenth of resolved_keys. The final relationship aggregation then
-	// joins only against this compact endpoint map.
+	// Resolve relationship endpoints and relationship rows in separate hash
+	// buckets. The national input references only a small subset of source keys,
+	// but a single final join still made DuckDB hash the complete compact endpoint
+	// map twice. Materializing each side bucket-by-bucket leaves the final
+	// aggregation with no joins and bounds its group/sort by the leading public-ID
+	// digit while preserving the original global lexical order.
 	if _, err = stage.ExecContext(ctx, `CREATE TABLE relationship_keys(
-source_key VARCHAR,entity_id VARCHAR,kind VARCHAR)`); err != nil {
+source_key VARCHAR,entity_id VARCHAR,kind VARCHAR,source_bucket UTINYINT,entity_bucket VARCHAR)`); err != nil {
 		return err
 	}
 	for bucket := range 16 {
@@ -729,11 +743,21 @@ SELECT DISTINCT source_key FROM (
 			return fmt.Errorf("collect relationship endpoint bucket %x: %w", bucket, err)
 		}
 		if _, err = stage.ExecContext(ctx, `INSERT INTO relationship_keys
-SELECT e.source_key,k.entity_id,k.kind
+SELECT e.source_key,k.entity_id,k.kind,k.source_bucket,k.entity_bucket
 FROM relationship_endpoint_bucket e
 JOIN resolved_keys k ON k.source_key=e.source_key
 WHERE k.source_bucket=?`, bucket); err != nil {
 			return fmt.Errorf("resolve relationship endpoint bucket %x: %w", bucket, err)
+		}
+		var endpoints, mapped int64
+		if err = stage.QueryRowContext(ctx, "SELECT count(*) FROM relationship_endpoint_bucket").Scan(&endpoints); err != nil {
+			return err
+		}
+		if err = stage.QueryRowContext(ctx, "SELECT count(*) FROM relationship_keys WHERE source_bucket=?", bucket).Scan(&mapped); err != nil {
+			return err
+		}
+		if mapped != endpoints {
+			return fmt.Errorf("invalid relationship endpoint bucket %x: endpoints=%d mapped=%d", bucket, endpoints, mapped)
 		}
 		if _, err = stage.ExecContext(ctx, "DROP TABLE relationship_endpoint_bucket"); err != nil {
 			return err
@@ -742,45 +766,115 @@ WHERE k.source_bucket=?`, bucket); err != nil {
 			observe(fmt.Sprintf("normalization_relationship_keys_%x", bucket), time.Since(bucketStarted))
 		}
 	}
+	var inputRelationshipRows int64
+	if err = stage.QueryRowContext(ctx, "SELECT count(*) FROM input_relationships").Scan(&inputRelationshipRows); err != nil {
+		return err
+	}
+	if _, err = stage.ExecContext(ctx, `CREATE TABLE relationship_from(
+from_id VARCHAR,to_key VARCHAR,kind VARCHAR,evidence VARCHAR,from_kind VARCHAR,
+from_entity_bucket VARCHAR,to_source_bucket UTINYINT)`); err != nil {
+		return err
+	}
+	for bucket := range 16 {
+		bucketStarted := time.Now()
+		if _, err = stage.ExecContext(ctx, `INSERT INTO relationship_from
+SELECT f.entity_id,r.to_key,r.kind,r.evidence,f.kind,f.entity_bucket,
+       CAST(hash(r.to_key)%16 AS UTINYINT)
+FROM input_relationships r
+JOIN relationship_keys f ON f.source_key=r.from_key AND f.source_bucket=?
+WHERE hash(r.from_key)%16=?`, bucket, bucket); err != nil {
+			return fmt.Errorf("resolve relationship source bucket %x: %w", bucket, err)
+		}
+		if observe != nil {
+			observe(fmt.Sprintf("normalization_relationship_from_%x", bucket), time.Since(bucketStarted))
+		}
+	}
+	var fromRows int64
+	if err = stage.QueryRowContext(ctx, "SELECT count(*) FROM relationship_from").Scan(&fromRows); err != nil {
+		return err
+	}
+	if fromRows != inputRelationshipRows {
+		return fmt.Errorf("invalid relationship sources: input=%d resolved=%d", inputRelationshipRows, fromRows)
+	}
+	if _, err = stage.ExecContext(ctx, `CREATE TABLE resolved_relationships(
+from_id VARCHAR,to_id VARCHAR,kind VARCHAR,evidence VARCHAR,from_kind VARCHAR,to_kind VARCHAR,
+from_entity_bucket VARCHAR)`); err != nil {
+		return err
+	}
+	for bucket := range 16 {
+		bucketStarted := time.Now()
+		if _, err = stage.ExecContext(ctx, `INSERT INTO resolved_relationships
+SELECT r.from_id,t.entity_id,r.kind,r.evidence,r.from_kind,t.kind,r.from_entity_bucket
+FROM relationship_from r
+JOIN relationship_keys t ON t.source_key=r.to_key AND t.source_bucket=?
+WHERE r.to_source_bucket=?`, bucket, bucket); err != nil {
+			return fmt.Errorf("resolve relationship target bucket %x: %w", bucket, err)
+		}
+		if observe != nil {
+			observe(fmt.Sprintf("normalization_relationship_to_%x", bucket), time.Since(bucketStarted))
+		}
+	}
+	var resolvedRelationshipRows int64
+	if err = stage.QueryRowContext(ctx, "SELECT count(*) FROM resolved_relationships").Scan(&resolvedRelationshipRows); err != nil {
+		return err
+	}
+	if resolvedRelationshipRows != inputRelationshipRows {
+		return fmt.Errorf("invalid relationship targets: input=%d resolved=%d", inputRelationshipRows, resolvedRelationshipRows)
+	}
+	if _, err = stage.ExecContext(ctx, "DROP TABLE relationship_from; DROP TABLE relationship_keys"); err != nil {
+		return err
+	}
 
 	relationships, err := newParquetSink[relationshipRow](filepath.Join(generation, RelationshipsName))
 	if err != nil {
 		return err
 	}
 	defer relationships.close()
-	relRows, err := stage.QueryContext(ctx, `SELECT f.entity_id,t.entity_id,r.kind,min(r.evidence),min(f.kind),min(t.kind)
-FROM input_relationships r
-LEFT JOIN relationship_keys f ON f.source_key=r.from_key
-LEFT JOIN relationship_keys t ON t.source_key=r.to_key
-GROUP BY f.entity_id,t.entity_id,r.kind
-ORDER BY 1,2,3,4`)
-	if err != nil {
-		return err
-	}
-	for relRows.Next() {
-		var row relationshipRow
-		var fromID, toID, fromKind, toKind sql.NullString
-		if err = relRows.Scan(&fromID, &toID, &row.Kind, &row.Evidence, &fromKind, &toKind); err != nil {
+	for _, bucket := range normalizationEntityBuckets {
+		bucketStarted := time.Now()
+		relRows, queryErr := stage.QueryContext(ctx, `SELECT from_id,to_id,kind,min(evidence),min(from_kind),min(to_kind)
+FROM resolved_relationships
+WHERE from_entity_bucket=?
+GROUP BY from_id,to_id,kind
+ORDER BY 1,2,3,4`, string(bucket))
+		if queryErr != nil {
+			return fmt.Errorf("aggregate relationship bucket %c: %w", bucket, queryErr)
+		}
+		for relRows.Next() {
+			var row relationshipRow
+			var fromKind, toKind string
+			if err = relRows.Scan(&row.FromID, &row.ToID, &row.Kind, &row.Evidence, &fromKind, &toKind); err != nil {
+				relRows.Close()
+				return err
+			}
+			if row.FromID == "" || row.ToID == "" || row.FromID == row.ToID {
+				relRows.Close()
+				return fmt.Errorf("invalid relationship: %s %s %s", row.FromID, row.Kind, row.ToID)
+			}
+			if row.Kind == "address" && (fromKind != "business" || toKind != "address") || row.Kind == "parent_area" && (fromKind != "area" || toKind != "area") {
+				relRows.Close()
+				return fmt.Errorf("invalid %s relationship", row.Kind)
+			}
+			if err = relationships.add(row); err != nil {
+				relRows.Close()
+				return err
+			}
+		}
+		if err = relRows.Err(); err != nil {
+			relRows.Close()
 			return err
 		}
-		row.FromID, row.ToID = fromID.String, toID.String
-		if !fromID.Valid || !toID.Valid || row.FromID == "" || row.ToID == "" || row.FromID == row.ToID || !fromKind.Valid || !toKind.Valid {
-			return fmt.Errorf("invalid relationship: %s %s %s", row.FromID, row.Kind, row.ToID)
-		}
-		if row.Kind == "address" && (fromKind.String != "business" || toKind.String != "address") || row.Kind == "parent_area" && (fromKind.String != "area" || toKind.String != "area") {
-			return fmt.Errorf("invalid %s relationship", row.Kind)
-		}
-		if err = relationships.add(row); err != nil {
+		if err = relRows.Close(); err != nil {
 			return err
 		}
-	}
-	if err = relRows.Err(); err != nil {
-		return err
-	}
-	if err = relRows.Close(); err != nil {
-		return err
+		if observe != nil {
+			observe("normalization_relationships_"+string(bucket), time.Since(bucketStarted))
+		}
 	}
 	if err = relationships.close(); err != nil {
+		return err
+	}
+	if _, err = stage.ExecContext(ctx, "DROP TABLE resolved_relationships"); err != nil {
 		return err
 	}
 
@@ -789,27 +883,40 @@ ORDER BY 1,2,3,4`)
 		return err
 	}
 	defer rejections.close()
-	rejectedRows, err := stage.QueryContext(ctx, "SELECT source_key,reason,raw FROM input_rejections ORDER BY source_key,reason")
+	rejectionStarted := time.Now()
+	rejectionPartitions, err := planLexicalPartitions(ctx, stage, "input_rejections", "source_key", normalizationPartitionRows)
 	if err != nil {
-		return err
+		return fmt.Errorf("plan rejection partitions: %w", err)
 	}
-	for rejectedRows.Next() {
-		var row rejectionRow
-		if err = rejectedRows.Scan(&row.SourceKey, &row.Reason, &row.Raw); err != nil {
+	for _, partition := range rejectionPartitions {
+		rejectedRows, queryErr := queryLexicalPartition(ctx, stage, "input_rejections", "source_key", "source_key,reason,raw", "source_key,reason", partition)
+		if queryErr != nil {
+			return queryErr
+		}
+		for rejectedRows.Next() {
+			var row rejectionRow
+			if err = rejectedRows.Scan(&row.SourceKey, &row.Reason, &row.Raw); err != nil {
+				rejectedRows.Close()
+				return err
+			}
+			if err = rejections.add(row); err != nil {
+				rejectedRows.Close()
+				return err
+			}
+		}
+		if err = rejectedRows.Err(); err != nil {
+			rejectedRows.Close()
 			return err
 		}
-		if err = rejections.add(row); err != nil {
+		if err = rejectedRows.Close(); err != nil {
 			return err
 		}
-	}
-	if err = rejectedRows.Err(); err != nil {
-		return err
-	}
-	if err = rejectedRows.Close(); err != nil {
-		return err
 	}
 	if err = rejections.close(); err != nil {
 		return err
+	}
+	if observe != nil {
+		observe("normalization_rejections", time.Since(rejectionStarted))
 	}
 
 	identitiesJSON, err := canonicalIdentities(ctx, stage)
@@ -1070,32 +1177,119 @@ func validateStage(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// planLexicalPartitions recursively divides a string column into disjoint
+// lexical prefix ranges. Depth advances one character at a time only for a
+// range above maxRows, so common provider prefixes do not create thousands of
+// tiny queries. A key shorter than the current depth is represented by an exact
+// partition, keeping "a" separate from the later "aa" prefix range.
+func planLexicalPartitions(ctx context.Context, db *sql.DB, table, column string, maxRows int64) ([]lexicalPartition, error) {
+	if maxRows < 1 || table != "input_rejections" && table != "input_identities" || column != "source_key" {
+		return nil, fmt.Errorf("invalid lexical partition request")
+	}
+	type prefixCount struct {
+		prefix string
+		rows   int64
+	}
+	var partitions []lexicalPartition
+	var visit func(string, int) error
+	visit = func(prefix string, depth int) error {
+		nextDepth := depth + 1
+		query := fmt.Sprintf("SELECT substr(%s,1,?),count(*) FROM %s", column, table)
+		args := []any{nextDepth}
+		if prefix != "" {
+			query += fmt.Sprintf(" WHERE starts_with(%s,?)", column)
+			args = append(args, prefix)
+		}
+		query += " GROUP BY 1 ORDER BY 1"
+		rows, err := db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		var children []prefixCount
+		for rows.Next() {
+			var child prefixCount
+			if err = rows.Scan(&child.prefix, &child.rows); err != nil {
+				rows.Close()
+				return err
+			}
+			children = append(children, child)
+		}
+		if err = rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		if err = rows.Close(); err != nil {
+			return err
+		}
+		for _, child := range children {
+			exact := utf8.RuneCountInString(child.prefix) < nextDepth
+			if child.rows <= maxRows {
+				partitions = append(partitions, lexicalPartition{prefix: child.prefix, exact: exact, rows: child.rows})
+				continue
+			}
+			if exact {
+				return fmt.Errorf("exact key %q has %d rows above partition limit %d", child.prefix, child.rows, maxRows)
+			}
+			if err = visit(child.prefix, nextDepth); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := visit("", 0); err != nil {
+		return nil, err
+	}
+	return partitions, nil
+}
+
+func queryLexicalPartition(ctx context.Context, db *sql.DB, table, column, selected, ordering string, partition lexicalPartition) (*sql.Rows, error) {
+	if table != "input_rejections" && table != "input_identities" || column != "source_key" {
+		return nil, fmt.Errorf("invalid lexical partition query")
+	}
+	predicate := fmt.Sprintf("starts_with(%s,?)", column)
+	if partition.exact {
+		predicate = column + "=?"
+	}
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s", selected, table, predicate, ordering)
+	return db.QueryContext(ctx, query, partition.prefix)
+}
+
 func canonicalIdentities(ctx context.Context, db *sql.DB) (string, error) {
-	rows, err := db.QueryContext(ctx, "SELECT source_key,target FROM input_identities ORDER BY source_key")
+	partitions, err := planLexicalPartitions(ctx, db, "input_identities", "source_key", normalizationPartitionRows)
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
 	var out strings.Builder
 	out.WriteByte('{')
 	first := true
-	for rows.Next() {
-		var source, target string
-		if err = rows.Scan(&source, &target); err != nil {
+	for _, partition := range partitions {
+		rows, queryErr := queryLexicalPartition(ctx, db, "input_identities", "source_key", "source_key,target", "source_key", partition)
+		if queryErr != nil {
+			return "", queryErr
+		}
+		for rows.Next() {
+			var source, target string
+			if err = rows.Scan(&source, &target); err != nil {
+				rows.Close()
+				return "", err
+			}
+			if !first {
+				out.WriteByte(',')
+			}
+			first = false
+			key, _ := json.Marshal(source)
+			value, _ := json.Marshal(target)
+			out.Write(key)
+			out.WriteByte(':')
+			out.Write(value)
+		}
+		if err = rows.Err(); err != nil {
+			rows.Close()
 			return "", err
 		}
-		if !first {
-			out.WriteByte(',')
+		if err = rows.Close(); err != nil {
+			return "", err
 		}
-		first = false
-		key, _ := json.Marshal(source)
-		value, _ := json.Marshal(target)
-		out.Write(key)
-		out.WriteByte(':')
-		out.Write(value)
-	}
-	if err = rows.Err(); err != nil {
-		return "", err
 	}
 	out.WriteByte('}')
 	return out.String(), nil

@@ -1,5 +1,10 @@
 # National relationship-resolution RSS correction
 
+> Historical note: the endpoint-key partition described here completed at
+> national scale, but the remaining global relationship join/aggregation still
+> exceeded the supervisor boundary. See
+> [0057-national-blocking-operator-partitioning.md](0057-national-blocking-operator-partitioning.md).
+
 **Date:** 2026-09-17
 
 **Failed revision:** `3d6b50bc24832f752bc200ebe7da54409a38e86d`

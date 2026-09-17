@@ -261,6 +261,18 @@ func TestStreamBuildMatchesRegionalBundleWithConcurrentBatches(t *testing.T) {
 		if !phases["normalization_relationship_keys_"+string(bucket)] {
 			t.Fatalf("missing normalization phase for relationship-key bucket %c", bucket)
 		}
+		if !phases["normalization_relationship_from_"+string(bucket)] {
+			t.Fatalf("missing normalization phase for relationship-source bucket %c", bucket)
+		}
+		if !phases["normalization_relationship_to_"+string(bucket)] {
+			t.Fatalf("missing normalization phase for relationship-target bucket %c", bucket)
+		}
+		if !phases["normalization_relationships_"+string(bucket)] {
+			t.Fatalf("missing normalization phase for relationship-output bucket %c", bucket)
+		}
+	}
+	if !phases["normalization_rejections"] {
+		t.Fatal("missing bounded rejection normalization phase")
 	}
 	want, err := placeduckdb.Verify(regional)
 	if err != nil {
