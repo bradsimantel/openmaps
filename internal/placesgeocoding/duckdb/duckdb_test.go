@@ -258,6 +258,9 @@ func TestStreamBuildMatchesRegionalBundleWithConcurrentBatches(t *testing.T) {
 		if !phases["normalization_entities_"+string(bucket)] {
 			t.Fatalf("missing normalization phase for entity bucket %c", bucket)
 		}
+		if !phases["normalization_relationship_keys_"+string(bucket)] {
+			t.Fatalf("missing normalization phase for relationship-key bucket %c", bucket)
+		}
 	}
 	want, err := placeduckdb.Verify(regional)
 	if err != nil {
@@ -309,6 +312,18 @@ func TestStreamBuildMatchesRegionalBundleWithConcurrentBatches(t *testing.T) {
 	}
 	if _, err = os.Stat(rejected); !os.IsNotExist(err) {
 		t.Fatal("published a generation after its data checksum failed", err)
+	}
+	dangling := filepath.Join(root, "dangling")
+	danglingBundle := bundle
+	danglingBundle.Relationships = slices.Clone(bundle.Relationships)
+	danglingBundle.Relationships[0].To = "fixture:missing"
+	if err = placeduckdb.BuildStreamConfigured(context.Background(), dangling, danglingBundle.Manifest, danglingBundle.Identities, "128MB", "256MB", 4, 4, "", nil, func(ctx context.Context, out placeduckdb.StreamWriter) error {
+		if writeErr := out.WriteRecords(ctx, danglingBundle.Records); writeErr != nil {
+			return writeErr
+		}
+		return out.WriteRelationships(ctx, danglingBundle.Relationships)
+	}); err == nil || !strings.Contains(err.Error(), "invalid relationship") {
+		t.Fatal("accepted a dangling relationship", err)
 	}
 	store, err := placeduckdb.Open(streamed)
 	if err != nil {

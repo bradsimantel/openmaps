@@ -1,5 +1,10 @@
 # National normalization RSS and checkpoint investigation
 
+> Historical note: the entity-sort correction described here succeeded at
+> national scale, but the following relationship-resolution phase exposed a
+> second unbounded join. See
+> [0056-national-relationship-resolution-rss.md](0056-national-relationship-resolution-rss.md).
+
 **Date:** 2026-09-16
 
 **Failed revision:** `e27ee2fe2e7b699c526804017d6920c1b623ae98`

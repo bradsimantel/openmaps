@@ -529,7 +529,10 @@ CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`);
 		if !reflect.DeepEqual(rows, savedCheckpoint.TableRows) {
 			return fmt.Errorf("checkpoint staging row counts changed")
 		}
-		if _, err = stage.ExecContext(ctx, "DROP TABLE IF EXISTS resolved_keys; CHECKPOINT"); err != nil {
+		if _, err = stage.ExecContext(ctx, `DROP TABLE IF EXISTS relationship_endpoint_bucket;
+DROP TABLE IF EXISTS relationship_keys;
+DROP TABLE IF EXISTS resolved_keys;
+CHECKPOINT`); err != nil {
 			return fmt.Errorf("reset resumed normalization state: %w", err)
 		}
 	}
@@ -567,7 +570,8 @@ CREATE TABLE input_rejections(source_key VARCHAR,reason VARCHAR,raw VARCHAR);`);
 		return err
 	}
 	if _, err = stage.ExecContext(ctx, `CREATE TABLE resolved_keys AS
-SELECT source_key,kind,entity_id,substr(entity_id,4,1) AS entity_bucket
+SELECT source_key,kind,entity_id,substr(entity_id,4,1) AS entity_bucket,
+       CAST(hash(source_key)%16 AS UTINYINT) AS source_bucket
 FROM (
   SELECT r.source_key,r.kind,
          'om_'||substr(sha256('openmaps:entity:v1:'||coalesce(i.target,r.source_key)),1,32) AS entity_id
@@ -701,6 +705,44 @@ ORDER BY k.entity_id,r.priority DESC,r.source_key`, bucket)
 		return err
 	}
 
+	// Relationship endpoints are a small subset of all source keys, but joining
+	// them directly against resolved_keys twice can still make DuckDB build a
+	// hash table over the complete national key map. Resolve distinct endpoints
+	// in source-key hash buckets first, keeping every join build bounded to about
+	// one sixteenth of resolved_keys. The final relationship aggregation then
+	// joins only against this compact endpoint map.
+	if _, err = stage.ExecContext(ctx, `CREATE TABLE relationship_keys(
+source_key VARCHAR,entity_id VARCHAR,kind VARCHAR)`); err != nil {
+		return err
+	}
+	for bucket := range 16 {
+		bucketStarted := time.Now()
+		if _, err = stage.ExecContext(ctx, "DROP TABLE IF EXISTS relationship_endpoint_bucket"); err != nil {
+			return err
+		}
+		if _, err = stage.ExecContext(ctx, `CREATE TABLE relationship_endpoint_bucket AS
+SELECT DISTINCT source_key FROM (
+  SELECT from_key AS source_key FROM input_relationships WHERE hash(from_key)%16=?
+  UNION ALL
+  SELECT to_key AS source_key FROM input_relationships WHERE hash(to_key)%16=?
+)`, bucket, bucket); err != nil {
+			return fmt.Errorf("collect relationship endpoint bucket %x: %w", bucket, err)
+		}
+		if _, err = stage.ExecContext(ctx, `INSERT INTO relationship_keys
+SELECT e.source_key,k.entity_id,k.kind
+FROM relationship_endpoint_bucket e
+JOIN resolved_keys k ON k.source_key=e.source_key
+WHERE k.source_bucket=?`, bucket); err != nil {
+			return fmt.Errorf("resolve relationship endpoint bucket %x: %w", bucket, err)
+		}
+		if _, err = stage.ExecContext(ctx, "DROP TABLE relationship_endpoint_bucket"); err != nil {
+			return err
+		}
+		if observe != nil {
+			observe(fmt.Sprintf("normalization_relationship_keys_%x", bucket), time.Since(bucketStarted))
+		}
+	}
+
 	relationships, err := newParquetSink[relationshipRow](filepath.Join(generation, RelationshipsName))
 	if err != nil {
 		return err
@@ -708,8 +750,8 @@ ORDER BY k.entity_id,r.priority DESC,r.source_key`, bucket)
 	defer relationships.close()
 	relRows, err := stage.QueryContext(ctx, `SELECT f.entity_id,t.entity_id,r.kind,min(r.evidence),min(f.kind),min(t.kind)
 FROM input_relationships r
-LEFT JOIN resolved_keys f ON f.source_key=r.from_key
-LEFT JOIN resolved_keys t ON t.source_key=r.to_key
+LEFT JOIN relationship_keys f ON f.source_key=r.from_key
+LEFT JOIN relationship_keys t ON t.source_key=r.to_key
 GROUP BY f.entity_id,t.entity_id,r.kind
 ORDER BY 1,2,3,4`)
 	if err != nil {
@@ -717,11 +759,12 @@ ORDER BY 1,2,3,4`)
 	}
 	for relRows.Next() {
 		var row relationshipRow
-		var fromKind, toKind sql.NullString
-		if err = relRows.Scan(&row.FromID, &row.ToID, &row.Kind, &row.Evidence, &fromKind, &toKind); err != nil {
+		var fromID, toID, fromKind, toKind sql.NullString
+		if err = relRows.Scan(&fromID, &toID, &row.Kind, &row.Evidence, &fromKind, &toKind); err != nil {
 			return err
 		}
-		if row.FromID == "" || row.ToID == "" || row.FromID == row.ToID || !fromKind.Valid || !toKind.Valid {
+		row.FromID, row.ToID = fromID.String, toID.String
+		if !fromID.Valid || !toID.Valid || row.FromID == "" || row.ToID == "" || row.FromID == row.ToID || !fromKind.Valid || !toKind.Valid {
 			return fmt.Errorf("invalid relationship: %s %s %s", row.FromID, row.Kind, row.ToID)
 		}
 		if row.Kind == "address" && (fromKind.String != "business" || toKind.String != "address") || row.Kind == "parent_area" && (fromKind.String != "area" || toKind.String != "area") {
