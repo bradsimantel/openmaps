@@ -66,22 +66,22 @@ func (s *Store) autocompleteExactAddress(ctx context.Context, input string) ([]p
 	if err != nil {
 		return nil, false, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT entity_seq,context
+	rows, err := s.db.QueryContext(ctx, `SELECT entity_id,context
 FROM address_lookup WHERE address_key=? ORDER BY entity_id`, query.Key)
 	if err != nil {
 		return nil, false, err
 	}
-	sequences := []int{}
+	ids := []string{}
 	for rows.Next() {
-		var sequence int
+		var id string
 		var context string
-		if err = rows.Scan(&sequence, &context); err != nil {
+		if err = rows.Scan(&id, &context); err != nil {
 			rows.Close()
 			return nil, false, err
 		}
 		if geocoding.ContextMatches(context, query.Context) {
-			sequences = append(sequences, sequence)
-			if len(sequences) == 5 {
+			ids = append(ids, id)
+			if len(ids) == 5 {
 				break
 			}
 		}
@@ -93,37 +93,14 @@ FROM address_lookup WHERE address_key=? ORDER BY entity_id`, query.Key)
 	if err = rows.Close(); err != nil {
 		return nil, false, err
 	}
-	if len(sequences) == 0 {
+	if len(ids) == 0 {
 		return nil, false, nil
 	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(sequences)), ",")
-	args := make([]any, len(sequences))
-	for i, sequence := range sequences {
-		args[i] = sequence
-	}
-	details, err := s.db.QueryContext(ctx, `SELECT entity_seq,id,kind,name,address,subtype
-FROM search_entities WHERE entity_seq IN (`+placeholders+")", args...)
-	if err != nil {
-		return nil, false, err
-	}
-	defer details.Close()
-	bySequence := make(map[int]places.Entity, len(sequences))
-	for details.Next() {
-		var sequence int
-		var entity places.Entity
-		if err = details.Scan(&sequence, &entity.ID, &entity.Kind, &entity.Name, &entity.Address, &entity.Subtype); err != nil {
-			return nil, false, err
-		}
-		bySequence[sequence] = entity
-	}
-	if err = details.Err(); err != nil {
-		return nil, false, err
-	}
-	out := make([]places.Entity, 0, len(sequences))
-	for _, sequence := range sequences {
-		entity, found := bySequence[sequence]
-		if !found {
-			return nil, false, fmt.Errorf("exact address entity missing for sequence %d", sequence)
+	out := make([]places.Entity, 0, len(ids))
+	for _, id := range ids {
+		entity, detailErr := s.Details(ctx, id)
+		if detailErr != nil {
+			return nil, false, detailErr
 		}
 		out = append(out, entity)
 	}
