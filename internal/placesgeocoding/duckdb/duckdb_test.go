@@ -309,6 +309,26 @@ func TestStreamBuildMatchesRegionalBundleWithConcurrentBatches(t *testing.T) {
 	if got.DataSHA256 == "" || got.DataSHA256 != want.DataSHA256 {
 		t.Fatalf("streamed normalized data differs: got %s want %s", got.DataSHA256, want.DataSHA256)
 	}
+	comparison, err := sql.Open("duckdb", filepath.Join(streamed, placeduckdb.IndexName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = comparison.Exec("ATTACH '" + strings.ReplaceAll(filepath.Join(regional, placeduckdb.IndexName), "'", "''") + "' AS baseline (READ_ONLY)"); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"entity_locator", "search_entities", "names", "tokens", "postings", "short_prefix_head", "address_lookup", "address_spatial", "corpus_stats"} {
+		var differences int
+		query := fmt.Sprintf(`SELECT count(*) FROM (
+(SELECT * FROM main.%[1]s EXCEPT SELECT * FROM baseline.%[1]s)
+UNION ALL
+(SELECT * FROM baseline.%[1]s EXCEPT SELECT * FROM main.%[1]s))`, table)
+		if err = comparison.QueryRow(query).Scan(&differences); err != nil || differences != 0 {
+			t.Fatalf("partitioned catalog differs in %s: differences=%d err=%v", table, differences, err)
+		}
+	}
+	if err = comparison.Close(); err != nil {
+		t.Fatal(err)
+	}
 	legacyManifest := want
 	legacyManifest.DataSHA256 = ""
 	if err = importer.WriteJSON(filepath.Join(regional, placeduckdb.ManifestName), legacyManifest); err != nil {
@@ -406,6 +426,55 @@ func TestStreamBuildResumesFromValidatedInputCheckpoint(t *testing.T) {
 	}
 	if _, err = os.Stat(checkpoint); !os.IsNotExist(err) {
 		t.Fatal("checkpoint remained after publication", err)
+	}
+	if _, err = placeduckdb.Verify(output); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCatalogResumesFromImmutableNormalizedCheckpoint(t *testing.T) {
+	bundle := fixture(t)
+	root := t.TempDir()
+	output := filepath.Join(root, "output")
+	normalized := filepath.Join(root, "normalized")
+	producerCalls := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := placeduckdb.BuildStreamResumable(ctx, output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", placeduckdb.StreamCheckpointOptions{
+		NormalizedPath: normalized, NormalizedBuildIdentity: "test-revision/linux-amd64",
+	}, func(name string, _ time.Duration) {
+		if name == "normalized_checkpoint" {
+			cancel()
+		}
+	}, func(ctx context.Context, out placeduckdb.StreamWriter) (json.RawMessage, error) {
+		producerCalls++
+		if err := out.WriteRecords(ctx, bundle.Records); err != nil {
+			return nil, err
+		}
+		if err := out.WriteRelationships(ctx, bundle.Relationships); err != nil {
+			return nil, err
+		}
+		return nil, out.WriteRejections(ctx, bundle.Rejections)
+	})
+	if err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("catalog interruption did not fail after normalized publication: %v", err)
+	}
+	if producerCalls != 1 {
+		t.Fatalf("producer calls=%d want 1", producerCalls)
+	}
+	if _, err = os.Stat(normalized); err != nil {
+		t.Fatal("normalized checkpoint missing", err)
+	}
+	if _, err = os.Stat(output); !os.IsNotExist(err) {
+		t.Fatal("failed catalog published output", err)
+	}
+	if err = placeduckdb.BuildCatalogFromNormalized(context.Background(), output, placeduckdb.NormalizedResumeOptions{
+		Path: normalized, Manifest: bundle.Manifest, Identities: bundle.Identities,
+		MemoryLimit: "128MB", DatabaseThreads: 2, BuildIdentity: "test-revision/linux-amd64",
+	}, "256MB", 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if producerCalls != 1 {
+		t.Fatalf("catalog resume reran producer: calls=%d", producerCalls)
 	}
 	if _, err = placeduckdb.Verify(output); err != nil {
 		t.Fatal(err)

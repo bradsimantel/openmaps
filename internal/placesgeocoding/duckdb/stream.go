@@ -264,9 +264,11 @@ func BuildStreamConfigured(ctx context.Context, path string, manifest json.RawMe
 // staging and normalization. BuildIdentity must identify an exact clean build
 // revision and target architecture; callers are responsible for constructing it.
 type StreamCheckpointOptions struct {
-	Path          string
-	Resume        bool
-	BuildIdentity string
+	Path                    string
+	Resume                  bool
+	BuildIdentity           string
+	NormalizedPath          string
+	NormalizedBuildIdentity string
 }
 
 type streamCheckpointIdentity struct {
@@ -331,6 +333,9 @@ func BuildStreamResumable(ctx context.Context, path string, manifest json.RawMes
 	}
 	if checkpoint.Path != "" && checkpoint.BuildIdentity == "" {
 		return nil, fmt.Errorf("checkpoint build identity is required")
+	}
+	if checkpoint.NormalizedPath != "" && checkpoint.NormalizedBuildIdentity == "" {
+		return nil, fmt.Errorf("normalized checkpoint build identity is required")
 	}
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, manifest); err != nil {
@@ -580,8 +585,12 @@ CHECKPOINT`); err != nil {
 		defer func() { _ = os.RemoveAll(generation) }()
 	}
 	normalizeStarted := time.Now()
+	validationStarted := time.Now()
 	if err = validateStage(ctx, stage); err != nil {
 		return err
+	}
+	if observe != nil {
+		observe("normalization_input_validation", time.Since(validationStarted))
 	}
 	if _, err = stage.ExecContext(ctx, `CREATE TABLE resolved_keys AS
 SELECT source_key,kind,entity_id,substr(entity_id,4,1) AS entity_bucket,
@@ -965,8 +974,29 @@ ORDER BY 1,2,3,4`, string(bucket))
 	if observe != nil {
 		observe("normalization_parquet", time.Since(normalizeStarted))
 	}
+	if checkpointOptions.NormalizedPath != "" {
+		var normalizedIdentities map[string]string
+		if identityErr := json.Unmarshal([]byte(identitiesJSON), &normalizedIdentities); identityErr != nil {
+			return fmt.Errorf("decode normalized checkpoint identities: %w", identityErr)
+		}
+		normalizedIdentity, identityErr := makeNormalizedIdentity(NormalizedResumeOptions{
+			Path: checkpointOptions.NormalizedPath, Manifest: manifestRaw, Identities: normalizedIdentities,
+			MemoryLimit: memoryLimit, DatabaseThreads: databaseThreads,
+			ExpectedDataSHA256: expectedDataSHA256, BuildIdentity: checkpointOptions.NormalizedBuildIdentity,
+		})
+		if identityErr != nil {
+			return identityErr
+		}
+		checkpointStarted := time.Now()
+		if err = publishNormalizedCheckpoint(checkpointOptions.NormalizedPath, generation, manifest, normalizedIdentity); err != nil {
+			return fmt.Errorf("publish normalized checkpoint: %w", err)
+		}
+		if observe != nil {
+			observe("normalized_checkpoint", time.Since(checkpointStarted))
+		}
+	}
 	catalogStarted := time.Now()
-	if err = buildIndexJSONWithOptions(ctx, filepath.Join(generation, IndexName), filepath.Join(generation, "entities*.parquet"), entities.rows, manifestRaw, identitiesJSON, catalogMemoryLimit, catalogThreads, shardedSchema); err != nil {
+	if err = buildIndexJSONWithOptionsObserved(ctx, filepath.Join(generation, IndexName), filepath.Join(generation, "entities*.parquet"), entities.rows, manifestRaw, identitiesJSON, catalogMemoryLimit, catalogThreads, shardedSchema, observe); err != nil {
 		return fmt.Errorf("build serving catalog: %w", err)
 	}
 	indexDigest, err := importer.Checksum(filepath.Join(generation, IndexName))
@@ -1158,12 +1188,9 @@ func validateStage(ctx context.Context, db *sql.DB) error {
 		query, message string
 	}{
 		{"SELECT count(*) FROM input_records", "bundle has no records"},
-		{"SELECT count(*)-count(DISTINCT source_key) FROM input_records", "duplicate source key"},
-		{"SELECT count(*)-count(DISTINCT source_key) FROM input_identities", "duplicate identity source"},
 		{"SELECT count(*) FROM input_identities WHERE target=''", "empty identity anchor"},
 		{`SELECT count(*) FROM input_identities a JOIN input_identities b ON a.target=b.source_key WHERE b.target<>a.target`, "identity chains are not allowed"},
 		{"SELECT count(*) FROM input_rejections WHERE source_key='' OR reason='' OR NOT json_valid(raw)", "invalid rejection"},
-		{"SELECT count(*) FROM input_rejections j JOIN input_records r USING(source_key)", "source is both accepted and rejected"},
 	}
 	for index, check := range checks {
 		var count int
@@ -1172,6 +1199,49 @@ func validateStage(ctx context.Context, db *sql.DB) error {
 		}
 		if index == 0 && count == 0 || index > 0 && count != 0 {
 			return fmt.Errorf("%s: %d", check.message, count)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TEMP TABLE validation_record_keys AS
+SELECT source_key,CAST(hash(source_key)%64 AS UTINYINT) source_bucket FROM input_records;
+CREATE TEMP TABLE validation_rejection_keys AS
+SELECT source_key,reason,CAST(hash(source_key)%64 AS UTINYINT) source_bucket,
+       CAST(hash(source_key||chr(0)||reason)%64 AS UTINYINT) pair_bucket FROM input_rejections`); err != nil {
+		return err
+	}
+	defer db.ExecContext(context.Background(), "DROP TABLE IF EXISTS validation_record_keys; DROP TABLE IF EXISTS validation_rejection_keys")
+	var duplicateIdentities int64
+	if err := db.QueryRowContext(ctx, "SELECT count(*)-count(DISTINCT source_key) FROM input_identities").Scan(&duplicateIdentities); err != nil {
+		return err
+	}
+	if duplicateIdentities != 0 {
+		return fmt.Errorf("duplicate identity source: %d", duplicateIdentities)
+	}
+	for bucket := 0; bucket < 64; bucket++ {
+		var recordRows, rejectionRows, duplicateRecords, duplicateIdentities, duplicateRejections, acceptedRejections int64
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM validation_record_keys WHERE source_bucket=?", bucket).Scan(&recordRows); err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM validation_rejection_keys WHERE pair_bucket=?", bucket).Scan(&rejectionRows); err != nil {
+			return err
+		}
+		if recordRows > normalizationPartitionRows || rejectionRows > normalizationPartitionRows {
+			return fmt.Errorf("input validation bucket %d exceeds %d rows: records=%d rejections=%d", bucket, normalizationPartitionRows, recordRows, rejectionRows)
+		}
+		if err := db.QueryRowContext(ctx, `SELECT count(*)-count(DISTINCT source_key) FROM validation_record_keys
+WHERE source_bucket=?`, bucket).Scan(&duplicateRecords); err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, `SELECT count(*)-count(DISTINCT (source_key,reason)) FROM validation_rejection_keys
+WHERE pair_bucket=?`, bucket).Scan(&duplicateRejections); err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM
+(SELECT source_key FROM validation_rejection_keys WHERE source_bucket=?) j
+JOIN (SELECT source_key FROM validation_record_keys WHERE source_bucket=?) r USING(source_key)`, bucket, bucket).Scan(&acceptedRejections); err != nil {
+			return err
+		}
+		if duplicateRecords != 0 || duplicateIdentities != 0 || duplicateRejections != 0 || acceptedRejections != 0 {
+			return fmt.Errorf("input integrity bucket %d: duplicate records=%d identities=%d rejections=%d accepted_rejections=%d", bucket, duplicateRecords, duplicateIdentities, duplicateRejections, acceptedRejections)
 		}
 	}
 	return nil

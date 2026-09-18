@@ -15,6 +15,8 @@ func main() {
 	flag.StringVar(&o.Root, "root", "", "filesystem to monitor")
 	flag.StringVar(&o.Report, "report", "", "new resource report filename")
 	flag.StringVar(&o.ReportDir, "report-dir", "", "existing directory for a unique report on each service start; exclusive with -report")
+	flag.StringVar(&o.Samples, "samples", "", "optional new NDJSON file for one-second process-tree samples")
+	flag.StringVar(&o.TemporaryPath, "temporary-path", "", "optional build/spill path whose disk high-water mark is sampled")
 	flag.Int64Var(&o.RSSMiB, "rss-mib", 4096, "sampled RSS threshold 1..65536 MiB")
 	flag.Int64Var(&o.ReserveGiB, "reserve-gib", 32, "minimum free disk 32..1024 GiB")
 	flag.Parse()

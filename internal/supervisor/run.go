@@ -18,6 +18,7 @@ import (
 
 type Options struct {
 	Root, Report, ReportDir string
+	Samples, TemporaryPath  string
 	RSSMiB, ReserveGiB      int64
 	Command                 []string
 	Stdout, Stderr          io.Writer
@@ -36,6 +37,14 @@ type Report struct {
 	FreeAfter  int64            `json:"free_after"`
 	Budgets    map[string]int64 `json:"budgets"`
 	MaxRSS     int64            `json:"child_maxrss_native_units"`
+	PeakAnon   int64            `json:"sampled_peak_anonymous_rss_bytes,omitempty"`
+	PeakFile   int64            `json:"sampled_peak_file_rss_bytes,omitempty"`
+	PeakTemp   int64            `json:"sampled_peak_temporary_disk_bytes,omitempty"`
+	ReadBytes  int64            `json:"process_tree_read_bytes,omitempty"`
+	WriteBytes int64            `json:"process_tree_write_bytes,omitempty"`
+	CPUSeconds float64          `json:"process_tree_cpu_seconds,omitempty"`
+	PeakCPU    float64          `json:"sampled_peak_cpu_percent,omitempty"`
+	SampleMS   int64            `json:"sample_interval_milliseconds,omitempty"`
 	Note       string           `json:"note"`
 }
 
@@ -69,10 +78,19 @@ func Run(ctx context.Context, o Options) (report Report, err error) {
 		o.RSS = sampleRSS
 	}
 	if o.Interval <= 0 {
-		o.Interval = 200 * time.Millisecond
+		o.Interval = time.Second
+	}
+	report.SampleMS = o.Interval.Milliseconds()
+	var e error
+	var samples *os.File
+	if o.Samples != "" {
+		samples, e = os.OpenFile(o.Samples, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if e != nil {
+			return report, e
+		}
+		defer func() { err = errors.Join(err, samples.Sync(), samples.Close()) }()
 	}
 	var f *os.File
-	var e error
 	if o.ReportDir != "" {
 		// Service restarts retain a distinct report for every supervised lifetime.
 		f, e = os.CreateTemp(o.ReportDir, "resources-"+time.Now().UTC().Format("20060102T150405Z")+"-*.json")
@@ -132,6 +150,28 @@ func Run(ctx context.Context, o Options) (report Report, err error) {
 			return finish(<-done)
 		}
 	}
+	var previousCPU float64
+	sampleDetailedMetrics := func() {
+		detailed, sampleErr := detailedProcessTree(child.Process.Pid, o.TemporaryPath)
+		if sampleErr != nil {
+			return
+		}
+		report.Peak = max(report.Peak, detailed.RSSBytes)
+		report.PeakAnon = max(report.PeakAnon, detailed.AnonymousRSSBytes)
+		report.PeakFile = max(report.PeakFile, detailed.FileRSSBytes)
+		report.PeakTemp = max(report.PeakTemp, detailed.TemporaryBytes)
+		report.ReadBytes = max(report.ReadBytes, detailed.ReadBytes)
+		report.WriteBytes = max(report.WriteBytes, detailed.WriteBytes)
+		report.CPUSeconds = max(report.CPUSeconds, detailed.CPUSeconds)
+		if previousCPU != 0 {
+			report.PeakCPU = max(report.PeakCPU, 100*(detailed.CPUSeconds-previousCPU)/o.Interval.Seconds())
+		}
+		previousCPU = detailed.CPUSeconds
+		if samples != nil {
+			detailed.ElapsedSeconds = time.Since(start).Seconds()
+			_ = json.NewEncoder(samples).Encode(detailed)
+		}
+	}
 	for {
 		select {
 		case e := <-done:
@@ -140,6 +180,7 @@ func Run(ctx context.Context, o Options) (report Report, err error) {
 			report.Abort = "supervisor cancelled"
 			return report, errors.Join(ctx.Err(), terminate())
 		case <-ticker.C:
+			sampleDetailedMetrics()
 			rss, sampleError := o.RSS(ctx, child.Process.Pid)
 			if sampleError != nil {
 				select {

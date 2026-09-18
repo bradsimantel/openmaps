@@ -20,7 +20,5 @@ WITH fields AS (
          sum(CASE WHEN field=1 THEN 1 ELSE 0 END)::USMALLINT AS address_tf
   FROM fields WHERE length(token)>=1 GROUP BY token,entity_seq
 )
-SELECT t.token_id,g.entity_seq,r.name_id,r.kind,r.closed,r.doc_len,
-       g.name_tf,g.alias_tf,g.address_tf
-FROM grouped g JOIN tokens t USING(token) JOIN entity_ranks r USING(entity_seq)
-ORDER BY t.token_id,g.entity_seq;
+SELECT t.token_id,g.entity_seq,g.name_tf,g.alias_tf,g.address_tf
+FROM grouped g JOIN tokens t USING(token);

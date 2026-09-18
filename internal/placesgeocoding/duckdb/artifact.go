@@ -119,6 +119,10 @@ func buildIndexJSONWithMemoryLimit(ctx context.Context, path, entitiesPath strin
 }
 
 func buildIndexJSONWithOptions(ctx context.Context, path, entitiesPath string, entityCount int, sourceManifest json.RawMessage, identitiesJSON, memoryLimit string, threads int, schemaSQL string) error {
+	return buildIndexJSONWithOptionsObserved(ctx, path, entitiesPath, entityCount, sourceManifest, identitiesJSON, memoryLimit, threads, schemaSQL, nil)
+}
+
+func buildIndexJSONWithOptionsObserved(ctx context.Context, path, entitiesPath string, entityCount int, sourceManifest json.RawMessage, identitiesJSON, memoryLimit string, threads int, schemaSQL string, observe catalogPhaseObserver) error {
 	spill := filepath.Join(filepath.Dir(path), "duckdb-spill")
 	if threads < 1 || threads > 64 {
 		return fmt.Errorf("catalog threads must be 1..64")
@@ -135,6 +139,10 @@ func buildIndexJSONWithOptions(ctx context.Context, path, entitiesPath string, e
 	defer db.Close()
 	if _, err = db.ExecContext(ctx, "SET autoinstall_known_extensions=false; SET autoload_known_extensions=false"); err != nil {
 		return err
+	}
+	if schemaSQL == shardedSchema {
+		builder := catalogBuilder{ctx: ctx, db: db, entitiesPath: entitiesPath, entityCount: entityCount, observe: observe}
+		return builder.build(string(sourceManifest), identitiesJSON)
 	}
 	preparedSchema := strings.ReplaceAll(schemaSQL, "?", sqlString(entitiesPath))
 	if _, err = db.ExecContext(ctx, preparedSchema); err != nil {
@@ -270,6 +278,8 @@ func Verify(path string) (Manifest, error) {
 	if err = db.QueryRow("SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); err != nil || version != "2" {
 		return manifest, fmt.Errorf("DuckDB index schema: %s: %v", version, err)
 	}
+	var boundedValidation string
+	_ = db.QueryRow("SELECT value FROM metadata WHERE key='bounded_validation_version'").Scan(&boundedValidation)
 	var locators, searchRows, badPostings, uncoveredSearch, badPrefixHeads, badAddresses, spatialRows int
 	if err = db.QueryRow("SELECT count(*) FROM entity_locator").Scan(&locators); err != nil {
 		return manifest, err
@@ -286,43 +296,88 @@ func Verify(path string) (Manifest, error) {
 		}
 	}
 	var duplicateLocators, duplicateSearchRows, mismatchedEntities int
-	if err = db.QueryRow("SELECT count(*)-count(DISTINCT id) FROM entity_locator").Scan(&duplicateLocators); err != nil {
-		return manifest, err
-	}
-	if err = db.QueryRow("SELECT count(*)-count(DISTINCT id) FROM search_entities").Scan(&duplicateSearchRows); err != nil {
-		return manifest, err
+	if boundedValidation == "1" {
+		for _, prefix := range hexadecimalPrefixes(2) {
+			lower, upper := "om_"+prefix, prefixUpperASCII("om_"+prefix)
+			var locatorDuplicates, searchDuplicates int
+			if err = db.QueryRow("SELECT count(*)-count(DISTINCT id) FROM entity_locator WHERE id>=? AND id<?", lower, upper).Scan(&locatorDuplicates); err != nil {
+				return manifest, err
+			}
+			if err = db.QueryRow("SELECT count(*)-count(DISTINCT id) FROM search_entities WHERE id>=? AND id<?", lower, upper).Scan(&searchDuplicates); err != nil {
+				return manifest, err
+			}
+			duplicateLocators += locatorDuplicates
+			duplicateSearchRows += searchDuplicates
+		}
+	} else {
+		if err = db.QueryRow("SELECT count(*)-count(DISTINCT id) FROM entity_locator").Scan(&duplicateLocators); err != nil {
+			return manifest, err
+		}
+		if err = db.QueryRow("SELECT count(*)-count(DISTINCT id) FROM search_entities").Scan(&duplicateSearchRows); err != nil {
+			return manifest, err
+		}
 	}
 	if duplicateLocators != 0 || duplicateSearchRows != 0 {
 		return manifest, fmt.Errorf("DuckDB duplicate entities: locator=%d search=%d", duplicateLocators, duplicateSearchRows)
 	}
-	if err = db.QueryRow(`SELECT count(*) FROM search_entities s FULL OUTER JOIN entity_locator l USING(id)
+	if boundedValidation == "1" {
+		for _, prefix := range hexadecimalPrefixes(2) {
+			lower, upper := "om_"+prefix, prefixUpperASCII("om_"+prefix)
+			var mismatch int
+			if err = db.QueryRow(`SELECT count(*) FROM
+(SELECT id,kind FROM search_entities WHERE id>=? AND id<?) s
+FULL OUTER JOIN (SELECT id,kind FROM entity_locator WHERE id>=? AND id<?) l USING(id)
+WHERE s.id IS NULL OR l.id IS NULL OR s.kind<>l.kind`, lower, upper, lower, upper).Scan(&mismatch); err != nil {
+				return manifest, err
+			}
+			mismatchedEntities += mismatch
+		}
+	} else if err = db.QueryRow(`SELECT count(*) FROM search_entities s FULL OUTER JOIN entity_locator l USING(id)
 WHERE s.id IS NULL OR l.id IS NULL OR s.kind<>l.kind`).Scan(&mismatchedEntities); err != nil {
 		return manifest, err
 	}
 	if mismatchedEntities != 0 {
 		return manifest, fmt.Errorf("DuckDB mismatched entities: %d", mismatchedEntities)
 	}
-	if err = db.QueryRow(`SELECT count(*) FROM postings p LEFT JOIN tokens t USING(token_id) LEFT JOIN search_entities e USING(entity_seq) WHERE t.token_id IS NULL OR e.entity_seq IS NULL`).Scan(&badPostings); err != nil {
+	if boundedValidation == "1" {
+		var maxToken int
+		if err = db.QueryRow("SELECT coalesce(max(token_id),0) FROM tokens").Scan(&maxToken); err != nil {
+			return manifest, err
+		}
+		if err = db.QueryRow("SELECT count(*) FROM postings WHERE token_id<1 OR token_id>? OR entity_seq<1 OR entity_seq>?", maxToken, entityRows).Scan(&badPostings); err != nil {
+			return manifest, err
+		}
+	} else if err = db.QueryRow(`SELECT count(*) FROM postings p LEFT JOIN tokens t USING(token_id) LEFT JOIN search_entities e USING(entity_seq) WHERE t.token_id IS NULL OR e.entity_seq IS NULL`).Scan(&badPostings); err != nil {
 		return manifest, err
 	}
 	if badPostings != 0 {
 		return manifest, fmt.Errorf("DuckDB posting integrity: %d", badPostings)
 	}
-	if err = db.QueryRow(`SELECT count(*) FROM search_entities e LEFT JOIN postings p USING(entity_seq)
+	if boundedValidation != "1" {
+		if err = db.QueryRow(`SELECT count(*) FROM search_entities e LEFT JOIN postings p USING(entity_seq)
 WHERE p.entity_seq IS NULL`).Scan(&uncoveredSearch); err != nil {
-		return manifest, err
+			return manifest, err
+		}
 	}
 	if uncoveredSearch != 0 {
 		return manifest, fmt.Errorf("DuckDB search coverage: %d", uncoveredSearch)
 	}
-	if err = db.QueryRow(`SELECT count(*) FROM short_prefix_head h LEFT JOIN search_entities e USING(entity_seq)
+	if boundedValidation == "1" {
+		if err = db.QueryRow("SELECT count(*) FROM short_prefix_head WHERE entity_seq<1 OR entity_seq>?", entityRows).Scan(&badPrefixHeads); err != nil {
+			return manifest, err
+		}
+	} else if err = db.QueryRow(`SELECT count(*) FROM short_prefix_head h LEFT JOIN search_entities e USING(entity_seq)
 WHERE e.entity_seq IS NULL`).Scan(&badPrefixHeads); err != nil {
 		return manifest, err
 	}
 	if badPrefixHeads != 0 {
 		return manifest, fmt.Errorf("DuckDB prefix-head integrity: %d", badPrefixHeads)
 	}
-	if err = db.QueryRow(`SELECT count(*) FROM address_lookup a LEFT JOIN entity_locator e ON e.id=a.entity_id WHERE e.id IS NULL OR e.kind<>'address'`).Scan(&badAddresses); err != nil {
+	if boundedValidation == "1" {
+		if err = db.QueryRow("SELECT count(*) FROM address_lookup WHERE entity_seq<1 OR entity_seq>?", entityRows).Scan(&badAddresses); err != nil {
+			return manifest, err
+		}
+	} else if err = db.QueryRow(`SELECT count(*) FROM address_lookup a LEFT JOIN entity_locator e ON e.id=a.entity_id WHERE e.id IS NULL OR e.kind<>'address'`).Scan(&badAddresses); err != nil {
 		return manifest, err
 	}
 	if badAddresses != 0 {
@@ -349,6 +404,30 @@ WHERE e.entity_seq IS NULL`).Scan(&badPrefixHeads); err != nil {
 	sourcesPath := filepath.Join(path, "source-records*.parquet")
 	provenancePath := filepath.Join(path, "attribute-provenance*.parquet")
 	relationshipsPath := filepath.Join(path, "relationships*.parquet")
+	if boundedValidation == "1" {
+		var expectedSources, expectedProvenance, locatedSources, locatedProvenance int
+		for _, file := range manifest.Files {
+			switch file.Role {
+			case "sources":
+				expectedSources += file.Rows
+			case "provenance":
+				expectedProvenance += file.Rows
+			}
+		}
+		if err = db.QueryRow(`SELECT coalesce(sum(source_count),0),coalesce(sum(provenance_count),0) FROM entity_locator`).Scan(&locatedSources, &locatedProvenance); err != nil {
+			return manifest, err
+		}
+		if expectedSources != locatedSources || expectedProvenance != locatedProvenance {
+			return manifest, fmt.Errorf("DuckDB evidence locator coverage: sources=%d/%d provenance=%d/%d", locatedSources, expectedSources, locatedProvenance, expectedProvenance)
+		}
+		if err = db.QueryRow("SELECT count(*) FROM duckdb_indexes()").Scan(&indexes); err != nil {
+			return manifest, err
+		}
+		if indexes != 0 {
+			return manifest, fmt.Errorf("DuckDB catalog unexpectedly contains %d persistent indexes", indexes)
+		}
+		return manifest, nil
+	}
 	if err = db.QueryRow(`SELECT count(*)-count(DISTINCT source_key) FROM read_parquet(?)`, sourcesPath).Scan(&duplicateSources); err != nil {
 		return manifest, err
 	}

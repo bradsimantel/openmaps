@@ -39,6 +39,10 @@ func run() error {
 	auditPath := flag.String("audit", "", "optional new streaming audit JSON path")
 	checkpointPath := flag.String("checkpoint", "", "durable input-staging checkpoint directory for a streaming build")
 	resume := flag.Bool("resume", false, "resume normalization from the completed input-staging checkpoint")
+	normalizedCheckpoint := flag.String("normalized-checkpoint", "", "immutable normalized-Parquet checkpoint directory")
+	catalogResume := flag.Bool("catalog-resume", false, "build only the catalog from -normalized-checkpoint")
+	catalogThreads := flag.Int("catalog-threads", 0, "catalog-only override for DuckDB threads (1..64)")
+	catalogMemoryLimit := flag.String("catalog-memory-limit", "", "catalog-only override for DuckDB memory_limit")
 	flag.Parse()
 	if *acceptSourceUpdate && !*fetch {
 		return fmt.Errorf("-accept-reviewed-source-update requires -fetch")
@@ -48,6 +52,15 @@ func run() error {
 	}
 	if *checkpointPath != "" && *streamOut == "" {
 		return fmt.Errorf("-checkpoint requires -stream-out")
+	}
+	if *catalogResume && (*normalizedCheckpoint == "" || *streamOut == "") {
+		return fmt.Errorf("-catalog-resume requires -normalized-checkpoint and -stream-out")
+	}
+	if *catalogResume && (*resume || *checkpointPath != "") {
+		return fmt.Errorf("-catalog-resume is independent of -checkpoint and -resume")
+	}
+	if !*catalogResume && (*catalogThreads != 0 || *catalogMemoryLimit != "") {
+		return fmt.Errorf("catalog overrides require -catalog-resume")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -133,7 +146,7 @@ func run() error {
 		oldMemoryLimit := debug.SetMemoryLimit(m.Streaming.GoMemoryLimitMiB << 20)
 		defer debug.SetMemoryLimit(oldMemoryLimit)
 		buildIdentity := ""
-		if *checkpointPath != "" {
+		if *checkpointPath != "" || *normalizedCheckpoint != "" {
 			buildIdentity, err = cleanBuildIdentity()
 			if err != nil {
 				return err
@@ -141,10 +154,37 @@ func run() error {
 		}
 		phases := map[string]float64{}
 		started := time.Now()
-		checkpointState, err := placeduckdb.BuildStreamResumable(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, m.Streaming.DatabaseThreads, m.Streaming.CatalogThreads, m.Streaming.ExpectedDataSHA256, placeduckdb.StreamCheckpointOptions{Path: *checkpointPath, Resume: *resume, BuildIdentity: buildIdentity}, func(name string, elapsed time.Duration) {
+		observe := func(name string, elapsed time.Duration) {
 			phases[name] = elapsed.Seconds()
 			log.Printf("Places/geocoding build phase complete phase=%s elapsed=%s", name, elapsed.Round(time.Second))
-		}, func(buildCtx context.Context, sink placeduckdb.StreamWriter) (json.RawMessage, error) {
+		}
+		if *catalogResume {
+			threads := m.Streaming.CatalogThreads
+			if *catalogThreads != 0 {
+				threads = *catalogThreads
+			}
+			limit := m.Streaming.CatalogMemoryLimit
+			if *catalogMemoryLimit != "" {
+				limit = *catalogMemoryLimit
+			}
+			err = placeduckdb.BuildCatalogFromNormalized(ctx, *streamOut, placeduckdb.NormalizedResumeOptions{
+				Path: *normalizedCheckpoint, Manifest: manifestRaw, Identities: ids,
+				MemoryLimit: m.Streaming.MemoryLimit, DatabaseThreads: m.Streaming.DatabaseThreads,
+				ExpectedDataSHA256: m.Streaming.ExpectedDataSHA256, BuildIdentity: buildIdentity,
+			}, limit, threads, observe)
+			if err != nil {
+				return err
+			}
+			artifact, verifyErr := placeduckdb.Verify(*streamOut)
+			if verifyErr != nil {
+				return verifyErr
+			}
+			phases["total"] = time.Since(started).Seconds()
+			out, _ := json.MarshalIndent(map[string]any{"build_phase_seconds": phases, "artifact": artifact, "normalized_checkpoint": *normalizedCheckpoint}, "", "  ")
+			fmt.Println(string(out))
+			return nil
+		}
+		checkpointState, err := placeduckdb.BuildStreamResumable(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, m.Streaming.DatabaseThreads, m.Streaming.CatalogThreads, m.Streaming.ExpectedDataSHA256, placeduckdb.StreamCheckpointOptions{Path: *checkpointPath, Resume: *resume, BuildIdentity: buildIdentity, NormalizedPath: *normalizedCheckpoint, NormalizedBuildIdentity: buildIdentity}, observe, func(buildCtx context.Context, sink placeduckdb.StreamWriter) (json.RawMessage, error) {
 			var prepareErr error
 			audit, prepareErr = importer.PrepareStreaming(buildCtx, m, *data, sink)
 			if prepareErr != nil {
