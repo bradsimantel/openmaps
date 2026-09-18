@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
 )
 
@@ -48,7 +49,85 @@ WHERE h.prefix=? ORDER BY h.rank`, normalized)
 		}
 		return out, rows.Err()
 	}
+	if exact, ok, err := s.autocompleteExactAddress(ctx, input); err != nil {
+		return nil, err
+	} else if ok {
+		return exact, nil
+	}
 	return s.autocompletePostings(ctx, normalized)
+}
+
+// autocompleteExactAddress avoids running the general multi-token postings
+// query when the input already satisfies the stricter forward-geocoding grammar
+// and names one or more retained address points. Partial addresses still fall
+// through to ordinary autocomplete ranking.
+func (s *Store) autocompleteExactAddress(ctx context.Context, input string) ([]places.Entity, bool, error) {
+	query, _, err := geocoding.ParseForward(input)
+	if err != nil {
+		return nil, false, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT entity_seq,context
+FROM address_lookup WHERE address_key=? ORDER BY entity_id`, query.Key)
+	if err != nil {
+		return nil, false, err
+	}
+	sequences := []int{}
+	for rows.Next() {
+		var sequence int
+		var context string
+		if err = rows.Scan(&sequence, &context); err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		if geocoding.ContextMatches(context, query.Context) {
+			sequences = append(sequences, sequence)
+			if len(sequences) == 5 {
+				break
+			}
+		}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, false, err
+	}
+	if err = rows.Close(); err != nil {
+		return nil, false, err
+	}
+	if len(sequences) == 0 {
+		return nil, false, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(sequences)), ",")
+	args := make([]any, len(sequences))
+	for i, sequence := range sequences {
+		args[i] = sequence
+	}
+	details, err := s.db.QueryContext(ctx, `SELECT entity_seq,id,kind,name,address,subtype
+FROM search_entities WHERE entity_seq IN (`+placeholders+")", args...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer details.Close()
+	bySequence := make(map[int]places.Entity, len(sequences))
+	for details.Next() {
+		var sequence int
+		var entity places.Entity
+		if err = details.Scan(&sequence, &entity.ID, &entity.Kind, &entity.Name, &entity.Address, &entity.Subtype); err != nil {
+			return nil, false, err
+		}
+		bySequence[sequence] = entity
+	}
+	if err = details.Err(); err != nil {
+		return nil, false, err
+	}
+	out := make([]places.Entity, 0, len(sequences))
+	for _, sequence := range sequences {
+		entity, found := bySequence[sequence]
+		if !found {
+			return nil, false, fmt.Errorf("exact address entity missing for sequence %d", sequence)
+		}
+		out = append(out, entity)
+	}
+	return out, true, nil
 }
 
 func (s *Store) autocompletePostings(ctx context.Context, normalized string) ([]places.Entity, error) {
