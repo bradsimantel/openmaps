@@ -1027,7 +1027,7 @@ ORDER BY 1,2,3,4`, string(bucket))
 	if err = os.Rename(generation, abs); err != nil {
 		return err
 	}
-	if checkpointOptions.Path != "" {
+	if checkpointOptions.Path != "" && checkpointOptions.AcceptedInputBuildIdentity == "" {
 		preserveCheckpoint = false
 		if err = os.RemoveAll(temp); err != nil {
 			return fmt.Errorf("candidate published but checkpoint cleanup failed: %w", err)
