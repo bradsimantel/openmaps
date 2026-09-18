@@ -199,11 +199,30 @@ func (h Handler) autocomplete(w http.ResponseWriter, r *http.Request) {
 		failure(w, 503, "UNAVAILABLE", "Places data unavailable")
 		return
 	}
-	result, err := h.Places.Autocomplete(r.Context(), req.Input)
-	if err != nil {
-		log.Printf("autocomplete: %v", err)
-		failure(w, 500, "INTERNAL", "Search unavailable")
-		return
+	result := []places.Entity{}
+	if h.Geocoding != nil {
+		if _, _, parseErr := geocoding.ParseForward(req.Input); parseErr == nil {
+			response, forwardErr := h.Geocoding.Forward(r.Context(), req.Input)
+			if forwardErr != nil {
+				log.Printf("autocomplete exact address: %v", forwardErr)
+				failure(w, 500, "INTERNAL", "Search unavailable")
+				return
+			}
+			for _, address := range response.Results {
+				result = append(result, address.Entity)
+				if len(result) == 5 {
+					break
+				}
+			}
+		}
+	}
+	if len(result) == 0 {
+		result, err = h.Places.Autocomplete(r.Context(), req.Input)
+		if err != nil {
+			log.Printf("autocomplete: %v", err)
+			failure(w, 500, "INTERNAL", "Search unavailable")
+			return
+		}
 	}
 	suggestions := []any{}
 	for _, p := range result {

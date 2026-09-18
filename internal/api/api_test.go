@@ -97,6 +97,23 @@ func TestAutocompleteDetailsContract(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+
+func TestAutocompleteExactAddressUsesGeocodingProjection(t *testing.T) {
+	h, _ := setup(t)
+	w := call(h, "POST", "/v1/places:autocomplete", `{"input":"26 Marlborough Street, RI, 02840, US"}`, "")
+	want := importer.PublicID("fixture:address:26")
+	var body struct {
+		Suggestions []struct {
+			Prediction struct {
+				ID string `json:"placeId"`
+			} `json:"placePrediction"`
+		} `json:"suggestions"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil || len(body.Suggestions) != 1 || body.Suggestions[0].Prediction.ID != want {
+		t.Fatalf("exact address autocomplete: code=%d body=%s want=%s", w.Code, w.Body.String(), want)
+	}
+}
+
 func TestFieldMasks(t *testing.T) {
 	h, _ := setup(t)
 	id := importer.PublicID("fixture:place:tavern")
