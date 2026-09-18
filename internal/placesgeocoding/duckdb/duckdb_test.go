@@ -434,11 +434,12 @@ func TestStreamBuildResumesFromValidatedInputCheckpoint(t *testing.T) {
 func TestInputCheckpointAcceptsExplicitPriorBuildWithoutMutation(t *testing.T) {
 	bundle := fixture(t)
 	root := t.TempDir()
-	output := filepath.Join(root, "output")
+	oldOutput := filepath.Join(root, "old-output")
+	output := filepath.Join(root, "research-output")
 	checkpoint := filepath.Join(root, "checkpoint")
 	oldIdentity := "revision=old;target=linux/amd64"
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := placeduckdb.BuildStreamResumable(ctx, output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", placeduckdb.StreamCheckpointOptions{Path: checkpoint, BuildIdentity: oldIdentity}, func(name string, _ time.Duration) {
+	_, err := placeduckdb.BuildStreamResumable(ctx, oldOutput, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", placeduckdb.StreamCheckpointOptions{Path: checkpoint, BuildIdentity: oldIdentity}, func(name string, _ time.Duration) {
 		if name == "input_staging" {
 			cancel()
 		}
@@ -458,7 +459,7 @@ func TestInputCheckpointAcceptsExplicitPriorBuildWithoutMutation(t *testing.T) {
 	newIdentity := "revision=new;target=linux/amd64"
 	resumeCtx, resumeCancel := context.WithCancel(context.Background())
 	_, err = placeduckdb.BuildStreamResumable(resumeCtx, output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", placeduckdb.StreamCheckpointOptions{
-		Path: checkpoint, Resume: true, BuildIdentity: newIdentity, AcceptedInputBuildIdentity: oldIdentity,
+		Path: checkpoint, Resume: true, BuildIdentity: newIdentity, AcceptedInputBuildIdentity: oldIdentity, AcceptedInputOutputPath: oldOutput,
 	}, func(name string, _ time.Duration) {
 		if name == "normalization_input_validation" {
 			resumeCancel()

@@ -270,6 +270,7 @@ type StreamCheckpointOptions struct {
 	NormalizedPath             string
 	NormalizedBuildIdentity    string
 	AcceptedInputBuildIdentity string
+	AcceptedInputOutputPath    string
 }
 
 type streamCheckpointIdentity struct {
@@ -433,6 +434,9 @@ func buildStagedResumable(ctx context.Context, path, memoryLimit, catalogMemoryL
 			if !identityMatches && checkpointOptions.AcceptedInputBuildIdentity != "" && savedCheckpoint.Identity.BuildIdentity == checkpointOptions.AcceptedInputBuildIdentity {
 				accepted := savedCheckpoint.Identity
 				accepted.BuildIdentity = checkpointIdentity.BuildIdentity
+				if checkpointOptions.AcceptedInputOutputPath != "" && accepted.OutputPath == checkpointOptions.AcceptedInputOutputPath {
+					accepted.OutputPath = checkpointIdentity.OutputPath
+				}
 				identityMatches = reflect.DeepEqual(accepted, checkpointIdentity)
 			}
 			if savedCheckpoint.Schema != 1 || !identityMatches {
