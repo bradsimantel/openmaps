@@ -410,7 +410,6 @@ func TestStreamBuildResumesFromValidatedInputCheckpoint(t *testing.T) {
 	if _, err = placeduckdb.BuildStreamResumable(context.Background(), output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", mismatched, nil, produce); err == nil || !strings.Contains(err.Error(), "identity does not match") {
 		t.Fatal("accepted a checkpoint from a different build identity", err)
 	}
-
 	options.Resume = true
 	resumedState, err := placeduckdb.BuildStreamResumable(context.Background(), output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", options, nil, func(context.Context, placeduckdb.StreamWriter) (json.RawMessage, error) {
 		return nil, fmt.Errorf("producer must not run during resume")
@@ -429,6 +428,50 @@ func TestStreamBuildResumesFromValidatedInputCheckpoint(t *testing.T) {
 	}
 	if _, err = placeduckdb.Verify(output); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInputCheckpointAcceptsExplicitPriorBuildWithoutMutation(t *testing.T) {
+	bundle := fixture(t)
+	root := t.TempDir()
+	output := filepath.Join(root, "output")
+	checkpoint := filepath.Join(root, "checkpoint")
+	oldIdentity := "revision=old;target=linux/amd64"
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := placeduckdb.BuildStreamResumable(ctx, output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", placeduckdb.StreamCheckpointOptions{Path: checkpoint, BuildIdentity: oldIdentity}, func(name string, _ time.Duration) {
+		if name == "input_staging" {
+			cancel()
+		}
+	}, func(ctx context.Context, out placeduckdb.StreamWriter) (json.RawMessage, error) {
+		if err := out.WriteRecords(ctx, bundle.Records); err != nil {
+			return nil, err
+		}
+		return bundle.Manifest, nil
+	})
+	if err == nil {
+		t.Fatal("expected interruption after input checkpoint")
+	}
+	markerBefore, err := os.ReadFile(filepath.Join(checkpoint, "input-staging-checkpoint.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newIdentity := "revision=new;target=linux/amd64"
+	resumeCtx, resumeCancel := context.WithCancel(context.Background())
+	_, err = placeduckdb.BuildStreamResumable(resumeCtx, output, bundle.Manifest, bundle.Identities, "128MB", "256MB", 2, 2, "", placeduckdb.StreamCheckpointOptions{
+		Path: checkpoint, Resume: true, BuildIdentity: newIdentity, AcceptedInputBuildIdentity: oldIdentity,
+	}, func(name string, _ time.Duration) {
+		if name == "normalization_input_validation" {
+			resumeCancel()
+		}
+	}, func(context.Context, placeduckdb.StreamWriter) (json.RawMessage, error) {
+		return nil, fmt.Errorf("producer must not run")
+	})
+	if err == nil {
+		t.Fatal("expected interruption after compatible checkpoint acceptance")
+	}
+	markerAfter, err := os.ReadFile(filepath.Join(checkpoint, "input-staging-checkpoint.json"))
+	if err != nil || !bytes.Equal(markerBefore, markerAfter) || !bytes.Contains(markerAfter, []byte(oldIdentity)) {
+		t.Fatal("checkpoint marker was mutated during compatible resume", err)
 	}
 }
 

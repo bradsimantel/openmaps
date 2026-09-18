@@ -43,6 +43,7 @@ func run() error {
 	catalogResume := flag.Bool("catalog-resume", false, "build only the catalog from -normalized-checkpoint")
 	catalogThreads := flag.Int("catalog-threads", 0, "catalog-only override for DuckDB threads (1..64)")
 	catalogMemoryLimit := flag.String("catalog-memory-limit", "", "catalog-only override for DuckDB memory_limit")
+	acceptInputCheckpointBuild := flag.String("accept-input-checkpoint-build", "", "reviewed prior build identity accepted read-only for -resume")
 	flag.Parse()
 	if *acceptSourceUpdate && !*fetch {
 		return fmt.Errorf("-accept-reviewed-source-update requires -fetch")
@@ -61,6 +62,9 @@ func run() error {
 	}
 	if !*catalogResume && (*catalogThreads != 0 || *catalogMemoryLimit != "") {
 		return fmt.Errorf("catalog overrides require -catalog-resume")
+	}
+	if *acceptInputCheckpointBuild != "" && !*resume {
+		return fmt.Errorf("-accept-input-checkpoint-build requires -resume")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -184,7 +188,7 @@ func run() error {
 			fmt.Println(string(out))
 			return nil
 		}
-		checkpointState, err := placeduckdb.BuildStreamResumable(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, m.Streaming.DatabaseThreads, m.Streaming.CatalogThreads, m.Streaming.ExpectedDataSHA256, placeduckdb.StreamCheckpointOptions{Path: *checkpointPath, Resume: *resume, BuildIdentity: buildIdentity, NormalizedPath: *normalizedCheckpoint, NormalizedBuildIdentity: buildIdentity}, observe, func(buildCtx context.Context, sink placeduckdb.StreamWriter) (json.RawMessage, error) {
+		checkpointState, err := placeduckdb.BuildStreamResumable(ctx, *streamOut, manifestRaw, ids, m.Streaming.MemoryLimit, m.Streaming.CatalogMemoryLimit, m.Streaming.DatabaseThreads, m.Streaming.CatalogThreads, m.Streaming.ExpectedDataSHA256, placeduckdb.StreamCheckpointOptions{Path: *checkpointPath, Resume: *resume, BuildIdentity: buildIdentity, NormalizedPath: *normalizedCheckpoint, NormalizedBuildIdentity: buildIdentity, AcceptedInputBuildIdentity: *acceptInputCheckpointBuild}, observe, func(buildCtx context.Context, sink placeduckdb.StreamWriter) (json.RawMessage, error) {
 			var prepareErr error
 			audit, prepareErr = importer.PrepareStreaming(buildCtx, m, *data, sink)
 			if prepareErr != nil {

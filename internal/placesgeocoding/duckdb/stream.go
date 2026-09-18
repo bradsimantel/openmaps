@@ -264,11 +264,12 @@ func BuildStreamConfigured(ctx context.Context, path string, manifest json.RawMe
 // staging and normalization. BuildIdentity must identify an exact clean build
 // revision and target architecture; callers are responsible for constructing it.
 type StreamCheckpointOptions struct {
-	Path                    string
-	Resume                  bool
-	BuildIdentity           string
-	NormalizedPath          string
-	NormalizedBuildIdentity string
+	Path                       string
+	Resume                     bool
+	BuildIdentity              string
+	NormalizedPath             string
+	NormalizedBuildIdentity    string
+	AcceptedInputBuildIdentity string
 }
 
 type streamCheckpointIdentity struct {
@@ -428,7 +429,13 @@ func buildStagedResumable(ctx context.Context, path, memoryLimit, catalogMemoryL
 			if err = readStreamCheckpoint(checkpointPath, &savedCheckpoint); err != nil {
 				return err
 			}
-			if savedCheckpoint.Schema != 1 || !reflect.DeepEqual(savedCheckpoint.Identity, checkpointIdentity) {
+			identityMatches := reflect.DeepEqual(savedCheckpoint.Identity, checkpointIdentity)
+			if !identityMatches && checkpointOptions.AcceptedInputBuildIdentity != "" && savedCheckpoint.Identity.BuildIdentity == checkpointOptions.AcceptedInputBuildIdentity {
+				accepted := savedCheckpoint.Identity
+				accepted.BuildIdentity = checkpointIdentity.BuildIdentity
+				identityMatches = reflect.DeepEqual(accepted, checkpointIdentity)
+			}
+			if savedCheckpoint.Schema != 1 || !identityMatches {
 				return fmt.Errorf("checkpoint identity does not match this build")
 			}
 			temp = checkpointPath
