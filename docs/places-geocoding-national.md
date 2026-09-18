@@ -75,9 +75,12 @@ processes the sixteen leading hexadecimal public-ID buckets in lexical order,
 sorting only one bucket at a time; this preserves deterministic global order
 without a national-scale spill merge. Parquet dictionaries fall back to plain
 encoding at 4 MiB per column. Serving-catalog construction uses four DuckDB
-threads and a separately pinned 32 GB limit. A 48 GiB process supervisor is
-still required because these component limits are not a hard whole-process RSS
-bound.
+threads and a separately pinned 32 GB limit. Its national sorts, groups and
+windows are split into disjoint ID, lexical, token and spatial partitions
+containing no more than four million input rows. Posting generation additionally
+uses 32,768-entity chunks, and an individual hot token is split by entity
+sequence. A 48 GiB process supervisor is still required because these component
+limits are not a hard whole-process RSS bound.
 
 Public IDs continue to hash immutable source-qualified identity anchors.
 Provider source IDs, release, original records, winning-attribute paths,
@@ -165,6 +168,44 @@ output path, manifest and source pins, identity mappings, expected retained-data
 checksum, memory and thread controls, clean Git revision, and OS/architecture.
 Resume also validates all staging table counts, discards only derived work from
 the failed attempt, and reruns the normal input integrity checks before rebuilding.
+
+For a long-running national build, provide a separate normalized checkpoint.
+It is published atomically only after normalized checksums and physical Parquet
+row counts pass, and remains immutable after catalog success or failure:
+
+```sh
+/tmp/openmaps-run-bounded \
+  -root "$PWD/data" -report "$PWD/data/us-build-resources.json" \
+  -samples "$PWD/data/us-build-samples.ndjson" \
+  -temporary-path "$PWD/data" -rss-mib 49152 -reserve-gib 60 \
+  /tmp/openmaps-places-prepare \
+  -config config/places-geocoding-us.json -data data \
+  -stream-out data/openmaps-us-20260819 \
+  -checkpoint data/openmaps-us-20260819-checkpoint -resume \
+  -normalized-checkpoint data/openmaps-us-20260819-normalized \
+  -audit data/openmaps-us-20260819-audit.json
+```
+
+After that marker exists, a catalog or validation retry does not repeat source
+preparation or normalization:
+
+```sh
+/tmp/openmaps-run-bounded \
+  -root "$PWD/data" -report "$PWD/data/us-catalog-resume-resources.json" \
+  -samples "$PWD/data/us-catalog-resume-samples.ndjson" \
+  -temporary-path "$PWD/data" -rss-mib 49152 -reserve-gib 60 \
+  /tmp/openmaps-places-prepare \
+  -config config/places-geocoding-us.json -data data \
+  -stream-out data/openmaps-us-20260819 \
+  -normalized-checkpoint data/openmaps-us-20260819-normalized \
+  -catalog-resume \
+  -catalog-threads 4 -catalog-memory-limit 32GB \
+  -audit data/openmaps-us-20260819-audit.json
+```
+
+The catalog-only command requires the checkpoint's exact build identity. It
+refuses an existing output and publishes through a new `.building` directory,
+so interruption cannot turn a partial database into a candidate.
 
 If normalization, catalog construction, or validation fails after that marker
 is published, preserve the checkpoint and rerun the same supervised command

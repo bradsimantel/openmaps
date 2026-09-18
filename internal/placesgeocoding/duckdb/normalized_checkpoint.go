@@ -242,7 +242,7 @@ func BuildCatalogFromNormalized(ctx context.Context, output string, normalized N
 		return err
 	}
 	verifyStarted := time.Now()
-	if _, err = Verify(generation); err != nil {
+	if _, err = VerifyObserved(generation, observe); err != nil {
 		return err
 	}
 	if observe != nil {

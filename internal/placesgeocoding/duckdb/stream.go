@@ -1022,7 +1022,7 @@ ORDER BY 1,2,3,4`, string(bucket))
 		return err
 	}
 	verifyStarted := time.Now()
-	if _, err = Verify(generation); err != nil {
+	if _, err = VerifyObserved(generation, observe); err != nil {
 		return err
 	}
 	if observe != nil {

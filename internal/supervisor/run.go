@@ -64,7 +64,7 @@ func sampleRSS(ctx context.Context, pid int) (int64, error) {
 	return n * 1024, e
 }
 func Run(ctx context.Context, o Options) (report Report, err error) {
-	report = Report{Command: o.Command, ReturnCode: -1, Budgets: map[string]int64{"rss_mib": o.RSSMiB, "reserve_gib": o.ReserveGiB}, Note: "Sampled child RSS using system ps; not a hard RSS, descendant RSS, or total OS-cache bound. Child maximum RSS uses platform-native units."}
+	report = Report{Command: o.Command, ReturnCode: -1, Budgets: map[string]int64{"rss_mib": o.RSSMiB, "reserve_gib": o.ReserveGiB}, Note: "Sampled process-tree RSS is an external one-second observation, not a hard allocator or total OS-cache bound. Child maximum RSS uses platform-native units."}
 	if len(o.Command) == 0 || o.RSSMiB < 1 || o.RSSMiB > 65536 || o.ReserveGiB < 32 || o.ReserveGiB > 1024 {
 		return report, errors.New("command and valid headroom budgets required")
 	}

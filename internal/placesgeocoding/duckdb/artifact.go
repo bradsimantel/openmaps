@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/parquet-go/parquet-go"
@@ -184,6 +185,20 @@ func inside(p places.Location, bounds [4]float64) bool {
 // Verify checks every manifest-bound file and the serving catalog before Open
 // exposes a reader.
 func Verify(path string) (Manifest, error) {
+	return VerifyObserved(path, nil)
+}
+
+// VerifyObserved reports independently timed validation boundaries. It keeps
+// the public Verify API small while allowing national builds to prove that
+// validation itself remains within the same resource envelope as construction.
+func VerifyObserved(path string, observe func(string, time.Duration)) (Manifest, error) {
+	phaseStarted := time.Now()
+	phase := func(name string) {
+		if observe != nil {
+			observe("validation_"+name, time.Since(phaseStarted))
+		}
+		phaseStarted = time.Now()
+	}
 	var manifest Manifest
 	raw, err := os.ReadFile(filepath.Join(path, ManifestName))
 	if err != nil {
@@ -269,6 +284,7 @@ func Verify(path string) (Manifest, error) {
 	// Older schema-2 manifests predate data_sha256. Return the independently
 	// recomputed value so they can still serve as qualification baselines.
 	manifest.DataSHA256 = computedDataSHA256
+	phase("artifact_files")
 	db, err := openDatabase(filepath.Join(path, IndexName))
 	if err != nil {
 		return manifest, err
@@ -339,6 +355,7 @@ WHERE s.id IS NULL OR l.id IS NULL OR s.kind<>l.kind`).Scan(&mismatchedEntities)
 	if mismatchedEntities != 0 {
 		return manifest, fmt.Errorf("DuckDB mismatched entities: %d", mismatchedEntities)
 	}
+	phase("catalog_entities")
 	if boundedValidation == "1" {
 		var maxToken int
 		if err = db.QueryRow("SELECT coalesce(max(token_id),0) FROM tokens").Scan(&maxToken); err != nil {
@@ -373,6 +390,7 @@ WHERE e.entity_seq IS NULL`).Scan(&badPrefixHeads); err != nil {
 	if badPrefixHeads != 0 {
 		return manifest, fmt.Errorf("DuckDB prefix-head integrity: %d", badPrefixHeads)
 	}
+	phase("catalog_search")
 	if boundedValidation == "1" {
 		if err = db.QueryRow("SELECT count(*) FROM address_lookup WHERE entity_seq<1 OR entity_seq>?", entityRows).Scan(&badAddresses); err != nil {
 			return manifest, err
@@ -400,6 +418,7 @@ WHERE e.entity_seq IS NULL`).Scan(&badPrefixHeads); err != nil {
 	if addressRows != expectedAddresses {
 		return manifest, fmt.Errorf("DuckDB exact-address coverage: expected=%d actual=%d", expectedAddresses, addressRows)
 	}
+	phase("catalog_addresses")
 	var duplicateSources, badSources, badProvenance, badRelationships, duplicateRelationships, duplicateRejections, invalidRejections, indexes int
 	sourcesPath := filepath.Join(path, "source-records*.parquet")
 	provenancePath := filepath.Join(path, "attribute-provenance*.parquet")
@@ -426,6 +445,7 @@ WHERE e.entity_seq IS NULL`).Scan(&badPrefixHeads); err != nil {
 		if indexes != 0 {
 			return manifest, fmt.Errorf("DuckDB catalog unexpectedly contains %d persistent indexes", indexes)
 		}
+		phase("bounded_evidence")
 		return manifest, nil
 	}
 	if err = db.QueryRow(`SELECT count(*)-count(DISTINCT source_key) FROM read_parquet(?)`, sourcesPath).Scan(&duplicateSources); err != nil {
@@ -516,6 +536,7 @@ WHERE f.id IS NULL OR t.id IS NULL`, relationshipsPath).Scan(&badRelationships);
 	if indexes != 0 {
 		return manifest, fmt.Errorf("DuckDB catalog unexpectedly contains %d persistent indexes", indexes)
 	}
+	phase("legacy_evidence")
 	return manifest, nil
 }
 
