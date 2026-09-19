@@ -8,6 +8,14 @@
 interpretation and ranking. Forward geocoding and the MESSY STREETS diagnostic
 were not changed.
 
+**Qualification correction (2026-09-19):** The initial implementation run did
+not inspect the provisioned SSH path to the Hetzner qualification host. The
+host and exact national artifact were available. The later exact-artifact
+investigation, follow-up implementation and measured result are recorded in
+[0061](0061-national-autocomplete-context-qualification.md). The retained
+five-state numbers below remain an accurate historical diagnostic, but they are
+not the final national result.
+
 ## Investigation
 
 The autocomplete entry point normalized punctuation before candidate
@@ -92,11 +100,11 @@ That run used `/srv/openmaps/data/national-catalog-research-2cfd7fc`, manifest
 SHA-256
 `7252165542a53daf0bda1a34e30fb9dd3ae6966015aeda9c20777017e092ecec`.
 
-The exact generation and qualification host were not mounted or addressable
-from the implementation host. Consequently there is no measured national
-after-count, no defensible list of remaining national failures and no national
-timeout result for this revision. The implementation host did not substitute a
-different artifact and claim the primary 16/16 and 9/9 gate as measured.
+This initial implementation pass did not inspect the provisioned SSH access to
+the qualification host and therefore did not produce a national after-count.
+That operational conclusion was incorrect: the exact generation was
+addressable on the Hetzner host. Log 0061 records the subsequent exact-artifact
+run, the additional latency work it required, and the final measured counts.
 
 ### Retained five-state gate
 
@@ -150,18 +158,19 @@ Street, Memphis, TN`, `Wall Street, New York, NY`, and `Lombard Street, San
 Francisco, CA`. These are scope absences, not evidence of post-change national
 ranking failures.
 
-## Remaining qualification and decision
+## Historical remaining qualification and decision
 
-The next national qualification run must use the exact retained national
-generation, the unchanged `config/us-query-checks.json`, a 20-second timeout
-that counts as failure, and category plus individual-failure reporting. The
-16 city/state and nine street-context expectations must all pass, and all 18
-baseline passes must remain passes before this milestone has measured national
-approval.
+At this revision, the next national qualification run was required to use the
+exact retained national generation, the unchanged
+`config/us-query-checks.json`, a 20-second timeout that counts as failure, and
+category plus individual-failure reporting. The 16 city/state and nine
+street-context expectations must all pass, and all 18 baseline passes must
+remain passes before this milestone has measured national approval.
 
 If exact-name street materialization exceeds the timeout on the national host,
 a later proposal may add a manifest-bound coordinate projection to a newly
 built serving catalog. That is not an implemented project decision and is not
 needed by the current artifact-compatible runtime path.
 
-The national research artifact remains **NOT APPROVED FOR ACTIVATION**.
+The national research artifact remained **NOT APPROVED FOR ACTIVATION**. See
+log 0061 for the later qualification decision.
