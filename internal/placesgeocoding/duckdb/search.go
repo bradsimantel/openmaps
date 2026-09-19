@@ -74,6 +74,8 @@ type primaryCandidate struct {
 	location                  places.Location
 	ranking                   places.AreaRankingEvidence
 	rankingLoaded             bool
+	placeRanking              places.PlaceRankingEvidence
+	placeRankingLoaded        bool
 }
 
 const (
@@ -81,6 +83,7 @@ const (
 	contextStreetEarlyAcceptMeters = 25_000
 	contextStreetCandidatePageSize = 1024
 	contextAreaLocatorThreshold    = 64
+	exactDestinationEvidenceLimit  = 64
 	primaryCandidateCacheLimit     = 256
 )
 
@@ -154,30 +157,29 @@ func (s *Store) autocompleteUnstructured(ctx context.Context, normalized string)
 	if err != nil {
 		return nil, err
 	}
-	if len(areas) == 0 {
-		return s.autocompletePostings(ctx, normalized)
-	}
-	if err = s.loadAreaRankingEvidence(ctx, areas); err != nil {
-		return nil, err
-	}
-	s.cachePrimaryCandidates("area", normalized, areas)
-	sort.SliceStable(areas, func(i, j int) bool {
-		left, right := exactAreaTypeRank(areas[i]), exactAreaTypeRank(areas[j])
-		if left != right {
-			return left < right
-		}
-		if areas[i].ranking.Prominence != areas[j].ranking.Prominence {
-			return areas[i].ranking.Prominence > areas[j].ranking.Prominence
-		}
-		return areas[i].sequence < areas[j].sequence
-	})
 	out := make([]places.Entity, 0, 5)
 	seen := map[string]bool{}
-	for _, candidate := range areas {
-		out = append(out, candidate.entity)
-		seen[candidate.entity.ID] = true
-		if len(out) == 5 {
-			return out, nil
+	if len(areas) > 0 {
+		if err = s.loadAreaRankingEvidence(ctx, areas); err != nil {
+			return nil, err
+		}
+		s.cachePrimaryCandidates("area", normalized, areas)
+		sort.SliceStable(areas, func(i, j int) bool {
+			left, right := exactAreaTypeRank(areas[i]), exactAreaTypeRank(areas[j])
+			if left != right {
+				return left < right
+			}
+			if areas[i].ranking.Prominence != areas[j].ranking.Prominence {
+				return areas[i].ranking.Prominence > areas[j].ranking.Prominence
+			}
+			return areas[i].sequence < areas[j].sequence
+		})
+		for _, candidate := range areas {
+			out = append(out, candidate.entity)
+			seen[candidate.entity.ID] = true
+			if len(out) == 5 {
+				break
+			}
 		}
 	}
 	results, err := s.autocompletePostings(ctx, normalized)
@@ -185,6 +187,9 @@ func (s *Store) autocompleteUnstructured(ctx context.Context, normalized string)
 		return nil, err
 	}
 	for _, entity := range results {
+		if len(out) == 5 {
+			break
+		}
 		if seen[entity.ID] {
 			continue
 		}
@@ -193,7 +198,206 @@ func (s *Store) autocompleteUnstructured(ctx context.Context, normalized string)
 			break
 		}
 	}
+	return s.promoteExactDestination(ctx, normalized, out)
+}
+
+func (s *Store) promoteExactDestination(ctx context.Context, normalized string, baseline []places.Entity) ([]places.Entity, error) {
+	if len(baseline) == 0 {
+		return baseline, nil
+	}
+	first := baseline[0]
+	if first.Kind == "area" {
+		for _, area := range s.primaryCandidateSnapshot("area", normalized) {
+			if area.entity.ID == first.ID && exactAreaTypeRank(area) <= 1 {
+				return baseline, nil
+			}
+		}
+	}
+	sequences, err := s.exactCandidateSequences(ctx, normalized, "business")
+	if err != nil || len(sequences) == 0 {
+		return baseline, err
+	}
+	// Source rows are intentionally outside the compact serving projection.
+	// Keep exact-name evidence lookup bounded so highly duplicated names cannot
+	// turn a relevance refinement into an unbounded cold request.
+	if len(sequences) > exactDestinationEvidenceLimit {
+		return baseline, nil
+	}
+	candidates, err := s.primaryCandidates(ctx, normalized, "business")
+	if err != nil || len(candidates) == 0 {
+		return baseline, err
+	}
+	if err = s.loadPlaceRankingEvidence(ctx, candidates); err != nil {
+		return nil, err
+	}
+	s.cachePrimaryCandidates("business", normalized, candidates)
+	baselineRank := map[string]int{}
+	for i, entity := range baseline {
+		baselineRank[entity.ID] = i
+	}
+	var current *primaryCandidate
+	if first.Kind == "business" {
+		for i := range candidates {
+			if candidates[i].entity.ID == first.ID {
+				current = &candidates[i]
+				break
+			}
+		}
+	}
+	eligible := candidates[:0]
+	for _, candidate := range candidates {
+		if candidate.entity.ID == first.ID {
+			continue
+		}
+		switch first.Kind {
+		case "area":
+			if candidate.placeRanking.AreaOverride {
+				eligible = append(eligible, candidate)
+			}
+		case "business":
+			if current != nil && placeEvidenceComparableImprovement(candidate.placeRanking, current.placeRanking) {
+				eligible = append(eligible, candidate)
+			}
+		default:
+			if candidate.placeRanking.DestinationClass != places.DestinationUnknown {
+				eligible = append(eligible, candidate)
+			}
+		}
+	}
+	if len(eligible) == 0 {
+		return baseline, nil
+	}
+	sort.SliceStable(eligible, func(i, j int) bool {
+		return placeCandidateLess(eligible[i], eligible[j], baselineRank)
+	})
+	best := eligible[0]
+	out := make([]places.Entity, 0, len(baseline))
+	out = append(out, best.entity)
+	for _, entity := range baseline {
+		if entity.ID != best.entity.ID && len(out) < 5 {
+			out = append(out, entity)
+		}
+	}
 	return out, nil
+}
+
+func (s *Store) primaryCandidateSnapshot(kind, normalized string) []primaryCandidate {
+	s.primaryCandidateCacheMu.RLock()
+	defer s.primaryCandidateCacheMu.RUnlock()
+	return append([]primaryCandidate(nil), s.primaryCandidateCache[kind+"\x00"+normalized]...)
+}
+
+func placeCandidateLess(left, right primaryCandidate, baselineRank map[string]int) bool {
+	if placeEvidenceStrengthBetter(left.placeRanking, right.placeRanking) {
+		return true
+	}
+	if placeEvidenceStrengthBetter(right.placeRanking, left.placeRanking) {
+		return false
+	}
+	leftRank, leftFound := baselineRank[left.entity.ID]
+	rightRank, rightFound := baselineRank[right.entity.ID]
+	if leftFound != rightFound {
+		return leftFound
+	}
+	if leftFound && leftRank != rightRank {
+		return leftRank < rightRank
+	}
+	return left.sequence < right.sequence
+}
+
+func placeEvidenceComparableImprovement(left, right places.PlaceRankingEvidence) bool {
+	if right.DestinationClass == places.DestinationUnknown {
+		return left.DestinationClass != places.DestinationUnknown
+	}
+	if left.DestinationClass == right.DestinationClass {
+		return placeEvidenceStrengthBetter(left, right)
+	}
+	return right.DestinationClass == places.DestinationGeographic &&
+		(left.DestinationClass == places.DestinationAttraction || left.DestinationClass == places.DestinationCultural)
+}
+
+func placeEvidenceStrengthBetter(left, right places.PlaceRankingEvidence) bool {
+	if left.ConfidenceTier != right.ConfidenceTier {
+		return left.ConfidenceTier > right.ConfidenceTier
+	}
+	if left.Specificity != right.Specificity {
+		return left.Specificity > right.Specificity
+	}
+	return left.DestinationClass > right.DestinationClass
+}
+
+func (s *Store) loadPlaceRankingEvidence(ctx context.Context, candidates []primaryCandidate) error {
+	allLoaded := true
+	for i := range candidates {
+		allLoaded = allLoaded && candidates[i].placeRankingLoaded
+	}
+	if allLoaded {
+		return nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].sourceFile != candidates[j].sourceFile {
+			return candidates[i].sourceFile < candidates[j].sourceFile
+		}
+		return candidates[i].sourceStart < candidates[j].sourceStart
+	})
+	var currentFile string
+	var reader *parquet.GenericReader[sourceRankingRow]
+	defer func() {
+		if reader != nil {
+			_ = reader.Close()
+		}
+	}()
+	for i := range candidates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		candidate := &candidates[i]
+		if candidate.placeRankingLoaded {
+			continue
+		}
+		file := s.sourceParquet[candidate.sourceFile]
+		if file == nil {
+			return fmt.Errorf("missing source shard for %s", candidate.entity.ID)
+		}
+		if candidate.sourceFile != currentFile {
+			if reader != nil {
+				if err := reader.Close(); err != nil {
+					return err
+				}
+			}
+			reader = parquet.NewGenericRowGroupReader[sourceRankingRow](parquet.MultiRowGroup(file.RowGroups()...))
+			currentFile = candidate.sourceFile
+		}
+		if err := reader.SeekToRow(int64(candidate.sourceStart)); err != nil {
+			return err
+		}
+		rows := make([]sourceRankingRow, candidate.sourceCount)
+		n, err := reader.Read(rows)
+		if n != candidate.sourceCount || err != nil && err != io.EOF {
+			return fmt.Errorf("read place ranking evidence for %s: rows=%d/%d: %w", candidate.entity.ID, n, candidate.sourceCount, err)
+		}
+		sort.Slice(rows, func(i, j int) bool {
+			if rows[i].Priority != rows[j].Priority {
+				return rows[i].Priority > rows[j].Priority
+			}
+			return rows[i].SourceKey < rows[j].SourceKey
+		})
+		for _, row := range rows {
+			if row.EntityID != candidate.entity.ID {
+				return fmt.Errorf("place ranking evidence locator mismatch: got %s want %s", row.EntityID, candidate.entity.ID)
+			}
+			evidence, evidenceErr := importer.PlaceRankingEvidence(row.Source, json.RawMessage(row.Raw))
+			if evidenceErr != nil {
+				return evidenceErr
+			}
+			if evidence != (places.PlaceRankingEvidence{}) {
+				candidate.placeRanking = evidence
+				break
+			}
+		}
+		candidate.placeRankingLoaded = true
+	}
+	return nil
 }
 
 func (s *Store) cachePrimaryCandidates(kind, normalized string, candidates []primaryCandidate) {

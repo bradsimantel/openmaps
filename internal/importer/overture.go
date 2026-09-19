@@ -83,6 +83,84 @@ func AreaRankingEvidence(source string, raw json.RawMessage) (places.AreaRanking
 	return evidence, nil
 }
 
+// PlaceRankingEvidence adapts Overture's documented place taxonomy and
+// existence confidence into provider-independent ordering evidence. Confidence
+// is deliberately banded because Overture documents it as a filtering signal,
+// not popularity or a precisely comparable probability.
+func PlaceRankingEvidence(source string, raw json.RawMessage) (places.PlaceRankingEvidence, error) {
+	if source != "overture:place" {
+		return places.PlaceRankingEvidence{}, nil
+	}
+	var feature struct {
+		Properties struct {
+			BasicCategory string   `json:"basic_category"`
+			Confidence    *float64 `json:"confidence"`
+			Taxonomy      struct {
+				Hierarchy []string `json:"hierarchy"`
+				Primary   string   `json:"primary"`
+			} `json:"taxonomy"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &feature); err != nil {
+		return places.PlaceRankingEvidence{}, fmt.Errorf("Overture place ranking evidence: %w", err)
+	}
+	evidence := places.PlaceRankingEvidence{}
+	if feature.Properties.Confidence != nil {
+		confidence := *feature.Properties.Confidence
+		if confidence < 0 || confidence > 1 {
+			return places.PlaceRankingEvidence{}, fmt.Errorf("Overture place confidence out of range: %g", confidence)
+		}
+		switch {
+		case confidence >= 0.95:
+			evidence.ConfidenceTier = places.ConfidenceHigh
+		case confidence >= 0.75:
+			evidence.ConfidenceTier = places.ConfidenceMedium
+		case confidence > 0:
+			evidence.ConfidenceTier = places.ConfidenceLow
+		}
+	}
+	hierarchy := feature.Properties.Taxonomy.Hierarchy
+	if len(hierarchy) > 0 {
+		evidence.Specificity = len(hierarchy)
+		switch hierarchy[0] {
+		case "cultural_and_historic":
+			evidence.DestinationClass = places.DestinationCultural
+		case "arts_and_entertainment", "community_and_government":
+			evidence.DestinationClass = places.DestinationAttraction
+		case "sports_and_recreation":
+			evidence.DestinationClass = places.DestinationRecreation
+		case "geographic_entities":
+			evidence.DestinationClass = places.DestinationGeographic
+		}
+		for _, category := range hierarchy {
+			if category == "monument" || category == "stadium_arena" || strings.HasSuffix(category, "_stadium") {
+				evidence.AreaOverride = true
+			}
+		}
+		return evidence, nil
+	}
+
+	// Some records in the pinned transition release have basic_category but no
+	// taxonomy. Preserve a narrow, documented basic-category fallback for the
+	// destination types that autocomplete needs to distinguish from ordinary
+	// businesses, streets and neighborhoods.
+	evidence.Specificity = 1
+	switch feature.Properties.BasicCategory {
+	case "historic_site", "monument":
+		evidence.DestinationClass = places.DestinationCultural
+	case "museum", "stadium_arena", "amusement_park", "observatory":
+		evidence.DestinationClass = places.DestinationAttraction
+	case "national_park", "park":
+		evidence.DestinationClass = places.DestinationRecreation
+	case "bridge", "island":
+		evidence.DestinationClass = places.DestinationGeographic
+	default:
+		evidence.Specificity = 0
+	}
+	evidence.AreaOverride = feature.Properties.BasicCategory == "monument" || feature.Properties.BasicCategory == "stadium_arena"
+	return evidence, nil
+}
+
 type overtureFeature struct {
 	feature
 	Props overtureProperties

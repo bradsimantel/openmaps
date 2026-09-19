@@ -285,6 +285,17 @@ the existing artifact even though prominence and settlement class were not
 projected into its normalized entity or serving-search rows. A future artifact
 could project that evidence directly for lower read amplification, but that is
 a proposal rather than a required rebuild or activation decision.
+Unstructured exact destination names similarly adapt the retained Overture
+place taxonomy and existence confidence into provider-independent category,
+specificity and coarse reliability evidence. This can prefer a monument,
+museum, stadium, attraction or other mapped destination over an inappropriate
+same-name business, street or minor area while preserving exact city and region
+ordering. Confidence is not treated as popularity, and unrelated taxonomy
+families are not assigned a fabricated global order. Source-row inspection is
+limited to 64 exact place candidates per request; more ambiguous names retain
+the compact catalog order and require a future projected signal if stronger
+ranking is needed. This behavior works with the existing schema-2 artifact and
+does not merge or reclassify entity kinds.
 Authentication, billing, full Google field coverage, exact non-rectangular
 national road clipping, buildings, territories, and a production hosting
 topology remain unsupported or undecided.

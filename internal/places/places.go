@@ -36,6 +36,36 @@ type AreaRankingEvidence struct {
 	SettlementTier SettlementTier
 }
 
+// PlaceRankingEvidence is provider-independent evidence used to compare
+// exact-name destinations. DestinationClass is derived from a source taxonomy,
+// Specificity is the depth of its primary hierarchy, and ConfidenceTier is a
+// coarse existence/reliability band. None of these values claims popularity.
+type PlaceRankingEvidence struct {
+	DestinationClass DestinationClass
+	Specificity      int
+	ConfidenceTier   ConfidenceTier
+	AreaOverride     bool
+}
+
+type DestinationClass uint8
+
+const (
+	DestinationUnknown DestinationClass = iota
+	DestinationGeographic
+	DestinationRecreation
+	DestinationAttraction
+	DestinationCultural
+)
+
+type ConfidenceTier uint8
+
+const (
+	ConfidenceUnknown ConfidenceTier = iota
+	ConfidenceLow
+	ConfidenceMedium
+	ConfidenceHigh
+)
+
 type SettlementTier uint8
 
 const (
