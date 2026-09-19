@@ -263,7 +263,29 @@ go run ./cmd/places-geocoding-refresh activate \
   -review data/us-refresh-review.json
 ```
 
-The query file path above is an operator-supplied reviewed artifact; no national
-expectation set is checked in yet. Authentication, billing, full Google field coverage, exact
-non-rectangular national road clipping, buildings, territories, and a
-production hosting topology remain unsupported or undecided.
+The checked-in `config/us-query-checks.json` is the national autocomplete
+expectation set. It covers raw city and street names, city/state disambiguation,
+ZIP codes, landmarks, contextual businesses and negative queries. A candidate
+does not redefine those expectations: changes to IDs, kinds, names or stated
+intent require separate review. The [initial national relevance baseline](log/0059-national-places-relevance-baseline.md)
+is historical evidence: the first national research artifact passed only 18 of
+99 expectations and must not be activated without ranking corrections.
+Authentication, billing, full Google field coverage, exact non-rectangular
+national road clipping, buildings, territories, and a production hosting
+topology remain unsupported or undecided.
+
+Free-form address robustness is measured separately with the pinned external
+MESSY STREETS gold tier. It is an opt-in diagnostic, not part of routine tests
+and not an autocomplete oracle:
+
+```sh
+go run ./cmd/places-geocoding-benchmark \
+  -lookup data/openmaps-us-20260819 \
+  -dataset-config config/benchmarks/messy-streets-gold.json \
+  -dataset data/benchmarks/messy-streets-gold.jsonl.gz -fetch \
+  -report data/benchmarks/messy-streets-openmaps.json
+```
+
+The report binds the exact lookup manifest and dataset checksum. It reports
+verbatim and component-canonical queries independently and measures returned
+address coordinates against the corpus coordinates at 100 m, 1 km and 10 km.

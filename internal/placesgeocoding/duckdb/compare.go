@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
 )
@@ -153,10 +154,26 @@ FROM read_parquet(?) b FULL OUTER JOIN read_parquet(?) c USING(id)`, baseEntitie
 			return report, queryErr
 		}
 		report.Queries = append(report.Queries, QueryComparison{Check: check, Before: oldResults, After: newResults})
-		if strings.TrimSpace(check.Input) == "" || !check.Empty && check.FirstID == "" && check.FirstKind == "" {
+		firstLocation := places.Location{}
+		if check.Near != nil && len(newResults) != 0 {
+			detail, detailErr := after.Details(ctx, newResults[0].ID)
+			if detailErr != nil {
+				return report, detailErr
+			}
+			firstLocation = detail.Location
+		}
+		hasFirstExpectation := check.FirstID != "" || check.FirstKind != "" || check.FirstName != "" || check.Near != nil
+		if strings.TrimSpace(check.Input) == "" || check.Empty && hasFirstExpectation || !check.Empty && !hasFirstExpectation {
 			report.Violations = append(report.Violations, "query requires an expectation: "+check.Input)
-		} else if check.Empty && len(newResults) != 0 || !check.Empty && (len(newResults) == 0 || check.FirstID != "" && newResults[0].ID != check.FirstID || check.FirstKind != "" && newResults[0].Kind != check.FirstKind) {
-			report.Violations = append(report.Violations, "first result failed: "+check.Input)
+		} else if check.Near != nil && (check.Near.Lat < -90 || check.Near.Lat > 90 || check.Near.Lng < -180 || check.Near.Lng > 180 || check.Near.RadiusMeters <= 0) {
+			report.Violations = append(report.Violations, "query has invalid location expectation: "+check.Input)
+		} else if check.Empty && len(newResults) != 0 || !check.Empty && (len(newResults) == 0 || check.FirstID != "" && newResults[0].ID != check.FirstID || check.FirstKind != "" && newResults[0].Kind != check.FirstKind || check.FirstName != "" && newResults[0].Name != check.FirstName || check.Near != nil && geocoding.DistanceMeters(firstLocation, places.Location{Lat: check.Near.Lat, Lng: check.Near.Lng}) > check.Near.RadiusMeters) {
+			got := places.Entity{}
+			if len(newResults) != 0 {
+				got = newResults[0]
+				got.Location = firstLocation
+			}
+			report.Violations = append(report.Violations, fmt.Sprintf("first result failed: %s: got id=%q kind=%q name=%q lat=%.7f lng=%.7f; want id=%q kind=%q name=%q near=%+v empty=%t", check.Input, got.ID, got.Kind, got.Name, got.Location.Lat, got.Location.Lng, check.FirstID, check.FirstKind, check.FirstName, check.Near, check.Empty))
 		}
 		for _, result := range newResults {
 			detail, detailErr := after.Details(ctx, result.ID)

@@ -95,9 +95,11 @@ func run() error {
 		}
 		checks := importer.NewportPlacesQueryChecks()
 		if *queries != "" {
-			if err := readJSON(*queries, &checks); err != nil {
+			loaded, err := importer.ReadQueryChecks(*queries)
+			if err != nil {
 				return err
 			}
+			checks = loaded
 		}
 		report, err := placeduckdb.Compare(ctx, *baseline, *candidate, checks)
 		if err != nil {

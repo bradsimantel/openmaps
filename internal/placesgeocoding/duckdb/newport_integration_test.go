@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"openmaps/internal/api"
+	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
 	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
@@ -52,7 +53,7 @@ func TestNewportGolden(t *testing.T) {
 		if queryErr != nil {
 			t.Fatal(queryErr)
 		}
-		if check.Empty && len(got) != 0 || !check.Empty && (len(got) == 0 || check.FirstID != "" && got[0].ID != check.FirstID || check.FirstKind != "" && got[0].Kind != check.FirstKind) {
+		if check.Empty && len(got) != 0 || !check.Empty && (len(got) == 0 || check.FirstID != "" && got[0].ID != check.FirstID || check.FirstKind != "" && got[0].Kind != check.FirstKind || check.FirstName != "" && got[0].Name != check.FirstName || check.Near != nil && geocoding.DistanceMeters(got[0].Location, places.Location{Lat: check.Near.Lat, Lng: check.Near.Lng}) > check.Near.RadiusMeters) {
 			t.Fatalf("autocomplete %q failed golden expectation: %+v", check.Input, got)
 		}
 		for _, entity := range got {

@@ -638,9 +638,13 @@ func TestMissingShardInterruptedBuildAndGenerationComparison(t *testing.T) {
 	if err := placeduckdb.Build(context.Background(), second, bundle); err != nil {
 		t.Fatal(err)
 	}
-	comparison, err := placeduckdb.Compare(context.Background(), first, second, []importer.QueryCheck{{Input: "White", FirstID: importer.PublicID("fixture:place:tavern")}})
+	comparison, err := placeduckdb.Compare(context.Background(), first, second, []importer.QueryCheck{{Category: "business", Intent: "fixture name", Input: "White", FirstID: importer.PublicID("fixture:place:tavern"), FirstName: "White Horse Tavern", Near: &importer.QueryLocationExpectation{Lat: 41.4861, Lng: -71.3154, RadiusMeters: 1000}}})
 	if err != nil || len(comparison.Violations) != 0 || comparison.Added != 0 || comparison.Removed != 0 || comparison.Changed != 0 {
 		t.Fatalf("identical generation comparison failed: %+v: %v", comparison, err)
+	}
+	comparison, err = placeduckdb.Compare(context.Background(), first, second, []importer.QueryCheck{{Input: "White", FirstName: "Wrong name"}})
+	if err != nil || len(comparison.Violations) != 1 || !strings.HasPrefix(comparison.Violations[0], "first result failed: White:") {
+		t.Fatalf("name expectation was not enforced: %+v: %v", comparison, err)
 	}
 	missing := filepath.Join(root, "missing-source.parquet")
 	if err = os.Rename(filepath.Join(second, placeduckdb.SourcesName), missing); err != nil {

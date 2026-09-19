@@ -1,0 +1,1128 @@
+[
+  {
+    "category": "city",
+    "intent": "Major Northeast city",
+    "input": "New York",
+    "first_kind": "area",
+    "first_name": "New York",
+    "near": {
+      "lat": 40.7128,
+      "lng": -74.006,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major West Coast city",
+    "input": "Los Angeles",
+    "first_kind": "area",
+    "first_name": "Los Angeles",
+    "near": {
+      "lat": 34.0522,
+      "lng": -118.2437,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major Midwest city",
+    "input": "Chicago",
+    "first_kind": "area",
+    "first_name": "Chicago",
+    "near": {
+      "lat": 41.8781,
+      "lng": -87.6298,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major Texas city",
+    "input": "Houston",
+    "first_kind": "area",
+    "first_name": "Houston",
+    "near": {
+      "lat": 29.7604,
+      "lng": -95.3698,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major Southwest city",
+    "input": "Phoenix",
+    "first_kind": "area",
+    "first_name": "Phoenix",
+    "near": {
+      "lat": 33.4484,
+      "lng": -112.074,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major Mid-Atlantic city",
+    "input": "Philadelphia",
+    "first_kind": "area",
+    "first_name": "Philadelphia",
+    "near": {
+      "lat": 39.9526,
+      "lng": -75.1652,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major Texas city with multi-token name",
+    "input": "San Antonio",
+    "first_kind": "area",
+    "first_name": "San Antonio",
+    "near": {
+      "lat": 29.4241,
+      "lng": -98.4936,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major California city with multi-token name",
+    "input": "San Diego",
+    "first_kind": "area",
+    "first_name": "San Diego",
+    "near": {
+      "lat": 32.7157,
+      "lng": -117.1611,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major Texas city",
+    "input": "Dallas",
+    "first_kind": "area",
+    "first_name": "Dallas",
+    "near": {
+      "lat": 32.7767,
+      "lng": -96.797,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major Pacific Northwest city",
+    "input": "Seattle",
+    "first_kind": "area",
+    "first_name": "Seattle",
+    "near": {
+      "lat": 47.6062,
+      "lng": -122.3321,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major New England city",
+    "input": "Boston",
+    "first_kind": "area",
+    "first_name": "Boston",
+    "near": {
+      "lat": 42.3601,
+      "lng": -71.0589,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Major Florida city",
+    "input": "Miami",
+    "first_kind": "area",
+    "first_name": "Miami",
+    "near": {
+      "lat": 25.7617,
+      "lng": -80.1918,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Mountain West city",
+    "input": "Denver",
+    "first_kind": "area",
+    "first_name": "Denver",
+    "near": {
+      "lat": 39.7392,
+      "lng": -104.9903,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Alaska city",
+    "input": "Anchorage",
+    "first_kind": "area",
+    "first_name": "Anchorage",
+    "near": {
+      "lat": 61.2181,
+      "lng": -149.9003,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Hawaii city",
+    "input": "Honolulu",
+    "first_kind": "area",
+    "first_name": "Honolulu",
+    "near": {
+      "lat": 21.3069,
+      "lng": -157.8583,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Interior Northwest city",
+    "input": "Boise",
+    "first_kind": "area",
+    "first_name": "Boise",
+    "near": {
+      "lat": 43.6150,
+      "lng": -116.2023,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Small New England capital",
+    "input": "Providence",
+    "first_kind": "area",
+    "first_name": "Providence",
+    "near": {
+      "lat": 41.8240,
+      "lng": -71.4128,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Small Mountain West capital",
+    "input": "Cheyenne",
+    "first_kind": "area",
+    "first_name": "Cheyenne",
+    "near": {
+      "lat": 41.1400,
+      "lng": -104.8202,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city",
+    "intent": "Ambiguous city name without state context",
+    "input": "Portland",
+    "first_kind": "area",
+    "first_name": "Portland",
+    "near": {
+      "lat": 45.5152,
+      "lng": -122.6784,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "state",
+    "intent": "Most populous state by full name",
+    "input": "California",
+    "first_kind": "area",
+    "first_name": "California",
+    "near": {
+      "lat": 37.0,
+      "lng": -119.5,
+      "radius_meters": 600000
+    }
+  },
+  {
+    "category": "state",
+    "intent": "Large state by full name",
+    "input": "Texas",
+    "first_kind": "area",
+    "first_name": "Texas",
+    "near": {
+      "lat": 31.0,
+      "lng": -99,
+      "radius_meters": 800000
+    }
+  },
+  {
+    "category": "state",
+    "intent": "Small state by full name",
+    "input": "Rhode Island",
+    "first_kind": "area",
+    "first_name": "Rhode Island",
+    "near": {
+      "lat": 41.7,
+      "lng": -71.5,
+      "radius_meters": 100000
+    }
+  },
+  {
+    "category": "state",
+    "intent": "Non-contiguous state by full name",
+    "input": "Alaska",
+    "first_kind": "area",
+    "first_name": "Alaska",
+    "near": {
+      "lat": 64.0,
+      "lng": -152,
+      "radius_meters": 1200000
+    }
+  },
+  {
+    "category": "state",
+    "intent": "Island state by full name",
+    "input": "Hawaii",
+    "first_kind": "area",
+    "first_name": "Hawaii",
+    "near": {
+      "lat": 20.8,
+      "lng": -157.5,
+      "radius_meters": 500000
+    }
+  },
+  {
+    "category": "state",
+    "intent": "Federal district by full name",
+    "input": "District of Columbia",
+    "first_kind": "area",
+    "first_name": "District of Columbia",
+    "near": {
+      "lat": 38.9072,
+      "lng": -77.0369,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Portland to Oregon",
+    "input": "Portland, OR",
+    "first_kind": "area",
+    "first_name": "Portland",
+    "near": {
+      "lat": 45.5152,
+      "lng": -122.6784,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Portland to Maine",
+    "input": "Portland, ME",
+    "first_kind": "area",
+    "first_name": "Portland",
+    "near": {
+      "lat": 43.6591,
+      "lng": -70.2568,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Springfield to Illinois",
+    "input": "Springfield, IL",
+    "first_kind": "area",
+    "first_name": "Springfield",
+    "near": {
+      "lat": 39.7817,
+      "lng": -89.6501,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Springfield to Massachusetts",
+    "input": "Springfield, MA",
+    "first_kind": "area",
+    "first_name": "Springfield",
+    "near": {
+      "lat": 42.1015,
+      "lng": -72.5898,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Kansas City to Missouri",
+    "input": "Kansas City, MO",
+    "first_kind": "area",
+    "first_name": "Kansas City",
+    "near": {
+      "lat": 39.0997,
+      "lng": -94.5786,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Kansas City to Kansas",
+    "input": "Kansas City, KS",
+    "first_kind": "area",
+    "first_name": "Kansas City",
+    "near": {
+      "lat": 39.1142,
+      "lng": -94.6275,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve the national capital",
+    "input": "Washington, DC",
+    "first_kind": "area",
+    "first_name": "Washington",
+    "near": {
+      "lat": 38.9072,
+      "lng": -77.0369,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Charleston to South Carolina",
+    "input": "Charleston, SC",
+    "first_kind": "area",
+    "first_name": "Charleston",
+    "near": {
+      "lat": 32.7765,
+      "lng": -79.9311,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Charleston to West Virginia",
+    "input": "Charleston, WV",
+    "first_kind": "area",
+    "first_name": "Charleston",
+    "near": {
+      "lat": 38.3498,
+      "lng": -81.6326,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Columbus to Ohio",
+    "input": "Columbus, OH",
+    "first_kind": "area",
+    "first_name": "Columbus",
+    "near": {
+      "lat": 39.9612,
+      "lng": -82.9988,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Resolve Columbus to Georgia",
+    "input": "Columbus, GA",
+    "first_kind": "area",
+    "first_name": "Columbus",
+    "near": {
+      "lat": 32.4610,
+      "lng": -84.9877,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "City with punctuation-normalized state context",
+    "input": "St. Louis, MO",
+    "first_kind": "area",
+    "first_name": "St. Louis",
+    "near": {
+      "lat": 38.6270,
+      "lng": -90.1994,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Multi-token Nevada city",
+    "input": "Las Vegas, NV",
+    "first_kind": "area",
+    "first_name": "Las Vegas",
+    "near": {
+      "lat": 36.1699,
+      "lng": -115.1398,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Major city with explicit state",
+    "input": "New York, NY",
+    "first_kind": "area",
+    "first_name": "New York",
+    "near": {
+      "lat": 40.7128,
+      "lng": -74.006,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Interior city with explicit state",
+    "input": "Boise, ID",
+    "first_kind": "area",
+    "first_name": "Boise",
+    "near": {
+      "lat": 43.6150,
+      "lng": -116.2023,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "city_state",
+    "intent": "Alaska city with explicit state",
+    "input": "Anchorage, AK",
+    "first_kind": "area",
+    "first_name": "Anchorage",
+    "near": {
+      "lat": 61.2181,
+      "lng": -149.9003,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Manhattan ZIP code",
+    "input": "10001",
+    "first_kind": "area",
+    "first_name": "10001",
+    "near": {
+      "lat": 40.7506,
+      "lng": -73.9972,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Beverly Hills ZIP code",
+    "input": "90210",
+    "first_kind": "area",
+    "first_name": "90210",
+    "near": {
+      "lat": 34.0901,
+      "lng": -118.4065,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Chicago ZIP code",
+    "input": "60601",
+    "first_kind": "area",
+    "first_name": "60601",
+    "near": {
+      "lat": 41.8864,
+      "lng": -87.6186,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "San Francisco ZIP code",
+    "input": "94105",
+    "first_kind": "area",
+    "first_name": "94105",
+    "near": {
+      "lat": 37.7898,
+      "lng": -122.3942,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Boston ZIP code",
+    "input": "02108",
+    "first_kind": "area",
+    "first_name": "02108",
+    "near": {
+      "lat": 42.3579,
+      "lng": -71.0636,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Newport ZIP code",
+    "input": "02840",
+    "first_kind": "area",
+    "first_name": "02840",
+    "near": {
+      "lat": 41.4901,
+      "lng": -71.3128,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Anchorage ZIP code",
+    "input": "99501",
+    "first_kind": "area",
+    "first_name": "99501",
+    "near": {
+      "lat": 61.2181,
+      "lng": -149.8787,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Honolulu ZIP code",
+    "input": "96813",
+    "first_kind": "area",
+    "first_name": "96813",
+    "near": {
+      "lat": 21.3156,
+      "lng": -157.852,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Boise ZIP code",
+    "input": "83702",
+    "first_kind": "area",
+    "first_name": "83702",
+    "near": {
+      "lat": 43.6223,
+      "lng": -116.2074,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip",
+    "intent": "Cheyenne ZIP code",
+    "input": "82001",
+    "first_kind": "area",
+    "first_name": "82001",
+    "near": {
+      "lat": 41.1400,
+      "lng": -104.8202,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip_context",
+    "intent": "ZIP with Manhattan locality and state context",
+    "input": "10001, New York, NY",
+    "first_kind": "area",
+    "first_name": "10001",
+    "near": {
+      "lat": 40.7506,
+      "lng": -73.9972,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip_context",
+    "intent": "ZIP with Beverly Hills locality and state context",
+    "input": "90210, Beverly Hills, CA",
+    "first_kind": "area",
+    "first_name": "90210",
+    "near": {
+      "lat": 34.0901,
+      "lng": -118.4065,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip_context",
+    "intent": "ZIP with Newport locality and state context",
+    "input": "02840, Newport, RI",
+    "first_kind": "area",
+    "first_name": "02840",
+    "near": {
+      "lat": 41.4901,
+      "lng": -71.3128,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip_context",
+    "intent": "ZIP with Anchorage locality and state context",
+    "input": "99501, Anchorage, AK",
+    "first_kind": "area",
+    "first_name": "99501",
+    "near": {
+      "lat": 61.2181,
+      "lng": -149.8787,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "zip_context",
+    "intent": "ZIP with Honolulu locality and state context",
+    "input": "96813, Honolulu, HI",
+    "first_kind": "area",
+    "first_name": "96813",
+    "near": {
+      "lat": 21.3156,
+      "lng": -157.852,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "street",
+    "intent": "Raw nationally ambiguous street name",
+    "input": "Broadway",
+    "first_kind": "street",
+    "first_name": "Broadway"
+  },
+  {
+    "category": "street",
+    "intent": "Raw common street name",
+    "input": "Main Street",
+    "first_kind": "street",
+    "first_name": "Main Street"
+  },
+  {
+    "category": "street",
+    "intent": "Raw common downtown street name",
+    "input": "Market Street",
+    "first_kind": "street",
+    "first_name": "Market Street"
+  },
+  {
+    "category": "street",
+    "intent": "Raw nationally significant avenue name",
+    "input": "Pennsylvania Avenue",
+    "first_kind": "street",
+    "first_name": "Pennsylvania Avenue"
+  },
+  {
+    "category": "street",
+    "intent": "Raw Los Angeles street name",
+    "input": "Sunset Boulevard",
+    "first_kind": "street",
+    "first_name": "Sunset Boulevard"
+  },
+  {
+    "category": "street",
+    "intent": "Raw Chicago street name",
+    "input": "Michigan Avenue",
+    "first_kind": "street",
+    "first_name": "Michigan Avenue"
+  },
+  {
+    "category": "street",
+    "intent": "Raw New Orleans street name",
+    "input": "Bourbon Street",
+    "first_kind": "street",
+    "first_name": "Bourbon Street"
+  },
+  {
+    "category": "street",
+    "intent": "Raw Memphis street name",
+    "input": "Beale Street",
+    "first_kind": "street",
+    "first_name": "Beale Street"
+  },
+  {
+    "category": "street",
+    "intent": "Raw New York street name",
+    "input": "Wall Street",
+    "first_kind": "street",
+    "first_name": "Wall Street"
+  },
+  {
+    "category": "street",
+    "intent": "Raw San Francisco street name",
+    "input": "Lombard Street",
+    "first_kind": "street",
+    "first_name": "Lombard Street"
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Broadway to New York City",
+    "input": "Broadway, New York, NY",
+    "first_kind": "street",
+    "first_name": "Broadway",
+    "near": {
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Market Street to San Francisco",
+    "input": "Market Street, San Francisco, CA",
+    "first_kind": "street",
+    "first_name": "Market Street",
+    "near": {
+      "lat": 37.7749,
+      "lng": -122.4194,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Pennsylvania Avenue to Washington",
+    "input": "Pennsylvania Avenue, Washington, DC",
+    "first_kind": "street",
+    "first_name": "Pennsylvania Avenue",
+    "near": {
+      "lat": 38.8977,
+      "lng": -77.0365,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Sunset Boulevard to Los Angeles",
+    "input": "Sunset Boulevard, Los Angeles, CA",
+    "first_kind": "street",
+    "first_name": "Sunset Boulevard",
+    "near": {
+      "lat": 34.0983,
+      "lng": -118.3267,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Michigan Avenue to Chicago",
+    "input": "Michigan Avenue, Chicago, IL",
+    "first_kind": "street",
+    "first_name": "Michigan Avenue",
+    "near": {
+      "lat": 41.8917,
+      "lng": -87.6244,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Bourbon Street to New Orleans",
+    "input": "Bourbon Street, New Orleans, LA",
+    "first_kind": "street",
+    "first_name": "Bourbon Street",
+    "near": {
+      "lat": 29.9584,
+      "lng": -90.0644,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Beale Street to Memphis",
+    "input": "Beale Street, Memphis, TN",
+    "first_kind": "street",
+    "first_name": "Beale Street",
+    "near": {
+      "lat": 35.1391,
+      "lng": -90.0522,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Wall Street to New York City",
+    "input": "Wall Street, New York, NY",
+    "first_kind": "street",
+    "first_name": "Wall Street",
+    "near": {
+      "lat": 40.7069,
+      "lng": -74.0095,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "street_context",
+    "intent": "Resolve Lombard Street to San Francisco",
+    "input": "Lombard Street, San Francisco, CA",
+    "first_kind": "street",
+    "first_name": "Lombard Street",
+    "near": {
+      "lat": 37.8021,
+      "lng": -122.4187,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "United States executive residence in Washington, DC",
+    "input": "White House",
+    "first_kind": "business",
+    "first_name": "White House",
+    "near": {
+      "lat": 38.8977,
+      "lng": -77.0365,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "New York skyscraper",
+    "input": "Empire State Building",
+    "first_kind": "business",
+    "first_name": "Empire State Building",
+    "near": {
+      "lat": 40.7484,
+      "lng": -73.9857,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "New York Harbor monument",
+    "input": "Statue of Liberty",
+    "first_kind": "business",
+    "first_name": "Statue of Liberty",
+    "near": {
+      "lat": 40.6892,
+      "lng": -74.0445,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "San Francisco bridge",
+    "input": "Golden Gate Bridge",
+    "first_kind": "business",
+    "first_name": "Golden Gate Bridge",
+    "near": {
+      "lat": 37.8199,
+      "lng": -122.4783,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Seattle observation tower",
+    "input": "Space Needle",
+    "first_kind": "business",
+    "first_name": "Space Needle",
+    "near": {
+      "lat": 47.6205,
+      "lng": -122.3493,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Arizona national park",
+    "input": "Grand Canyon National Park",
+    "first_kind": "business",
+    "first_name": "Grand Canyon National Park",
+    "near": {
+      "lat": 36.1069,
+      "lng": -112.1129,
+      "radius_meters": 100000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Yellowstone national park",
+    "input": "Yellowstone National Park",
+    "first_kind": "business",
+    "first_name": "Yellowstone National Park",
+    "near": {
+      "lat": 44.6000,
+      "lng": -110.5,
+      "radius_meters": 100000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "South Dakota presidential memorial",
+    "input": "Mount Rushmore",
+    "first_kind": "business",
+    "first_name": "Mount Rushmore",
+    "near": {
+      "lat": 43.8791,
+      "lng": -103.4591,
+      "radius_meters": 10000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "St. Louis monument",
+    "input": "Gateway Arch",
+    "first_kind": "business",
+    "first_name": "Gateway Arch",
+    "near": {
+      "lat": 38.6247,
+      "lng": -90.1848,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Philadelphia historic monument",
+    "input": "Liberty Bell",
+    "first_kind": "business",
+    "first_name": "Liberty Bell",
+    "near": {
+      "lat": 39.9496,
+      "lng": -75.1503,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "San Francisco Bay island landmark",
+    "input": "Alcatraz Island",
+    "first_kind": "business",
+    "first_name": "Alcatraz Island",
+    "near": {
+      "lat": 37.8267,
+      "lng": -122.423,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Seattle public market",
+    "input": "Pike Place Market",
+    "first_kind": "business",
+    "first_name": "Pike Place Market",
+    "near": {
+      "lat": 47.6097,
+      "lng": -122.3425,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Boston baseball stadium",
+    "input": "Fenway Park",
+    "first_kind": "business",
+    "first_name": "Fenway Park",
+    "near": {
+      "lat": 42.3467,
+      "lng": -71.0972,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Chicago baseball stadium",
+    "input": "Wrigley Field",
+    "first_kind": "business",
+    "first_name": "Wrigley Field",
+    "near": {
+      "lat": 41.9484,
+      "lng": -87.6553,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Colorado River dam",
+    "input": "Hoover Dam",
+    "first_kind": "business",
+    "first_name": "Hoover Dam",
+    "near": {
+      "lat": 36.0160,
+      "lng": -114.7377,
+      "radius_meters": 20000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Major New York City park",
+    "input": "Central Park",
+    "first_kind": "area",
+    "first_name": "Central Park",
+    "near": {
+      "lat": 40.7829,
+      "lng": -73.9654,
+      "radius_meters": 10000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Major New York City public square",
+    "input": "Times Square",
+    "first_kind": "area",
+    "first_name": "Times Square",
+    "near": {
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_meters": 5000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "California theme park",
+    "input": "Disneyland",
+    "first_kind": "business",
+    "first_name": "Disneyland",
+    "near": {
+      "lat": 33.8121,
+      "lng": -117.919,
+      "radius_meters": 10000
+    }
+  },
+  {
+    "category": "landmark",
+    "intent": "Florida resort",
+    "input": "Walt Disney World",
+    "first_kind": "business",
+    "first_name": "Walt Disney World",
+    "near": {
+      "lat": 28.3772,
+      "lng": -81.5707,
+      "radius_meters": 30000
+    }
+  },
+  {
+    "category": "business_context",
+    "intent": "Business category/name constrained by city",
+    "input": "Starbucks Seattle",
+    "first_kind": "business",
+    "first_name": "Starbucks",
+    "near": {
+      "lat": 47.6062,
+      "lng": -122.3321,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "business_context",
+    "intent": "Named corporate campus constrained by city",
+    "input": "Apple Park Cupertino",
+    "first_kind": "business",
+    "first_name": "Apple Park",
+    "near": {
+      "lat": 37.3349,
+      "lng": -122.009,
+      "radius_meters": 10000
+    }
+  },
+  {
+    "category": "business_context",
+    "intent": "Regional business constrained by city",
+    "input": "In-N-Out Los Angeles",
+    "first_kind": "business",
+    "first_name": "In-N-Out Burger",
+    "near": {
+      "lat": 34.0522,
+      "lng": -118.2437,
+      "radius_meters": 50000
+    }
+  },
+  {
+    "category": "negative",
+    "intent": "Synthetic token must not fabricate a result",
+    "input": "zzxnoresult",
+    "empty": true
+  },
+  {
+    "category": "negative",
+    "intent": "Nonexistent U.S. ZIP code must not fabricate a result",
+    "input": "00000",
+    "empty": true
+  }
+]

@@ -25,10 +25,27 @@ supplies a separate file with `places-geocoding-prepare -identities`; no mapping
 are needed by the current snapshot.
 
 The maintained Newport Places smoke checks are Go data returned by
-`importer.NewportPlacesQueryChecks`, not another config file. The
-`places-geocoding-refresh compare -queries PATH` option and the `OPENMAPS_QUERIES`
-integration-test variable still accept an alternate JSON file when evaluating a
-different region or query set.
+`importer.NewportPlacesQueryChecks`. `us-query-checks.json` is the national
+autocomplete expectation set used explicitly with
+`places-geocoding-refresh compare -queries PATH`. It records the category and
+human intent and can constrain the first ID, kind, display name and geographic
+vicinity; those expectations must be reviewed policy, not values regenerated
+automatically from the candidate under test. `OPENMAPS_QUERIES` lets the live
+integration test use the same file.
+
+`benchmarks/messy-streets-gold.json` pins the external MESSY STREETS gold-tier
+address corpus by upstream revision, byte count and checksum. The dataset itself
+is downloaded into ignored `data/`, not vendored or used by default tests. Its
+mixed Web Data Commons, OpenStreetMap and OpenAddresses terms and citation are
+retained in the pin. `cmd/places-geocoding-benchmark` evaluates explicit-US
+records twice: first exactly as published, then as a comma-separated query built
+from the published components. This distinguishes surface-form/parser support
+from underlying address coverage. The upstream JSONL uses bare `NaN` values for
+some missing fields; the benchmark reader treats only those out-of-string tokens
+as JSON `null` and otherwise retains strict JSON decoding. Reports include
+aggregate distance bands plus bounded returned-result and failure samples for
+auditability. Ambiguous responses are scored by the closest returned candidate;
+samples retain both the first and closest candidate IDs.
 
 ## Routing
 

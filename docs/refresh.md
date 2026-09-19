@@ -84,6 +84,14 @@ kind changes and public-ID changes for continuing source records, checks the
 maintained autocomplete expectations, and verifies that every returned ID has
 matching details.
 
+An external query file can attach a review category and intent and independently
+constrain the first result's public ID, kind, exact name and WGS84 vicinity, or
+require no result. Vicinity is expressed as `near.lat`, `near.lng` and
+`near.radius_meters`; it prevents a same-name entity in the wrong region from
+passing a national relevance check. Query files are decoded into a fresh slice,
+reject duplicate inputs and contradictory expectations, and must not be
+regenerated from the candidate being reviewed.
+
 After inspecting source evidence and uncertain additions/removals, bind a review
 to the exact report:
 

@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"openmaps/internal/geocoding"
 	"openmaps/internal/importer"
+	"openmaps/internal/places"
 )
 
 // TestLiveDemo is an opt-in HTTP check, separate from the offline routine suite.
@@ -24,11 +26,8 @@ func TestLiveDemo(t *testing.T) {
 	path := os.Getenv("OPENMAPS_QUERIES")
 	checks := importer.NewportPlacesQueryChecks()
 	if path != "" {
-		raw, e := os.ReadFile(path)
-		if e != nil {
-			t.Fatal(e)
-		}
-		if e = json.Unmarshal(raw, &checks); e != nil {
+		var e error
+		if checks, e = importer.ReadQueryChecks(path); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -40,7 +39,8 @@ func TestLiveDemo(t *testing.T) {
 	var health struct {
 		Status         string `json:"status"`
 		LookupSnapshot struct {
-			SHA256 string `json:"sha256"`
+			SHA256         string `json:"sha256"`
+			ManifestSHA256 string `json:"manifest_sha256"`
 		} `json:"lookup_snapshot"`
 		LegacyDataset json.RawMessage `json:"dataset"`
 	}
@@ -48,10 +48,14 @@ func TestLiveDemo(t *testing.T) {
 		t.Fatal(e)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != 200 || health.Status != "ok" || health.LookupSnapshot.SHA256 == "" || len(health.LegacyDataset) != 0 {
+	digest := health.LookupSnapshot.SHA256
+	if digest == "" {
+		digest = health.LookupSnapshot.ManifestSHA256
+	}
+	if resp.StatusCode != 200 || health.Status != "ok" || digest == "" || len(health.LegacyDataset) != 0 {
 		t.Fatalf("deployment not healthy: %+v", health)
 	}
-	t.Logf("Serving lookup snapshot %s", health.LookupSnapshot.SHA256)
+	t.Logf("Serving lookup snapshot %s", digest)
 	for _, q := range checks {
 		t.Run(q.Input, func(t *testing.T) {
 			body, _ := json.Marshal(map[string]string{"input": q.Input})
@@ -74,7 +78,7 @@ func TestLiveDemo(t *testing.T) {
 				t.Fatal(e)
 			}
 			resp.Body.Close()
-			if resp.StatusCode != 200 || resp.Header.Get("X-OpenMaps-Lookup-Snapshot") != health.LookupSnapshot.SHA256 {
+			if resp.StatusCode != 200 || resp.Header.Get("X-OpenMaps-Lookup-Snapshot") != digest {
 				t.Fatal("request failed or lookup snapshot changed during check")
 			}
 			if q.Empty {
@@ -100,7 +104,7 @@ func TestLiveDemo(t *testing.T) {
 					t.Fatal("first result has wrong kind")
 				}
 			}
-			for _, s := range results.Suggestions {
+			for index, s := range results.Suggestions {
 				req, _ := http.NewRequest("GET", base+"/v1/places/"+s.Prediction.ID, nil)
 				req.Header.Set("X-Goog-FieldMask", "id,displayName,location,formattedAddress,types,attributions")
 				resp, e := client.Do(req)
@@ -121,11 +125,17 @@ func TestLiveDemo(t *testing.T) {
 					t.Fatal(e)
 				}
 				resp.Body.Close()
-				if resp.StatusCode != 200 || resp.Header.Get("X-OpenMaps-Lookup-Snapshot") != health.LookupSnapshot.SHA256 || detail.ID != s.Prediction.ID || detail.Location.Lat == nil || detail.Location.Lng == nil {
+				if resp.StatusCode != 200 || resp.Header.Get("X-OpenMaps-Lookup-Snapshot") != digest || detail.ID != s.Prediction.ID || detail.Location.Lat == nil || detail.Location.Lng == nil {
 					t.Fatal("details failed, missing location or changed lookup snapshot")
 				}
 				if *detail.Location.Lat < -90 || *detail.Location.Lat > 90 || *detail.Location.Lng < -180 || *detail.Location.Lng > 180 {
 					t.Fatal("invalid location")
+				}
+				if index == 0 && q.FirstName != "" && detail.Name.Text != q.FirstName {
+					t.Fatalf("first name %q, want %q", detail.Name.Text, q.FirstName)
+				}
+				if index == 0 && q.Near != nil && geocoding.DistanceMeters(places.Location{Lat: *detail.Location.Lat, Lng: *detail.Location.Lng}, places.Location{Lat: q.Near.Lat, Lng: q.Near.Lng}) > q.Near.RadiusMeters {
+					t.Fatalf("first result is outside %.0f meter expected vicinity", q.Near.RadiusMeters)
 				}
 				t.Log(fmt.Sprintf("%s %s (lat %.8f, lng %.8f)", detail.ID, detail.Name.Text, *detail.Location.Lat, *detail.Location.Lng))
 			}

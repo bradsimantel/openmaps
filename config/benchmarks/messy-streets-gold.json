@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "name": "MESSY STREETS gold tier",
+  "revision": "4a015b2da2bb4f155ccea19dfe3c47cf6c698bc0",
+  "url": "https://raw.githubusercontent.com/EdGaere/MessyStreets/4a015b2da2bb4f155ccea19dfe3c47cf6c698bc0/release_gold_10k_final.jsonl.gz",
+  "sha256": "532cc4a8ebb7a9da743adfd53b79eaaf39ccb0911dffe561c7ba20c00cc0a07a",
+  "bytes": 2743889,
+  "records": 10000,
+  "citation": "Edward Gaere and Florian von Wangenheim. MESSY STREETS: A Benchmark for Geocoding Real-World Addresses. ACM SIGSPATIAL 2026.",
+  "terms": "Address records are verbatim Web Data Commons extracts; existence fields include ODbL OpenStreetMap data or OpenAddresses data under per-source terms. Preserve upstream attribution and consult LICENSE-DATA before redistribution.",
+  "upstream": "https://github.com/EdGaere/MessyStreets"
+}
