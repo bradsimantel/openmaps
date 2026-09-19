@@ -44,6 +44,14 @@ type sourceRow struct {
 	Raw        string `parquet:"raw"`
 }
 
+type sourceRankingRow struct {
+	EntityID  string `parquet:"entity_id"`
+	SourceKey string `parquet:"source_key"`
+	Source    string `parquet:"source"`
+	Priority  int64  `parquet:"priority"`
+	Raw       string `parquet:"raw"`
+}
+
 type provenanceRow struct {
 	EntityID   string `parquet:"entity_id"`
 	Attribute  string `parquet:"attribute"`

@@ -276,6 +276,15 @@ hierarchy and locality-relative street distance. This runtime behavior is
 compatible with the existing normalized generation; it does not approve that
 generation or replace a complete rerun of this expectation set on the exact
 national artifact.
+For unstructured exact geographic names, the runtime also adapts retained
+source evidence into provider-independent prominence and settlement tiers.
+City-class localities are ordered by supplied prominence; exact regions precede
+towns, villages, hamlets and smaller administrative areas; stable entity order
+breaks remaining ties. The schema-2 source locators make this compatible with
+the existing artifact even though prominence and settlement class were not
+projected into its normalized entity or serving-search rows. A future artifact
+could project that evidence directly for lower read amplification, but that is
+a proposal rather than a required rebuild or activation decision.
 Authentication, billing, full Google field coverage, exact non-rectangular
 national road clipping, buildings, territories, and a production hosting
 topology remain unsupported or undecided.

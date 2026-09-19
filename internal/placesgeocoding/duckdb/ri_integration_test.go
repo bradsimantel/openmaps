@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"openmaps/internal/places"
 )
 
 func TestRhodeIslandServingIndex(t *testing.T) {
@@ -89,7 +91,10 @@ func TestRhodeIslandServingIndex(t *testing.T) {
 		"zzzzz missing": {},
 	}
 	for query, want := range expected {
-		got, queryErr := store.Autocomplete(context.Background(), query)
+		// This catalog-only stress fixture intentionally has no normalized source
+		// shards, so exercise the postings layer rather than source-backed area
+		// prominence ordering.
+		got, queryErr := store.autocompletePostings(context.Background(), places.Normalize(query))
 		if queryErr != nil {
 			t.Fatal(query, queryErr)
 		}

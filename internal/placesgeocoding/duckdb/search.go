@@ -3,6 +3,7 @@ package duckdb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -13,6 +14,7 @@ import (
 	"github.com/parquet-go/parquet-go"
 
 	"openmaps/internal/geocoding"
+	"openmaps/internal/importer"
 	"openmaps/internal/places"
 )
 
@@ -59,7 +61,7 @@ WHERE h.prefix=? ORDER BY h.rank`, normalized)
 		}
 		return out, rows.Err()
 	}
-	return s.autocompletePostings(ctx, normalized)
+	return s.autocompleteUnstructured(ctx, normalized)
 }
 
 type primaryCandidate struct {
@@ -67,7 +69,11 @@ type primaryCandidate struct {
 	entity                    places.Entity
 	entityFile                string
 	entityRowGroup, entityRow int
+	sourceFile                string
+	sourceStart, sourceCount  int
 	location                  places.Location
+	ranking                   places.AreaRankingEvidence
+	rankingLoaded             bool
 }
 
 const (
@@ -104,7 +110,8 @@ func (s *Store) primaryCandidates(ctx context.Context, normalized, kind string) 
   WHERE t.token=? AND p.name_tf>0 AND p.kind=? AND NOT p.closed
 )
 SELECT e.entity_seq,e.id,e.kind,e.name,e.address,e.subtype,
-       l.entity_file,l.entity_row_group,l.entity_row
+       l.entity_file,l.entity_row_group,l.entity_row,
+       l.source_file,l.source_start,l.source_count
 FROM matched
 JOIN search_entities e USING(entity_seq)
 JOIN entity_locator l USING(id)
@@ -119,7 +126,8 @@ ORDER BY e.entity_seq`
 		var candidate primaryCandidate
 		if err = rows.Scan(&candidate.sequence, &candidate.entity.ID, &candidate.entity.Kind,
 			&candidate.entity.Name, &candidate.entity.Address, &candidate.entity.Subtype,
-			&candidate.entityFile, &candidate.entityRowGroup, &candidate.entityRow); err != nil {
+			&candidate.entityFile, &candidate.entityRowGroup, &candidate.entityRow,
+			&candidate.sourceFile, &candidate.sourceStart, &candidate.sourceCount); err != nil {
 			return nil, err
 		}
 		canonicalizeEntity(&candidate.entity)
@@ -139,6 +147,158 @@ ORDER BY e.entity_seq`
 	}
 	s.primaryCandidateCacheMu.Unlock()
 	return append([]primaryCandidate(nil), candidates...), nil
+}
+
+func (s *Store) autocompleteUnstructured(ctx context.Context, normalized string) ([]places.Entity, error) {
+	areas, err := s.primaryCandidates(ctx, normalized, "area")
+	if err != nil {
+		return nil, err
+	}
+	if len(areas) == 0 {
+		return s.autocompletePostings(ctx, normalized)
+	}
+	if err = s.loadAreaRankingEvidence(ctx, areas); err != nil {
+		return nil, err
+	}
+	s.cachePrimaryCandidates("area", normalized, areas)
+	sort.SliceStable(areas, func(i, j int) bool {
+		left, right := exactAreaTypeRank(areas[i]), exactAreaTypeRank(areas[j])
+		if left != right {
+			return left < right
+		}
+		if areas[i].ranking.Prominence != areas[j].ranking.Prominence {
+			return areas[i].ranking.Prominence > areas[j].ranking.Prominence
+		}
+		return areas[i].sequence < areas[j].sequence
+	})
+	out := make([]places.Entity, 0, 5)
+	seen := map[string]bool{}
+	for _, candidate := range areas {
+		out = append(out, candidate.entity)
+		seen[candidate.entity.ID] = true
+		if len(out) == 5 {
+			return out, nil
+		}
+	}
+	results, err := s.autocompletePostings(ctx, normalized)
+	if err != nil {
+		return nil, err
+	}
+	for _, entity := range results {
+		if seen[entity.ID] {
+			continue
+		}
+		out = append(out, entity)
+		if len(out) == 5 {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) cachePrimaryCandidates(kind, normalized string, candidates []primaryCandidate) {
+	cached := append([]primaryCandidate(nil), candidates...)
+	sort.Slice(cached, func(i, j int) bool { return cached[i].sequence < cached[j].sequence })
+	cacheKey := kind + "\x00" + normalized
+	s.primaryCandidateCacheMu.Lock()
+	if _, exists := s.primaryCandidateCache[cacheKey]; exists || len(s.primaryCandidateCache) < primaryCandidateCacheLimit {
+		s.primaryCandidateCache[cacheKey] = cached
+	}
+	s.primaryCandidateCacheMu.Unlock()
+}
+
+func exactAreaTypeRank(candidate primaryCandidate) int {
+	if candidate.entity.Subtype == "locality" && candidate.ranking.SettlementTier == places.SettlementCity {
+		return 0
+	}
+	switch candidate.entity.Subtype {
+	case "region":
+		return 1
+	case "locality":
+		return 2
+	case "county", "macrocounty":
+		return 3
+	case "macrohood":
+		return 4
+	case "neighborhood", "microhood":
+		return 5
+	default:
+		return 6
+	}
+}
+
+func (s *Store) loadAreaRankingEvidence(ctx context.Context, candidates []primaryCandidate) error {
+	allLoaded := true
+	for i := range candidates {
+		allLoaded = allLoaded && candidates[i].rankingLoaded
+	}
+	if allLoaded {
+		return nil
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].sourceFile != candidates[j].sourceFile {
+			return candidates[i].sourceFile < candidates[j].sourceFile
+		}
+		return candidates[i].sourceStart < candidates[j].sourceStart
+	})
+	var currentFile string
+	var reader *parquet.GenericReader[sourceRankingRow]
+	defer func() {
+		if reader != nil {
+			_ = reader.Close()
+		}
+	}()
+	for i := range candidates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		candidate := &candidates[i]
+		if candidate.rankingLoaded {
+			continue
+		}
+		file := s.sourceParquet[candidate.sourceFile]
+		if file == nil {
+			return fmt.Errorf("missing source shard for %s", candidate.entity.ID)
+		}
+		if candidate.sourceFile != currentFile {
+			if reader != nil {
+				if err := reader.Close(); err != nil {
+					return err
+				}
+			}
+			reader = parquet.NewGenericRowGroupReader[sourceRankingRow](parquet.MultiRowGroup(file.RowGroups()...))
+			currentFile = candidate.sourceFile
+		}
+		if err := reader.SeekToRow(int64(candidate.sourceStart)); err != nil {
+			return err
+		}
+		rows := make([]sourceRankingRow, candidate.sourceCount)
+		n, err := reader.Read(rows)
+		if n != candidate.sourceCount || err != nil && err != io.EOF {
+			return fmt.Errorf("read ranking evidence for %s: rows=%d/%d: %w", candidate.entity.ID, n, candidate.sourceCount, err)
+		}
+		sort.Slice(rows, func(i, j int) bool {
+			if rows[i].Priority != rows[j].Priority {
+				return rows[i].Priority > rows[j].Priority
+			}
+			return rows[i].SourceKey < rows[j].SourceKey
+		})
+		for _, row := range rows {
+			if row.EntityID != candidate.entity.ID {
+				return fmt.Errorf("ranking evidence locator mismatch: got %s want %s", row.EntityID, candidate.entity.ID)
+			}
+			evidence, evidenceErr := importer.AreaRankingEvidence(row.Source, json.RawMessage(row.Raw))
+			if evidenceErr != nil {
+				return evidenceErr
+			}
+			if evidence.Prominence != 0 || evidence.SettlementTier != places.SettlementUnknown {
+				candidate.ranking = evidence
+				break
+			}
+		}
+		candidate.rankingLoaded = true
+	}
+	return nil
 }
 
 func (s *Store) autocompleteContext(ctx context.Context, query places.AutocompleteContext) ([]places.Entity, error) {

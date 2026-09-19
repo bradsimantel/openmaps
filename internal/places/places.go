@@ -27,6 +27,25 @@ type Entity struct {
 	Attributions []Attribution
 }
 
+// AreaRankingEvidence is provider-independent evidence used to order exact-name
+// geographic areas. Prominence is a source-supplied 1-100 significance value.
+// SettlementTier distinguishes broad settlement classes without exposing a
+// provider's vocabulary to search ranking.
+type AreaRankingEvidence struct {
+	Prominence     int
+	SettlementTier SettlementTier
+}
+
+type SettlementTier uint8
+
+const (
+	SettlementUnknown SettlementTier = iota
+	SettlementHamlet
+	SettlementVillage
+	SettlementTown
+	SettlementCity
+)
+
 // AddressComponents contains only available structured source values. Empty
 // fields are unknown; a region or country may be a code rather than a full name.
 type AddressComponents struct {

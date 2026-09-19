@@ -44,6 +44,45 @@ type overtureProperties struct {
 	Subtype         string   `json:"subtype"`
 	Parent          string   `json:"parent_division_id"`
 }
+
+// AreaRankingEvidence adapts optional source-specific division evidence into
+// the provider-independent values used by Places ranking. Unknown providers do
+// not acquire fabricated evidence.
+func AreaRankingEvidence(source string, raw json.RawMessage) (places.AreaRankingEvidence, error) {
+	if source != "overture:division" {
+		return places.AreaRankingEvidence{}, nil
+	}
+	var feature struct {
+		Properties struct {
+			Class       string `json:"class"`
+			Cartography struct {
+				Prominence *int `json:"prominence"`
+			} `json:"cartography"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &feature); err != nil {
+		return places.AreaRankingEvidence{}, fmt.Errorf("Overture division ranking evidence: %w", err)
+	}
+	evidence := places.AreaRankingEvidence{}
+	if feature.Properties.Cartography.Prominence != nil {
+		evidence.Prominence = *feature.Properties.Cartography.Prominence
+		if evidence.Prominence < 1 || evidence.Prominence > 100 {
+			return places.AreaRankingEvidence{}, fmt.Errorf("Overture division prominence out of range: %d", evidence.Prominence)
+		}
+	}
+	switch feature.Properties.Class {
+	case "city":
+		evidence.SettlementTier = places.SettlementCity
+	case "town":
+		evidence.SettlementTier = places.SettlementTown
+	case "village":
+		evidence.SettlementTier = places.SettlementVillage
+	case "hamlet":
+		evidence.SettlementTier = places.SettlementHamlet
+	}
+	return evidence, nil
+}
+
 type overtureFeature struct {
 	feature
 	Props overtureProperties

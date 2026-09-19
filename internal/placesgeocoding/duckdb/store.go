@@ -24,6 +24,7 @@ type Store struct {
 	db            *sql.DB
 	files         map[string]*os.File
 	entityParquet map[string]*parquet.File
+	sourceParquet map[string]*parquet.File
 	areaParents   map[string][]string
 	bounds        [4]float64
 
@@ -96,6 +97,7 @@ func openVerified(path string, manifest Manifest) (_ *Store, err error) {
 	s := &Store{
 		files:                 map[string]*os.File{},
 		entityParquet:         map[string]*parquet.File{},
+		sourceParquet:         map[string]*parquet.File{},
 		primaryCandidateCache: map[string][]primaryCandidate{},
 	}
 	defer func() {
@@ -114,6 +116,8 @@ func openVerified(path string, manifest Manifest) (_ *Store, err error) {
 		s.files[name] = file
 		if role == "entities" {
 			s.entityParquet[name] = pf
+		} else if role == "sources" {
+			s.sourceParquet[name] = pf
 		}
 	}
 	if s.db, err = openDatabase(filepath.Join(path, IndexName)); err != nil {
