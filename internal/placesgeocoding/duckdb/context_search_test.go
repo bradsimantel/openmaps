@@ -66,6 +66,21 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 	}
 	add("fixture:place", "portland-or-words", "business", "Portland OR", "", places.Location{Lat: 45.54, Lng: -122.69}, "Portland, OR, US")
 	add("fixture:place", "main-portland-words", "business", "Main Street Portland OR", "", places.Location{Lat: 45.54, Lng: -122.69}, "Portland, OR, US")
+	ambiguousIDs := make([]string, contextAreaLocatorThreshold+5)
+	localAmbiguous := 0
+	for i := range ambiguousIDs {
+		ambiguousIDs[i] = "crowded-" + strconv.Itoa(i)
+		if importer.PublicID("fixture:division:"+ambiguousIDs[i]) > importer.PublicID("fixture:division:"+ambiguousIDs[localAmbiguous]) {
+			localAmbiguous = i
+		}
+	}
+	for i, id := range ambiguousIDs {
+		location := places.Location{Lat: 45.2, Lng: -69.2}
+		if i == localAmbiguous {
+			location = places.Location{Lat: 44, Lng: -120.5}
+		}
+		add("fixture:division", id, "area", "Crowded", "locality", location, "")
+	}
 	bundle.Relationships = []importer.Relationship{
 		{From: "fixture:division:multnomah", To: "fixture:division:oregon", Kind: "parent_area", Evidence: "fixture hierarchy"},
 		{From: "fixture:division:cumberland", To: "fixture:division:maine", Kind: "parent_area", Evidence: "fixture hierarchy"},
@@ -73,6 +88,15 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 		{From: "fixture:division:portland-or-neighborhood", To: "fixture:division:portland-or", Kind: "parent_area", Evidence: "fixture hierarchy"},
 		{From: "fixture:division:portland-me", To: "fixture:division:cumberland", Kind: "parent_area", Evidence: "fixture hierarchy"},
 		{From: "fixture:division:saint-louis-mo", To: "fixture:division:missouri", Kind: "parent_area", Evidence: "fixture hierarchy"},
+	}
+	for i, id := range ambiguousIDs {
+		parent := "fixture:division:maine"
+		if i == localAmbiguous {
+			parent = "fixture:division:oregon"
+		}
+		bundle.Relationships = append(bundle.Relationships, importer.Relationship{
+			From: "fixture:division:" + id, To: parent, Kind: "parent_area", Evidence: "fixture hierarchy",
+		})
 	}
 
 	path := filepath.Join(t.TempDir(), "lookup")
@@ -91,6 +115,7 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 	mainME := importer.PublicID("fixture:segment:main-me")
 	saintLouis := importer.PublicID("fixture:division:saint-louis-mo")
 	pagedOR := importer.PublicID("fixture:segment:" + pagedIDs[localPaged])
+	crowdedOR := importer.PublicID("fixture:division:" + ambiguousIDs[localAmbiguous])
 	for _, tc := range []struct {
 		query, firstID, kind string
 	}{
@@ -101,6 +126,7 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 		{"Main Street, Portland, Maine", mainME, "street"},
 		{"St. Louis, MO", saintLouis, "area"},
 		{"Paged Street, Portland, OR", pagedOR, "street"},
+		{"Crowded, OR", crowdedOR, "area"},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			results, queryErr := store.Autocomplete(context.Background(), tc.query)

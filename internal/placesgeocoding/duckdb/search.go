@@ -74,6 +74,7 @@ const (
 	contextStreetRadiusMeters      = 100_000
 	contextStreetEarlyAcceptMeters = 25_000
 	contextStreetCandidatePageSize = 1024
+	contextAreaLocatorThreshold    = 64
 	primaryCandidateCacheLimit     = 256
 )
 
@@ -158,12 +159,10 @@ func (s *Store) autocompleteContext(ctx context.Context, query places.Autocomple
 	if query.Locality != "" {
 		localityName = query.Locality
 	}
-	localities, err := s.primaryCandidates(ctx, localityName, "area")
+	localities, err := s.contextAreaCandidates(ctx, localityName, regionIDs)
 	if err != nil {
 		return nil, err
 	}
-	localities = filterAreaDescendants(localities, regionIDs, s.areaParents)
-	localities = filterLocalityTypes(localities)
 	if len(localities) == 0 {
 		return []places.Entity{}, nil
 	}
@@ -193,6 +192,84 @@ func (s *Store) autocompleteContext(ctx context.Context, query places.Autocomple
 	// predictions; context chooses a segment within the intended locality's
 	// vicinity.
 	return []places.Entity{street.entity}, nil
+}
+
+func (s *Store) contextAreaCandidates(ctx context.Context, normalized string, regionIDs map[string]bool) ([]primaryCandidate, error) {
+	sequences, err := s.exactCandidateSequences(ctx, normalized, "area")
+	if err != nil {
+		return nil, err
+	}
+	if len(sequences) <= contextAreaLocatorThreshold {
+		candidates, err := s.primaryCandidates(ctx, normalized, "area")
+		if err != nil {
+			return nil, err
+		}
+		return filterLocalityTypes(filterAreaDescendants(candidates, regionIDs, s.areaParents)), nil
+	}
+
+	// The full search_entities join is disproportionately expensive for very
+	// common area names in the national catalog. Resolve their compact locators
+	// first, discard candidates outside the requested region, and materialize
+	// only the surviving entities.
+	candidates, err := s.candidateLocators(ctx, sequences)
+	if err != nil {
+		return nil, err
+	}
+	candidates = filterAreaDescendants(candidates, regionIDs, s.areaParents)
+	for i := range candidates {
+		entity, err := s.Details(ctx, candidates[i].entity.ID)
+		if err != nil {
+			return nil, err
+		}
+		candidates[i].entity = entity
+		candidates[i].location = entity.Location
+	}
+	return filterLocalityTypes(candidates), nil
+}
+
+func (s *Store) exactCandidateSequences(ctx context.Context, normalized, kind string) ([]int, error) {
+	tokens := strings.Fields(normalized)
+	if len(tokens) == 0 {
+		return []int{}, nil
+	}
+	selectiveToken := tokens[0]
+	for _, token := range tokens[1:] {
+		if len(token) > len(selectiveToken) {
+			selectiveToken = token
+		}
+	}
+	var nameID, tokenID int
+	if err := s.db.QueryRowContext(ctx, "SELECT name_id FROM names WHERE normalized_name=?", normalized).Scan(&nameID); err != nil {
+		if err == sql.ErrNoRows {
+			return []int{}, nil
+		}
+		return nil, err
+	}
+	if err := s.db.QueryRowContext(ctx, "SELECT token_id FROM tokens WHERE token=?", selectiveToken).Scan(&tokenID); err != nil {
+		if err == sql.ErrNoRows {
+			return []int{}, nil
+		}
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT entity_seq FROM postings
+WHERE token_id=? AND name_id=? AND kind=? AND name_tf>0 AND NOT closed
+ORDER BY entity_seq`, tokenID, nameID, kind)
+	if err != nil {
+		return nil, err
+	}
+	sequences := []int{}
+	for rows.Next() {
+		var sequence int
+		if err = rows.Scan(&sequence); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		sequences = append(sequences, sequence)
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	return sequences, nil
 }
 
 func (s *Store) contextStreet(ctx context.Context, normalized string, anchor places.Location) (primaryCandidate, bool, error) {
@@ -279,6 +356,13 @@ ORDER BY entity_seq LIMIT ?`, tokenID, nameID, afterSequence, contextStreetCandi
 	if len(sequences) == 0 {
 		return []primaryCandidate{}, nil
 	}
+	return s.candidateLocators(ctx, sequences)
+}
+
+func (s *Store) candidateLocators(ctx context.Context, sequences []int) ([]primaryCandidate, error) {
+	if len(sequences) == 0 {
+		return []primaryCandidate{}, nil
+	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(sequences)), ",")
 	args := make([]any, len(sequences))
 	for i, sequence := range sequences {
@@ -305,7 +389,7 @@ FROM entity_locator WHERE rowid IN (`+placeholders+") ORDER BY rowid", args...)
 		return nil, err
 	}
 	if len(candidates) != len(sequences) {
-		return nil, fmt.Errorf("street candidate locators: got %d want %d", len(candidates), len(sequences))
+		return nil, fmt.Errorf("candidate locators: got %d want %d", len(candidates), len(sequences))
 	}
 	return candidates, nil
 }
