@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +72,37 @@ ORDER BY e.kind,e.entity_seq`, normalized)
 		if err = rows.Close(); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestNationalEntitySourceDiagnostic records retained source rows for explicit
+// entity IDs. It is opt-in and supports focused follow-up investigation without
+// embedding artifact-specific IDs in the test or scanning unrelated entities.
+func TestNationalEntitySourceDiagnostic(t *testing.T) {
+	artifact := os.Getenv("OPENMAPS_NATIONAL_LANDMARK_ARTIFACT")
+	ids := strings.Fields(os.Getenv("OPENMAPS_NATIONAL_ENTITY_IDS"))
+	if artifact == "" || len(ids) == 0 {
+		t.Skip("set OPENMAPS_NATIONAL_LANDMARK_ARTIFACT and OPENMAPS_NATIONAL_ENTITY_IDS")
+	}
+	db, err := openDatabase(filepath.Join(artifact, IndexName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, id := range ids {
+		var sourceFile string
+		var sourceStart, sourceCount int
+		if err = db.QueryRow(`SELECT source_file,source_start,source_count FROM entity_locator WHERE id=?`, id).
+			Scan(&sourceFile, &sourceStart, &sourceCount); err != nil {
+			t.Errorf("entity %s: %v", id, err)
+			continue
+		}
+		sources, readErr := diagnosticSources(filepath.Join(artifact, sourceFile), sourceStart, sourceCount)
+		if readErr != nil {
+			t.Errorf("entity %s: %v", id, readErr)
+			continue
+		}
+		t.Logf("ENTITY id=%q sources=%s", id, diagnosticJSON(sources))
 	}
 }
 

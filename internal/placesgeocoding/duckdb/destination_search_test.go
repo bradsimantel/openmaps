@@ -93,6 +93,8 @@ func TestExactDestinationTypeAndEvidenceRanking(t *testing.T) {
 
 	addStreet("bridge-street", "Example Bridge")
 	addPlace("bridge-place", "Example Bridge", "bridge", []string{"geographic_entities", "built_feature", "bridge"}, 0.97, 100)
+	addStreet("heritage-street", "Heritage Street")
+	addPlace("heritage-site", "Heritage Street", "historic_site", []string{"cultural_and_historic", "historic_site"}, 0.97, 100)
 
 	addArea("square-area", "Example Square", "microhood", "", 0)
 	addPlace("square-place", "Example Square", "public_plaza", []string{"geographic_entities", "public_plaza"}, 0.97, 100)
@@ -144,6 +146,7 @@ func TestExactDestinationTypeAndEvidenceRanking(t *testing.T) {
 		{"Example Field", importer.PublicID("overture:place:field-baseball"), "business"},
 		{"Adventure World", importer.PublicID("overture:place:adventure-park"), "business"},
 		{"Example Bridge", importer.PublicID("overture:place:bridge-place"), "business"},
+		{"Heritage Street", importer.PublicID("fixture:segment:heritage-street"), "street"},
 		{"Example Square", importer.PublicID("overture:division:square-area"), "area"},
 		{"Citymark", importer.PublicID("overture:division:citymark"), "area"},
 		{"Examplestate", importer.PublicID("overture:division:examplestate"), "area"},
@@ -162,5 +165,13 @@ func TestExactDestinationTypeAndEvidenceRanking(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExactDestinationSkipsNonExactTopName(t *testing.T) {
+	baseline := []places.Entity{{ID: "regional-burger", Kind: "business", Name: "Regional Burger"}}
+	got, err := (&Store{}).promoteExactDestination(context.Background(), "regional burger los angeles", baseline)
+	if err != nil || len(got) != 1 || got[0].ID != baseline[0].ID {
+		t.Fatalf("non-exact result changed: %+v err=%v", got, err)
 	}
 }

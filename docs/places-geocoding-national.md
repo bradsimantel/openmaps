@@ -292,10 +292,12 @@ museum, stadium, attraction or other mapped destination over an inappropriate
 same-name business, street or minor area while preserving exact city and region
 ordering. Confidence is not treated as popularity, and unrelated taxonomy
 families are not assigned a fabricated global order. Source-row inspection is
-limited to 64 exact place candidates per request; more ambiguous names retain
-the compact catalog order and require a future projected signal if stronger
-ranking is needed. This behavior works with the existing schema-2 artifact and
-does not merge or reclassify entity kinds.
+performed only when the current top name exactly matches the complete query and
+is limited to 64 exact place candidates per request. Names ending in an explicit
+street suffix retain street precedence; more ambiguous names retain the compact
+catalog order and require a future projected signal if stronger ranking is
+needed. This behavior works with the existing schema-2 artifact and does not
+merge or reclassify entity kinds.
 Authentication, billing, full Google field coverage, exact non-rectangular
 national road clipping, buildings, territories, and a production hosting
 topology remain unsupported or undecided.

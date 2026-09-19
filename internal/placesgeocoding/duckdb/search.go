@@ -206,6 +206,12 @@ func (s *Store) promoteExactDestination(ctx context.Context, normalized string, 
 		return baseline, nil
 	}
 	first := baseline[0]
+	if places.Normalize(first.Name) != normalized {
+		return baseline, nil
+	}
+	if first.Kind == "street" && hasExplicitStreetSuffix(normalized) {
+		return baseline, nil
+	}
 	if first.Kind == "area" {
 		for _, area := range s.primaryCandidateSnapshot("area", normalized) {
 			if area.entity.ID == first.ID && exactAreaTypeRank(area) <= 1 {
@@ -279,6 +285,19 @@ func (s *Store) promoteExactDestination(ctx context.Context, normalized string, 
 		}
 	}
 	return out, nil
+}
+
+func hasExplicitStreetSuffix(normalized string) bool {
+	words := strings.Fields(normalized)
+	if len(words) == 0 {
+		return false
+	}
+	switch words[len(words)-1] {
+	case "avenue", "boulevard", "circle", "court", "drive", "highway", "lane", "parkway", "road", "route", "street", "terrace", "trail", "way":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Store) primaryCandidateSnapshot(kind, normalized string) []primaryCandidate {
