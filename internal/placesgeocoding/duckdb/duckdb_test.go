@@ -75,15 +75,6 @@ func TestParquetEvidence(t *testing.T) {
 	}
 }
 
-func TestExactAddressAutocompleteUsesAddressProjection(t *testing.T) {
-	candidate, _ := store(t)
-	got, err := candidate.Autocomplete(context.Background(), "26 Marlborough Street, RI, 02840, US")
-	want := importer.PublicID("fixture:address:26")
-	if err != nil || len(got) != 1 || got[0].ID != want || got[0].Kind != "address" {
-		t.Fatalf("exact address autocomplete: got=%+v err=%v want=%s", got, err, want)
-	}
-}
-
 func TestConcurrentReadsMatchGoldenExpectations(t *testing.T) {
 	candidate, _ := store(t)
 	queries := []string{"W", "White", "26 Marl", "Marlborough", "Newport"}

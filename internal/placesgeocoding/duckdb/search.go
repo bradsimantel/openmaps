@@ -6,7 +6,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
 )
 
@@ -49,62 +48,7 @@ WHERE h.prefix=? ORDER BY h.rank`, normalized)
 		}
 		return out, rows.Err()
 	}
-	if exact, ok, err := s.autocompleteExactAddress(ctx, input); err != nil {
-		return nil, err
-	} else if ok {
-		return exact, nil
-	}
 	return s.autocompletePostings(ctx, normalized)
-}
-
-// autocompleteExactAddress avoids running the general multi-token postings
-// query when the input already satisfies the stricter forward-geocoding grammar
-// and names one or more retained address points. Partial addresses still fall
-// through to ordinary autocomplete ranking.
-func (s *Store) autocompleteExactAddress(ctx context.Context, input string) ([]places.Entity, bool, error) {
-	query, _, err := geocoding.ParseForward(input)
-	if err != nil {
-		return nil, false, nil
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT entity_id,context
-FROM address_lookup WHERE address_key=? ORDER BY entity_id`, query.Key)
-	if err != nil {
-		return nil, false, err
-	}
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		var context string
-		if err = rows.Scan(&id, &context); err != nil {
-			rows.Close()
-			return nil, false, err
-		}
-		if geocoding.ContextMatches(context, query.Context) {
-			ids = append(ids, id)
-			if len(ids) == 5 {
-				break
-			}
-		}
-	}
-	if err = rows.Err(); err != nil {
-		rows.Close()
-		return nil, false, err
-	}
-	if err = rows.Close(); err != nil {
-		return nil, false, err
-	}
-	if len(ids) == 0 {
-		return nil, false, nil
-	}
-	out := make([]places.Entity, 0, len(ids))
-	for _, id := range ids {
-		entity, detailErr := s.Details(ctx, id)
-		if detailErr != nil {
-			return nil, false, detailErr
-		}
-		out = append(out, entity)
-	}
-	return out, true, nil
 }
 
 func (s *Store) autocompletePostings(ctx context.Context, normalized string) ([]places.Entity, error) {

@@ -3,12 +3,18 @@ package duckdb
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"openmaps/internal/api"
 	"openmaps/internal/importer"
 	"openmaps/internal/places"
 )
@@ -78,14 +84,42 @@ func TestNationalServingBenchmark(t *testing.T) {
 		})
 	}
 	ctx := context.Background()
+	handler := api.Handler{Places: store, Geocoding: store}
 	for _, input := range []string{"White House", "Empire State Building", "Seattle", "1600 Pennsylvania Avenue Northwest"} {
 		input := input
 		measure("autocomplete", input, func() (places.Entity, error) {
-			entities, queryErr := store.Autocomplete(ctx, input)
-			if queryErr != nil || len(entities) == 0 {
+			request := httptest.NewRequest(http.MethodPost, "/v1/places:autocomplete", strings.NewReader(`{"input":`+strconv.Quote(input)+`}`))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			var body struct {
+				Suggestions []struct {
+					Prediction struct {
+						ID    string   `json:"placeId"`
+						Types []string `json:"types"`
+					} `json:"placePrediction"`
+				} `json:"suggestions"`
+			}
+			if response.Code != http.StatusOK {
+				return places.Entity{}, fmt.Errorf("HTTP %d: %s", response.Code, response.Body.String())
+			}
+			if queryErr := json.Unmarshal(response.Body.Bytes(), &body); queryErr != nil {
 				return places.Entity{}, queryErr
 			}
-			return entities[0], nil
+			if len(body.Suggestions) == 0 {
+				return places.Entity{}, nil
+			}
+			kind := "area"
+			if len(body.Suggestions[0].Prediction.Types) > 0 {
+				switch body.Suggestions[0].Prediction.Types[0] {
+				case "street_address":
+					kind = "address"
+				case "establishment":
+					kind = "business"
+				case "route":
+					kind = "street"
+				}
+			}
+			return places.Entity{ID: body.Suggestions[0].Prediction.ID, Kind: kind}, nil
 		})
 	}
 	address := "1600 PENNSYLVANIA Avenue Northwest, DC, WASHINGTON, 20500, US"
