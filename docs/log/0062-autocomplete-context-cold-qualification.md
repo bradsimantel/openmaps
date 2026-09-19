@@ -1,5 +1,10 @@
 # Autocomplete context cold qualification
 
+> **Follow-up:** Revision `2277306fe708fc79c41788e362d8978409c5cf87`
+> adds source-backed prominence and type-aware ordering for raw city and state
+> names while preserving this 25/25 cold contextual result; see
+> [log 0063](0063-national-geographic-prominence.md).
+
 **Date:** 2026-09-19
 
 **Implementation revision:** `5030e0b491ad1d5112530750a3105f80f9fc43e2`
