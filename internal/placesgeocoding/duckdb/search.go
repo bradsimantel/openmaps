@@ -3,9 +3,14 @@ package duckdb
 import (
 	"context"
 	"fmt"
+	"io"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/parquet-go/parquet-go"
+
+	"openmaps/internal/geocoding"
 	"openmaps/internal/places"
 )
 
@@ -26,6 +31,9 @@ func prefixUpperBound(prefix string) (string, bool) {
 }
 
 func (s *Store) Autocomplete(ctx context.Context, input string) ([]places.Entity, error) {
+	if interpreted, ok := places.ParseAutocompleteContext(input); ok {
+		return s.autocompleteContext(ctx, interpreted)
+	}
 	normalized := places.Normalize(input)
 	if normalized == "" {
 		return []places.Entity{}, nil
@@ -49,6 +57,230 @@ WHERE h.prefix=? ORDER BY h.rank`, normalized)
 		return out, rows.Err()
 	}
 	return s.autocompletePostings(ctx, normalized)
+}
+
+type primaryCandidate struct {
+	sequence                  int
+	entity                    places.Entity
+	entityFile                string
+	entityRowGroup, entityRow int
+	location                  places.Location
+}
+
+const contextStreetRadiusMeters = 100_000
+
+func (s *Store) primaryCandidates(ctx context.Context, normalized, kind string) ([]primaryCandidate, error) {
+	tokens := strings.Fields(normalized)
+	if len(tokens) == 0 {
+		return []primaryCandidate{}, nil
+	}
+	selectiveToken := tokens[0]
+	for _, token := range tokens[1:] {
+		if len(token) > len(selectiveToken) {
+			selectiveToken = token
+		}
+	}
+	query := `WITH requested AS (
+  SELECT name_id FROM names WHERE normalized_name=?
+), matched AS (
+  SELECT p.entity_seq
+  FROM tokens t JOIN postings p USING(token_id) JOIN requested r USING(name_id)
+  WHERE t.token=? AND p.name_tf>0 AND p.kind=? AND NOT p.closed
+)
+SELECT e.entity_seq,e.id,e.kind,e.name,e.address,e.subtype,
+       l.entity_file,l.entity_row_group,l.entity_row
+FROM matched
+JOIN search_entities e USING(entity_seq)
+JOIN entity_locator l USING(id)
+ORDER BY e.entity_seq`
+	rows, err := s.db.QueryContext(ctx, query, normalized, selectiveToken, kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	candidates := []primaryCandidate{}
+	for rows.Next() {
+		var candidate primaryCandidate
+		if err = rows.Scan(&candidate.sequence, &candidate.entity.ID, &candidate.entity.Kind,
+			&candidate.entity.Name, &candidate.entity.Address, &candidate.entity.Subtype,
+			&candidate.entityFile, &candidate.entityRowGroup, &candidate.entityRow); err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, rows.Err()
+}
+
+func (s *Store) autocompleteContext(ctx context.Context, query places.AutocompleteContext) ([]places.Entity, error) {
+	regions, err := s.primaryCandidates(ctx, query.Region, "area")
+	if err != nil {
+		return nil, err
+	}
+	regionIDs := map[string]bool{}
+	for _, region := range regions {
+		if region.entity.Subtype == "region" {
+			regionIDs[region.entity.ID] = true
+		}
+	}
+	if len(regionIDs) == 0 {
+		return []places.Entity{}, nil
+	}
+	localityName := query.Name
+	if query.Locality != "" {
+		localityName = query.Locality
+	}
+	localities, err := s.primaryCandidates(ctx, localityName, "area")
+	if err != nil {
+		return nil, err
+	}
+	localities = filterAreaDescendants(localities, regionIDs, s.areaParents)
+	localities = filterLocalityTypes(localities)
+	if len(localities) == 0 {
+		return []places.Entity{}, nil
+	}
+	sort.SliceStable(localities, func(i, j int) bool {
+		left, right := areaSubtypeRank(localities[i].entity.Subtype), areaSubtypeRank(localities[j].entity.Subtype)
+		if left != right {
+			return left < right
+		}
+		return localities[i].sequence < localities[j].sequence
+	})
+	if query.Locality == "" {
+		return candidateEntities(localities, 5), nil
+	}
+	if err = s.loadCandidateLocations(localities[:1]); err != nil {
+		return nil, err
+	}
+	streets, err := s.primaryCandidates(ctx, query.Name, "street")
+	if err != nil {
+		return nil, err
+	}
+	if len(streets) == 0 {
+		return []places.Entity{}, nil
+	}
+	if err = s.loadCandidateLocations(streets); err != nil {
+		return nil, err
+	}
+	anchor := localities[0].location
+	sort.SliceStable(streets, func(i, j int) bool {
+		left := geocoding.DistanceMeters(anchor, streets[i].location)
+		right := geocoding.DistanceMeters(anchor, streets[j].location)
+		if left != right {
+			return left < right
+		}
+		return streets[i].sequence < streets[j].sequence
+	})
+	if geocoding.DistanceMeters(anchor, streets[0].location) > contextStreetRadiusMeters {
+		return []places.Entity{}, nil
+	}
+	// Equal street labels are individual source segments. As in unstructured
+	// autocomplete, expose one representative rather than five indistinguishable
+	// predictions; context chooses the segment nearest the intended locality.
+	return candidateEntities(streets, 1), nil
+}
+
+func filterLocalityTypes(candidates []primaryCandidate) []primaryCandidate {
+	out := candidates[:0]
+	for _, candidate := range candidates {
+		if areaSubtypeRank(candidate.entity.Subtype) < 3 {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func filterAreaDescendants(candidates []primaryCandidate, ancestors map[string]bool, parents map[string][]string) []primaryCandidate {
+	out := candidates[:0]
+	for _, candidate := range candidates {
+		pending := []string{candidate.entity.ID}
+		seen := map[string]bool{}
+		for len(pending) > 0 {
+			id := pending[len(pending)-1]
+			pending = pending[:len(pending)-1]
+			if ancestors[id] {
+				out = append(out, candidate)
+				break
+			}
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			pending = append(pending, parents[id]...)
+		}
+	}
+	return out
+}
+
+func areaSubtypeRank(subtype string) int {
+	switch subtype {
+	case "locality":
+		return 0
+	case "macrohood":
+		return 1
+	case "neighborhood":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func candidateEntities(candidates []primaryCandidate, limit int) []places.Entity {
+	if len(candidates) < limit {
+		limit = len(candidates)
+	}
+	out := make([]places.Entity, limit)
+	for i := range limit {
+		out[i] = candidates[i].entity
+	}
+	return out
+}
+
+func (s *Store) loadCandidateLocations(candidates []primaryCandidate) error {
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].entityFile != candidates[j].entityFile {
+			return candidates[i].entityFile < candidates[j].entityFile
+		}
+		if candidates[i].entityRowGroup != candidates[j].entityRowGroup {
+			return candidates[i].entityRowGroup < candidates[j].entityRowGroup
+		}
+		return candidates[i].entityRow < candidates[j].entityRow
+	})
+	var currentFile string
+	currentGroup := -1
+	var reader *parquet.GenericReader[entityRow]
+	defer func() {
+		if reader != nil {
+			_ = reader.Close()
+		}
+	}()
+	for i := range candidates {
+		candidate := &candidates[i]
+		file := s.entityParquet[candidate.entityFile]
+		if file == nil || candidate.entityRowGroup < 0 || candidate.entityRowGroup >= len(file.RowGroups()) {
+			return fmt.Errorf("invalid entity row group for %s", candidate.entity.ID)
+		}
+		if candidate.entityFile != currentFile || candidate.entityRowGroup != currentGroup {
+			if reader != nil {
+				if err := reader.Close(); err != nil {
+					return err
+				}
+			}
+			reader = parquet.NewGenericRowGroupReader[entityRow](file.RowGroups()[candidate.entityRowGroup])
+			currentFile, currentGroup = candidate.entityFile, candidate.entityRowGroup
+		}
+		if err := reader.SeekToRow(int64(candidate.entityRow)); err != nil {
+			return err
+		}
+		row := []entityRow{{}}
+		if n, err := reader.Read(row); n != 1 || err != nil && err != io.EOF {
+			return fmt.Errorf("read entity %s: rows=%d: %w", candidate.entity.ID, n, err)
+		}
+		if row[0].ID != candidate.entity.ID {
+			return fmt.Errorf("entity locator mismatch: got %s want %s", row[0].ID, candidate.entity.ID)
+		}
+		candidate.location = places.Location{Lat: row[0].Lat, Lng: row[0].Lng}
+	}
+	return nil
 }
 
 func (s *Store) autocompletePostings(ctx context.Context, normalized string) ([]places.Entity, error) {

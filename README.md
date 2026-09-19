@@ -365,9 +365,13 @@ service evidence remains in historical logs.
 
 - Limited geography and English request options; no global/IP bias, spatial or
   type filters, translation, typo tolerance, plus-code support or Google ranking.
-- Search uses normalized token prefixes with exact-name/name-prefix priority,
-  then area/street/business/address precedence, BM25-style token scoring and
-  stable ID ties.
+- Unstructured search uses normalized token prefixes with exact-name/name-prefix
+  priority, then area/street/business/address precedence, BM25-style token
+  scoring and stable ID ties. Supported comma-separated `city, state` input is
+  resolved through the retained area hierarchy; `street, city, state` selects
+  an exact-name street segment near that resolved locality. This contextual
+  interpretation currently recognizes the 50 US states and District of
+  Columbia, not arbitrary countries or free-form address grammar.
 - Source labels can be incomplete or duplicated. The retained Overture locality
   slot and units are empty; 562 raw records have a CDP-like `postal_city` value
   that is not returned as a locality or verified postal city. Address ranges are

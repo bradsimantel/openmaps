@@ -270,6 +270,12 @@ does not redefine those expectations: changes to IDs, kinds, names or stated
 intent require separate review. The [initial national relevance baseline](log/0059-national-places-relevance-baseline.md)
 is historical evidence: the first national research artifact passed only 18 of
 99 expectations and must not be activated without ranking corrections.
+Autocomplete now interprets supported comma-separated `city, state` and
+`street, city, state` inputs using exact primary names, the retained division
+hierarchy and locality-relative street distance. This runtime behavior is
+compatible with the existing normalized generation; it does not approve that
+generation or replace a complete rerun of this expectation set on the exact
+national artifact.
 Authentication, billing, full Google field coverage, exact non-rectangular
 national road clipping, buildings, territories, and a production hosting
 topology remain unsupported or undecided.

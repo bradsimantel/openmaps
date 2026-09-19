@@ -23,6 +23,7 @@ type Store struct {
 	db            *sql.DB
 	files         map[string]*os.File
 	entityParquet map[string]*parquet.File
+	areaParents   map[string][]string
 	bounds        [4]float64
 }
 
@@ -127,7 +128,28 @@ func openVerified(path string, manifest Manifest) (_ *Store, err error) {
 		return nil, fmt.Errorf("DuckDB index has invalid source bounds")
 	}
 	copy(s.bounds[:], scope.BBox)
+	if s.areaParents, err = loadAreaParents(s.db, path); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+func loadAreaParents(db *sql.DB, path string) (map[string][]string, error) {
+	rows, err := db.Query(`SELECT from_id,to_id FROM read_parquet(?)
+WHERE kind='parent_area' ORDER BY from_id,to_id`, filepath.Join(path, "relationships*.parquet"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	parents := map[string][]string{}
+	for rows.Next() {
+		var child, parent string
+		if err = rows.Scan(&child, &parent); err != nil {
+			return nil, err
+		}
+		parents[child] = append(parents[child], parent)
+	}
+	return parents, rows.Err()
 }
 
 func (s *Store) Close() error {

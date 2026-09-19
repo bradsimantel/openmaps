@@ -8,8 +8,33 @@ import (
 	"testing"
 
 	"openmaps/internal/importer"
+	"openmaps/internal/places"
 	placeduckdb "openmaps/internal/placesgeocoding/duckdb"
 )
+
+func TestParseAutocompleteContext(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  places.AutocompleteContext
+		ok    bool
+	}{
+		{"Portland, OR", places.AutocompleteContext{Name: "portland", Region: "oregon"}, true},
+		{"St. Louis, Missouri", places.AutocompleteContext{Name: "street louis", Region: "missouri"}, true},
+		{"Market St, San Francisco, CA", places.AutocompleteContext{Name: "market street", Locality: "san francisco", Region: "california"}, true},
+		{"Washington, D.C.", places.AutocompleteContext{Name: "washington", Region: "district of columbia"}, true},
+		{"White Horse", places.AutocompleteContext{}, false},
+		{"10001, New York, NY", places.AutocompleteContext{}, false},
+		{"Portland, ZZ", places.AutocompleteContext{}, false},
+		{"Main Street, , OR", places.AutocompleteContext{}, false},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			got, ok := places.ParseAutocompleteContext(tc.input)
+			if got != tc.want || ok != tc.ok {
+				t.Fatalf("got (%+v,%t) want (%+v,%t)", got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
 
 func TestRegionalSearch(t *testing.T) {
 	raw, err := os.ReadFile("../importer/testdata/small.json")
