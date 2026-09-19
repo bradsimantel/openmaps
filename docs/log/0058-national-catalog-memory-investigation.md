@@ -4,8 +4,11 @@
 
 **Original failed revision:** `a952f8ac3b8da0424c0fb19b9e6e10045e0e96be`
 
-**Qualified server revision:** `2cfd7fcb2427a13fc1e979dec535865f285234fc`
+**Qualified national-build revision:** `2cfd7fcb2427a13fc1e979dec535865f285234fc`
 (the server-applied equivalent of local revision `f108deb`)
+
+**Final server revision:** `8d7dc1728fd5da47a117fbce3e307bdb35634ff0`
+(the server-applied equivalent of local revision `2fb8d5b`)
 
 ## Readiness result
 
@@ -14,10 +17,10 @@ at actual national cardinality under the existing 32 GB decimal DuckDB catalog
 limit and 48 GiB process supervisor. It did not publish to the production path
 or change the selected lookup generation.
 
-The result is not yet a production-retry authorization. The candidate still
-requires the exact-revision loopback query checks recorded below and an operator
-review of this evidence. No production national build was started by this
-investigation.
+The result qualifies another supervised national candidate build under the
+same controls. It does not authorize activation of that candidate: national
+relevance review remains separate. No production national build was started by
+this investigation.
 
 ## Historical failure and root cause
 
@@ -25,11 +28,21 @@ The failed `a952f8a` build passed normalization and then executed the complete
 contents of `schema-sharded.sql` in one `database/sql` call. DuckDB reported
 that it could not allocate another 256 KiB at 29.8 GiB of its 32 GB decimal
 limit after approximately 53 minutes. The process reached 40,977,666,048 bytes
-of sampled RSS. Because all schema statements shared one call and the failed
-derived database was intentionally removed, the retained log cannot prove
-which statement was active. The ordering and later timings make the global
-`names` distinct/order the leading candidate, but that is an inference rather
-than an exact historical attribution.
+of sampled RSS. The retained log alone could not identify the active statement
+because the schema shared one call and the failed derived database was removed.
+
+The opt-in forensic benchmark therefore replayed the exact legacy schema one
+statement at a time against the retained national distribution with the same
+four threads and 32 GB decimal limit. Every statement through the final global
+posting sort completed. The only remaining statement was the `prefixes.sql`
+`INSERT INTO short_prefix_head`, whose plan joins every posting to tokens,
+groups by `(prefix,entity_seq)`, computes a full-prefix frequency window, then
+executes two ranking windows and a final order. After approximately twelve
+minutes in that statement it had produced 272,675,438,592 bytes (253.95 GiB) of
+spill and was still growing. The run was stopped while 156.36 GiB remained free,
+rather than spend the protected reserve reproducing the already-attributed OOM.
+This elimination is exact: all earlier original statements completed, and only
+DuckDB checkpointing followed the active prefix statement.
 
 The broader root cause was nevertheless explicit in the old SQL. It contained
 national-cardinality global sorts, distincts, joins, aggregations, and windows
@@ -40,7 +53,10 @@ referential-integrity joins.
 
 The corrected builder executes named statements and reports their elapsed time,
 so a future error identifies its exact phase. It also replaces every listed
-national-cardinality blocker with disjoint bounded partitions.
+national-cardinality blocker with disjoint bounded partitions. The new
+short-prefix implementation creates top-five candidates per 32,768-entity
+chunk, then consolidates each exact prefix independently; its national phase
+completed in 13m13s.
 
 ## DuckDB behavior relevant to the failure
 
@@ -207,6 +223,27 @@ raw counter evidence, not as per-partition query plans. The blocking-operator
 inventory above is therefore based on the executed SQL and explicit partition
 guards, not an overclaimed post-hoc plan attribution.
 
+### Legacy statement replay
+
+| Original statement | Elapsed |
+| --- | ---: |
+| Entity locator | 2m 07s |
+| Search entities | 13m 05s |
+| Names | 1m 14s |
+| Entity ranks | 43s |
+| Tokens | 38s |
+| Address lookup | 2m 17s |
+| Address spatial | 1m 25s |
+| Posting generation | 18m 01s |
+| Final posting sort | 9m 16s |
+| Short-prefix aggregation/windows | stopped after approximately 12m 40s and 253.95 GiB of spill |
+
+The replay's sampled peak RSS was 37,853,655,040 bytes (35.25 GiB). The
+supervisor samples, phase report and resource report were retained. The
+reproducible 254 GiB spill directory and 36 GiB partial database were removed
+after their sizes and phase state were recorded, restoring the host's pre-run
+free space without deleting the immutable normalized checkpoint.
+
 ## Artifact evidence
 
 The final manifest contains 199 files. Its normalized checksum is
@@ -242,10 +279,50 @@ indexes before publication.
   `/srv/openmaps/data/national-catalog-research-2cfd7fc-profiles`
 - Historical failure archive:
   `/srv/openmaps/data/failed-runs/openmaps-us-20260819-catalog-oom-a952f8a-20260917`
+- Legacy statement replay phases, resources and one-second samples:
+  `/srv/openmaps/data/legacy-catalog-diagnostic-40c1b15.json`,
+  `/srv/openmaps/data/legacy-catalog-diagnostic-40c1b15.resources.json`, and
+  `/srv/openmaps/data/legacy-catalog-diagnostic-40c1b15.samples.ndjson`
+- Final-code serving benchmark:
+  `/srv/openmaps/data/national-catalog-research-2fb8d5b-serving.json`
+- Final exact-revision server resource summary:
+  `/srv/openmaps/data/national-server-startup-2fb8d5b.time`
 
 ## Exact-revision startup and representative queries
 
-Pending final loopback measurements.
+The catalog-build revision and final server revision both opened the research
+generation directly on `127.0.0.1:18080`. The clean final-revision process began
+listening after approximately 14m58s. The retained `/usr/bin/time` measurement,
+which includes the smoke requests and graceful shutdown, was 15m01.62s and
+reached 7,764,398,080 bytes (7.23 GiB) maximum RSS with no swaps. The server did
+not listen before complete independent artifact verification finished.
+
+All required loopback endpoints returned HTTP 200:
+
+| Check | Result | Warm median |
+| --- | --- | ---: |
+| `/healthz` | `status=ok`, exact snapshot digest, lookup available, routing intentionally unavailable | 1 ms final call |
+| Autocomplete `White House` | Five results; IDs resolved through details | 614 ms final sample |
+| Autocomplete `Empire State Building` | Five results; business/POI first | 606 ms final sample |
+| Autocomplete `Seattle` | Five results; locality first | 319 ms final sample |
+| Autocomplete `1600 Pennsylvania Avenue Northwest`, initial catalog-build revision | One exact address | 9,006 ms |
+| Same exact address, final server revision | Same exact ID through the geocoding projection fast path | 44 ms |
+| Details | Correct ID, type, coordinates and attribution for all four selected results | 16 ms final sample |
+| Forward geocoding of the returned 1600 Pennsylvania label | One exact ID, `OK` | 42 ms final sample |
+| Reverse geocoding at that address point | Same ID at zero metres, `OK` | 51 ms final sample |
+
+Forward and reverse geocoding both returned
+`om_c8ae768c9cfef9a0e46e6f00d69156ec` with source address precision. This proves
+catalog/Parquet linkage as well as endpoint availability. The initial
+full-address autocomplete call exposed a nine-second general postings query.
+Final server code now recognizes inputs satisfying the exact forward-geocoding
+grammar, uses the geocoding projection, and falls back to ordinary autocomplete
+when no exact address exists. The final HTTP median was 44 ms. The opt-in
+in-process API benchmark measured a 38.5 ms median and 102.2 ms maximum over
+five runs, with the same public ID. Also, an unqualified `White House` ranks a
+same-name Pennsylvania locality first; no reviewed national relevance
+expectation set exists yet, so this sample must not be presented as a quality
+certification.
 
 ## Corrections and verification
 
@@ -253,11 +330,13 @@ Implementation adds the partitioned catalog builder, named phase observations,
 one-second Linux process-tree sampling (RSS split into anonymous/file-backed,
 CPU and I/O), preserved failure evidence, the immutable normalized checkpoint,
 catalog-only resume, reviewed compatibility with the retained input checkpoint,
-and bounded final verification. Small deterministic fixtures compare every
-catalog table against the legacy builder and prove cancellation/resume and
-read-only checkpoint compatibility.
+bounded final verification, the opt-in statement-level legacy diagnostic, and
+the opt-in national serving benchmark. Small deterministic fixtures compare
+every catalog table against the legacy builder, prove cancellation/resume and
+read-only checkpoint compatibility, and preserve exact-address autocomplete
+identity through the new address fast path.
 
-Local verification at the final code state passed:
+Local and exact-revision server verification at the final code state passed:
 
 ```text
 gofmt (changed Go files)
@@ -268,10 +347,6 @@ git diff --check
 
 ## Remaining risks and production envelope
 
-- Exact historical statement attribution remains unavailable from the retained
-  failed database because the old code did not create the evidence needed to
-  distinguish statements. The global names distinct/order is the leading
-  inference, not a proven fact.
 - DuckDB's phase profile output did not retain per-loop physical plans. The
   code-level partition guards and successful national result prove the memory
   envelope, but a later harness improvement should give every executed query a
@@ -280,6 +355,12 @@ git diff --check
   quantified lower-thread fallback.
 - The initial national rectangular road scope can retain short cross-border
   portions; this is a data-scope review issue, not a build-memory issue.
+- Cold direct server startup re-verifies every immutable artifact and takes
+  approximately 15 minutes on this host. Deployment health checks must allow for that fail-closed
+  interval. A termination signal received during `Open` verification is not
+  acted on until that synchronous verification returns.
+- National relevance has representative smoke evidence but no reviewed golden
+  expectation set. Build retry readiness is not activation readiness.
 - The build performs substantial I/O (approximately 3.98 TB read and 1.78 TB
   written at the process boundary). Storage health and at least the 60 GiB
   reserve must remain hard preconditions.
@@ -290,7 +371,37 @@ ceiling, 32 GB catalog limit, four threads, one-second sampling, and 60 GiB disk
 reserve. Expected peak RSS is approximately 34 GiB; stop and preserve evidence
 if it exceeds 48 GiB. Expected catalog time is approximately ten hours.
 
-The exact retry command will be recorded here only after loopback serving checks
-complete. Until then the concise decision is **NOT READY** because exact-revision
-startup and representative API behavior are an explicit unresolved evidence
-gap.
+The current free-space margin above the conservative workspace estimate and 60
+GiB reserve is only about 12.5 GiB. Preflight must therefore be rerun immediately
+before starting, and no other large task may share the volume. At exact reviewed
+server revision `8d7dc1728fd5da47a117fbce3e307bdb35634ff0`, the retry command is:
+
+```sh
+cd /srv/openmaps
+test "$(git rev-parse HEAD)" = 8d7dc1728fd5da47a117fbce3e307bdb35634ff0
+test -z "$(git status --porcelain)"
+go run ./cmd/places-geocoding-prepare \
+  -config config/places-geocoding-us.json -data data -fetch -preflight
+go build -o /tmp/openmaps-places-prepare ./cmd/places-geocoding-prepare
+go build -o /tmp/openmaps-run-bounded ./cmd/scout-run-bounded
+OPENMAPS_DUCKDB_PROFILE_DIR="$PWD/data/openmaps-us-20260819-bounded-8d7dc17-profiles" \
+/tmp/openmaps-run-bounded \
+  -root "$PWD/data" \
+  -report "$PWD/data/openmaps-us-20260819-bounded-8d7dc17.resources.json" \
+  -samples "$PWD/data/openmaps-us-20260819-bounded-8d7dc17.samples.ndjson" \
+  -temporary-path "$PWD/data" -rss-mib 49152 -reserve-gib 60 \
+  /tmp/openmaps-places-prepare \
+  -config config/places-geocoding-us.json -data data \
+  -stream-out data/openmaps-us-20260819-bounded-8d7dc17 \
+  -checkpoint data/openmaps-us-20260819-checkpoint -resume \
+  -accept-input-checkpoint-build \
+    'revision=a952f8ac3b8da0424c0fb19b9e6e10045e0e96be;target=linux/amd64' \
+  -accept-input-checkpoint-output /srv/openmaps/data/openmaps-us-20260819 \
+  -normalized-checkpoint data/openmaps-us-20260819-normalized-8d7dc17 \
+  -audit data/openmaps-us-20260819-bounded-8d7dc17-audit.json
+```
+
+The concise decision is **READY FOR NATIONAL RETRY** under that exact command
+and envelope. It is not ready for automatic activation: the candidate must
+still pass a reviewed national relevance set and the normal comparison/review
+workflow.

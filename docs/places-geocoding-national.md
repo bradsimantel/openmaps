@@ -206,6 +206,10 @@ preparation or normalization:
 The catalog-only command requires the checkpoint's exact build identity. It
 refuses an existing output and publishes through a new `.building` directory,
 so interruption cannot turn a partial database into a candidate.
+The [historical national catalog qualification](log/0058-national-catalog-memory-investigation.md)
+records the first actual-cardinality result for this boundary and partitioned
+catalog; it is evidence for that revision, not a substitute for a new run's
+preflight and supervisor controls.
 
 If normalization, catalog construction, or validation fails after that marker
 is published, preserve the checkpoint and rerun the same supervised command
