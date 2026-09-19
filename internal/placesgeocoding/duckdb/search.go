@@ -2,8 +2,10 @@ package duckdb
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -52,6 +54,7 @@ WHERE h.prefix=? ORDER BY h.rank`, normalized)
 			if err = rows.Scan(&entity.ID, &entity.Kind, &entity.Name, &entity.Address, &entity.Subtype); err != nil {
 				return nil, err
 			}
+			canonicalizeEntity(&entity)
 			out = append(out, entity)
 		}
 		return out, rows.Err()
@@ -67,9 +70,21 @@ type primaryCandidate struct {
 	location                  places.Location
 }
 
-const contextStreetRadiusMeters = 100_000
+const (
+	contextStreetRadiusMeters      = 100_000
+	contextStreetEarlyAcceptMeters = 25_000
+	contextStreetCandidatePageSize = 1024
+	primaryCandidateCacheLimit     = 256
+)
 
 func (s *Store) primaryCandidates(ctx context.Context, normalized, kind string) ([]primaryCandidate, error) {
+	cacheKey := kind + "\x00" + normalized
+	s.primaryCandidateCacheMu.RLock()
+	cached, ok := s.primaryCandidateCache[cacheKey]
+	s.primaryCandidateCacheMu.RUnlock()
+	if ok {
+		return append([]primaryCandidate(nil), cached...), nil
+	}
 	tokens := strings.Fields(normalized)
 	if len(tokens) == 0 {
 		return []primaryCandidate{}, nil
@@ -106,9 +121,23 @@ ORDER BY e.entity_seq`
 			&candidate.entityFile, &candidate.entityRowGroup, &candidate.entityRow); err != nil {
 			return nil, err
 		}
+		canonicalizeEntity(&candidate.entity)
 		candidates = append(candidates, candidate)
 	}
-	return candidates, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	s.primaryCandidateCacheMu.Lock()
+	if s.primaryCandidateCache == nil {
+		s.primaryCandidateCache = map[string][]primaryCandidate{}
+	}
+	if existing, exists := s.primaryCandidateCache[cacheKey]; exists {
+		candidates = existing
+	} else if len(s.primaryCandidateCache) < primaryCandidateCacheLimit {
+		s.primaryCandidateCache[cacheKey] = append([]primaryCandidate(nil), candidates...)
+	}
+	s.primaryCandidateCacheMu.Unlock()
+	return append([]primaryCandidate(nil), candidates...), nil
 }
 
 func (s *Store) autocompleteContext(ctx context.Context, query places.AutocompleteContext) ([]places.Entity, error) {
@@ -151,32 +180,134 @@ func (s *Store) autocompleteContext(ctx context.Context, query places.Autocomple
 	if err = s.loadCandidateLocations(localities[:1]); err != nil {
 		return nil, err
 	}
-	streets, err := s.primaryCandidates(ctx, query.Name, "street")
+	anchor := localities[0].location
+	street, found, err := s.contextStreet(ctx, query.Name, anchor)
 	if err != nil {
 		return nil, err
 	}
-	if len(streets) == 0 {
-		return []places.Entity{}, nil
-	}
-	if err = s.loadCandidateLocations(streets); err != nil {
-		return nil, err
-	}
-	anchor := localities[0].location
-	sort.SliceStable(streets, func(i, j int) bool {
-		left := geocoding.DistanceMeters(anchor, streets[i].location)
-		right := geocoding.DistanceMeters(anchor, streets[j].location)
-		if left != right {
-			return left < right
-		}
-		return streets[i].sequence < streets[j].sequence
-	})
-	if geocoding.DistanceMeters(anchor, streets[0].location) > contextStreetRadiusMeters {
+	if !found {
 		return []places.Entity{}, nil
 	}
 	// Equal street labels are individual source segments. As in unstructured
 	// autocomplete, expose one representative rather than five indistinguishable
-	// predictions; context chooses the segment nearest the intended locality.
-	return candidateEntities(streets, 1), nil
+	// predictions; context chooses a segment within the intended locality's
+	// vicinity.
+	return []places.Entity{street.entity}, nil
+}
+
+func (s *Store) contextStreet(ctx context.Context, normalized string, anchor places.Location) (primaryCandidate, bool, error) {
+	tokens := strings.Fields(normalized)
+	if len(tokens) == 0 {
+		return primaryCandidate{}, false, nil
+	}
+	selectiveToken := tokens[0]
+	for _, token := range tokens[1:] {
+		if len(token) > len(selectiveToken) {
+			selectiveToken = token
+		}
+	}
+	var nameID, tokenID int
+	if err := s.db.QueryRowContext(ctx, "SELECT name_id FROM names WHERE normalized_name=?", normalized).Scan(&nameID); err != nil {
+		if err == sql.ErrNoRows {
+			return primaryCandidate{}, false, nil
+		}
+		return primaryCandidate{}, false, err
+	}
+	if err := s.db.QueryRowContext(ctx, "SELECT token_id FROM tokens WHERE token=?", selectiveToken).Scan(&tokenID); err != nil {
+		if err == sql.ErrNoRows {
+			return primaryCandidate{}, false, nil
+		}
+		return primaryCandidate{}, false, err
+	}
+	afterSequence := 0
+	closestDistance := math.Inf(1)
+	var closest primaryCandidate
+	for {
+		candidates, err := s.contextStreetCandidatePage(ctx, nameID, tokenID, afterSequence)
+		if err != nil {
+			return primaryCandidate{}, false, err
+		}
+		if len(candidates) == 0 {
+			break
+		}
+		lastSequence := candidates[len(candidates)-1].sequence
+		candidate, distance, err := s.contextStreetCandidate(ctx, candidates, anchor)
+		if err != nil {
+			return primaryCandidate{}, false, err
+		}
+		if distance < closestDistance {
+			closest, closestDistance = candidate, distance
+		}
+		if distance <= contextStreetEarlyAcceptMeters {
+			break
+		}
+		afterSequence = lastSequence
+		if len(candidates) < contextStreetCandidatePageSize {
+			break
+		}
+	}
+	if closestDistance > contextStreetRadiusMeters {
+		return primaryCandidate{}, false, nil
+	}
+	entity, err := s.Details(ctx, closest.entity.ID)
+	if err != nil {
+		return primaryCandidate{}, false, err
+	}
+	closest.entity = entity
+	return closest, true, nil
+}
+
+func (s *Store) contextStreetCandidatePage(ctx context.Context, nameID, tokenID, afterSequence int) ([]primaryCandidate, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT entity_seq FROM postings
+WHERE token_id=? AND name_id=? AND kind='street' AND name_tf>0 AND NOT closed AND entity_seq>?
+ORDER BY entity_seq LIMIT ?`, tokenID, nameID, afterSequence, contextStreetCandidatePageSize)
+	if err != nil {
+		return nil, err
+	}
+	sequences := []int{}
+	for rows.Next() {
+		var sequence int
+		if err = rows.Scan(&sequence); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		sequences = append(sequences, sequence)
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	if len(sequences) == 0 {
+		return []primaryCandidate{}, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(sequences)), ",")
+	args := make([]any, len(sequences))
+	for i, sequence := range sequences {
+		// Both schema-2 tables are materialized in stable ID order, so the
+		// one-based search sequence is the locator table's zero-based rowid.
+		args[i] = sequence - 1
+	}
+	locatorRows, err := s.db.QueryContext(ctx, `SELECT rowid+1,id,entity_file,entity_row_group,entity_row
+FROM entity_locator WHERE rowid IN (`+placeholders+") ORDER BY rowid", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer locatorRows.Close()
+	candidates := make([]primaryCandidate, 0, len(sequences))
+	for locatorRows.Next() {
+		var candidate primaryCandidate
+		if err = locatorRows.Scan(&candidate.sequence, &candidate.entity.ID, &candidate.entityFile,
+			&candidate.entityRowGroup, &candidate.entityRow); err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err = locatorRows.Err(); err != nil {
+		return nil, err
+	}
+	if len(candidates) != len(sequences) {
+		return nil, fmt.Errorf("street candidate locators: got %d want %d", len(candidates), len(sequences))
+	}
+	return candidates, nil
 }
 
 func filterLocalityTypes(candidates []primaryCandidate) []primaryCandidate {
@@ -247,7 +378,7 @@ func (s *Store) loadCandidateLocations(candidates []primaryCandidate) error {
 	})
 	var currentFile string
 	currentGroup := -1
-	var reader *parquet.GenericReader[entityRow]
+	var reader *parquet.GenericReader[entityLocationRow]
 	defer func() {
 		if reader != nil {
 			_ = reader.Close()
@@ -265,13 +396,13 @@ func (s *Store) loadCandidateLocations(candidates []primaryCandidate) error {
 					return err
 				}
 			}
-			reader = parquet.NewGenericRowGroupReader[entityRow](file.RowGroups()[candidate.entityRowGroup])
+			reader = parquet.NewGenericRowGroupReader[entityLocationRow](file.RowGroups()[candidate.entityRowGroup])
 			currentFile, currentGroup = candidate.entityFile, candidate.entityRowGroup
 		}
 		if err := reader.SeekToRow(int64(candidate.entityRow)); err != nil {
 			return err
 		}
-		row := []entityRow{{}}
+		row := []entityLocationRow{{}}
 		if n, err := reader.Read(row); n != 1 || err != nil && err != io.EOF {
 			return fmt.Errorf("read entity %s: rows=%d: %w", candidate.entity.ID, n, err)
 		}
@@ -281,6 +412,66 @@ func (s *Store) loadCandidateLocations(candidates []primaryCandidate) error {
 		candidate.location = places.Location{Lat: row[0].Lat, Lng: row[0].Lng}
 	}
 	return nil
+}
+
+func (s *Store) contextStreetCandidate(ctx context.Context, candidates []primaryCandidate, anchor places.Location) (primaryCandidate, float64, error) {
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].entityFile != candidates[j].entityFile {
+			return candidates[i].entityFile < candidates[j].entityFile
+		}
+		if candidates[i].entityRowGroup != candidates[j].entityRowGroup {
+			return candidates[i].entityRowGroup < candidates[j].entityRowGroup
+		}
+		return candidates[i].entityRow < candidates[j].entityRow
+	})
+	closestDistance := math.Inf(1)
+	var closest primaryCandidate
+	var currentFile string
+	currentGroup := -1
+	var reader *parquet.GenericReader[entityLocationRow]
+	defer func() {
+		if reader != nil {
+			_ = reader.Close()
+		}
+	}()
+	for i := range candidates {
+		if err := ctx.Err(); err != nil {
+			return primaryCandidate{}, math.Inf(1), err
+		}
+		candidate := &candidates[i]
+		file := s.entityParquet[candidate.entityFile]
+		if file == nil || candidate.entityRowGroup < 0 || candidate.entityRowGroup >= len(file.RowGroups()) {
+			return primaryCandidate{}, math.Inf(1), fmt.Errorf("invalid entity row group for %s", candidate.entity.ID)
+		}
+		if candidate.entityFile != currentFile || candidate.entityRowGroup != currentGroup {
+			if reader != nil {
+				if err := reader.Close(); err != nil {
+					return primaryCandidate{}, math.Inf(1), err
+				}
+			}
+			reader = parquet.NewGenericRowGroupReader[entityLocationRow](file.RowGroups()[candidate.entityRowGroup])
+			currentFile, currentGroup = candidate.entityFile, candidate.entityRowGroup
+		}
+		if err := reader.SeekToRow(int64(candidate.entityRow)); err != nil {
+			return primaryCandidate{}, math.Inf(1), err
+		}
+		row := []entityLocationRow{{}}
+		if n, err := reader.Read(row); n != 1 || err != nil && err != io.EOF {
+			return primaryCandidate{}, math.Inf(1), fmt.Errorf("read entity %s location: rows=%d: %w", candidate.entity.ID, n, err)
+		}
+		if row[0].ID != candidate.entity.ID {
+			return primaryCandidate{}, math.Inf(1), fmt.Errorf("entity locator mismatch: got %s want %s", row[0].ID, candidate.entity.ID)
+		}
+		candidate.location = places.Location{Lat: row[0].Lat, Lng: row[0].Lng}
+		distance := geocoding.DistanceMeters(anchor, candidate.location)
+		if distance < closestDistance {
+			closest, closestDistance = *candidate, distance
+		}
+		if distance <= contextStreetEarlyAcceptMeters {
+			return *candidate, distance, nil
+		}
+	}
+	return closest, closestDistance, nil
 }
 
 func (s *Store) autocompletePostings(ctx context.Context, normalized string) ([]places.Entity, error) {
@@ -392,6 +583,7 @@ FROM search_entities WHERE entity_seq IN (`+placeholders+")", lookupArgs...)
 		if err = detailRows.Scan(&seq, &entity.ID, &entity.Kind, &entity.Name, &entity.Address, &entity.Subtype); err != nil {
 			return nil, err
 		}
+		canonicalizeEntity(&entity)
 		bySequence[seq] = entity
 	}
 	if err = detailRows.Err(); err != nil {

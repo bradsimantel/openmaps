@@ -34,17 +34,29 @@ func ParseAutocompleteContext(input string) (AutocompleteContext, bool) {
 		return AutocompleteContext{}, false
 	}
 	name := Normalize(parts[0])
+	if len(parts) == 2 {
+		name = normalizeLocalityContext(parts[0])
+	}
 	if name == "" || !containsLetter(parts[0]) {
 		return AutocompleteContext{}, false
 	}
 	context := AutocompleteContext{Name: name, Region: region}
 	if len(parts) == 3 {
-		context.Locality = Normalize(parts[1])
+		context.Locality = normalizeLocalityContext(parts[1])
 		if context.Locality == "" || !containsLetter(parts[1]) {
 			return AutocompleteContext{}, false
 		}
 	}
 	return context, true
+}
+
+func normalizeLocalityContext(value string) string {
+	normalized := Normalize(value)
+	words := strings.Fields(strings.ToLower(value))
+	if len(words) > 1 && strings.Trim(words[0], ".") == "st" && strings.HasPrefix(normalized, "street ") {
+		return "saint " + strings.TrimPrefix(normalized, "street ")
+	}
+	return normalized
 }
 
 func containsLetter(value string) bool {

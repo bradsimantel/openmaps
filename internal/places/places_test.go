@@ -19,7 +19,7 @@ func TestParseAutocompleteContext(t *testing.T) {
 		ok    bool
 	}{
 		{"Portland, OR", places.AutocompleteContext{Name: "portland", Region: "oregon"}, true},
-		{"St. Louis, Missouri", places.AutocompleteContext{Name: "street louis", Region: "missouri"}, true},
+		{"St. Louis, Missouri", places.AutocompleteContext{Name: "saint louis", Region: "missouri"}, true},
 		{"Market St, San Francisco, CA", places.AutocompleteContext{Name: "market street", Locality: "san francisco", Region: "california"}, true},
 		{"Washington, D.C.", places.AutocompleteContext{Name: "washington", Region: "district of columbia"}, true},
 		{"White Horse", places.AutocompleteContext{}, false},

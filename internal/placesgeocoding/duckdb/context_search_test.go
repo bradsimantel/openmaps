@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"openmaps/internal/importer"
@@ -38,14 +39,31 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 	}
 	add("fixture:division", "oregon", "area", "Oregon", "region", places.Location{Lat: 44, Lng: -120.5}, "")
 	add("fixture:division", "maine", "area", "Maine", "region", places.Location{Lat: 45.2, Lng: -69.2}, "")
+	add("fixture:division", "missouri", "area", "Missouri", "region", places.Location{Lat: 38.5, Lng: -92.5}, "")
 	add("fixture:division", "multnomah", "area", "Multnomah County", "county", places.Location{Lat: 45.5, Lng: -122.5}, "")
 	add("fixture:division", "cumberland", "area", "Cumberland County", "county", places.Location{Lat: 43.8, Lng: -70.3}, "")
 	add("fixture:division", "portland-or", "area", "Portland", "locality", places.Location{Lat: 45.52, Lng: -122.67}, "")
 	add("fixture:division", "portland-or-neighborhood", "area", "Portland", "neighborhood", places.Location{Lat: 45.51, Lng: -122.66}, "")
 	add("fixture:division", "portland-me", "area", "Portland", "locality", places.Location{Lat: 43.66, Lng: -70.26}, "")
+	add("fixture:division", "saint-louis-mo", "area", "Saint Louis", "locality", places.Location{Lat: 38.63, Lng: -90.20}, "")
 	add("fixture:segment", "main-or", "street", "Main Street", "", places.Location{Lat: 45.53, Lng: -122.68}, "")
 	add("fixture:segment", "main-me", "street", "Main Street", "", places.Location{Lat: 43.65, Lng: -70.25}, "")
 	add("fixture:segment", "remote-me", "street", "Remote Street", "", places.Location{Lat: 43.65, Lng: -70.25}, "")
+	pagedIDs := make([]string, contextStreetCandidatePageSize+5)
+	localPaged := 0
+	for i := range pagedIDs {
+		pagedIDs[i] = "paged-" + strconv.Itoa(i)
+		if importer.PublicID("fixture:segment:"+pagedIDs[i]) > importer.PublicID("fixture:segment:"+pagedIDs[localPaged]) {
+			localPaged = i
+		}
+	}
+	for i, id := range pagedIDs {
+		location := places.Location{Lat: 43.65, Lng: -70.25}
+		if i == localPaged {
+			location = places.Location{Lat: 45.53, Lng: -122.68}
+		}
+		add("fixture:segment", id, "street", "Paged Street", "", location, "")
+	}
 	add("fixture:place", "portland-or-words", "business", "Portland OR", "", places.Location{Lat: 45.54, Lng: -122.69}, "Portland, OR, US")
 	add("fixture:place", "main-portland-words", "business", "Main Street Portland OR", "", places.Location{Lat: 45.54, Lng: -122.69}, "Portland, OR, US")
 	bundle.Relationships = []importer.Relationship{
@@ -54,6 +72,7 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 		{From: "fixture:division:portland-or", To: "fixture:division:multnomah", Kind: "parent_area", Evidence: "fixture hierarchy"},
 		{From: "fixture:division:portland-or-neighborhood", To: "fixture:division:portland-or", Kind: "parent_area", Evidence: "fixture hierarchy"},
 		{From: "fixture:division:portland-me", To: "fixture:division:cumberland", Kind: "parent_area", Evidence: "fixture hierarchy"},
+		{From: "fixture:division:saint-louis-mo", To: "fixture:division:missouri", Kind: "parent_area", Evidence: "fixture hierarchy"},
 	}
 
 	path := filepath.Join(t.TempDir(), "lookup")
@@ -70,6 +89,8 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 	portlandME := importer.PublicID("fixture:division:portland-me")
 	mainOR := importer.PublicID("fixture:segment:main-or")
 	mainME := importer.PublicID("fixture:segment:main-me")
+	saintLouis := importer.PublicID("fixture:division:saint-louis-mo")
+	pagedOR := importer.PublicID("fixture:segment:" + pagedIDs[localPaged])
 	for _, tc := range []struct {
 		query, firstID, kind string
 	}{
@@ -78,6 +99,8 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 		{"Portland, ME", portlandME, "area"},
 		{"Main St, Portland, OR", mainOR, "street"},
 		{"Main Street, Portland, Maine", mainME, "street"},
+		{"St. Louis, MO", saintLouis, "area"},
+		{"Paged Street, Portland, OR", pagedOR, "street"},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			results, queryErr := store.Autocomplete(context.Background(), tc.query)
@@ -88,6 +111,10 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 				t.Fatalf("first result: %+v want id=%s kind=%s", results, tc.firstID, tc.kind)
 			}
 		})
+	}
+	detail, err := store.Details(context.Background(), saintLouis)
+	if err != nil || detail.Name != "St. Louis" {
+		t.Fatalf("canonical locality display name: %+v err=%v", detail, err)
 	}
 	results, err := store.Autocomplete(context.Background(), "Missing Street, Portland, OR")
 	if err != nil || len(results) != 0 {

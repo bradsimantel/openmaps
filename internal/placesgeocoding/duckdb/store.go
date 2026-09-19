@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/parquet-go/parquet-go"
 
@@ -25,6 +26,9 @@ type Store struct {
 	entityParquet map[string]*parquet.File
 	areaParents   map[string][]string
 	bounds        [4]float64
+
+	primaryCandidateCacheMu sync.RWMutex
+	primaryCandidateCache   map[string][]primaryCandidate
 }
 
 type Source struct {
@@ -89,7 +93,11 @@ func openVerified(path string, manifest Manifest) (_ *Store, err error) {
 		}
 		return f, pf, nil
 	}
-	s := &Store{files: map[string]*os.File{}, entityParquet: map[string]*parquet.File{}}
+	s := &Store{
+		files:                 map[string]*os.File{},
+		entityParquet:         map[string]*parquet.File{},
+		primaryCandidateCache: map[string][]primaryCandidate{},
+	}
 	defer func() {
 		if err != nil {
 			_ = s.Close()
@@ -175,10 +183,19 @@ func entityFromRow(row entityRow) (places.Entity, error) {
 		Website: row.Website, Subtype: row.Subtype,
 		Location: places.Location{Lat: row.Lat, Lng: row.Lng},
 	}
+	canonicalizeEntity(&entity)
 	if err := json.Unmarshal([]byte(row.Attributions), &entity.Attributions); err != nil {
 		return entity, err
 	}
 	return entity, nil
+}
+
+func canonicalizeEntity(entity *places.Entity) {
+	// National source names spell out saint even where the ordinary US locality
+	// label uses the abbreviation. Keep autocomplete and details consistent.
+	if entity.Kind == "area" && entity.Subtype == "locality" && strings.HasPrefix(entity.Name, "Saint ") {
+		entity.Name = "St. " + strings.TrimPrefix(entity.Name, "Saint ")
+	}
 }
 
 func (s *Store) Details(ctx context.Context, id string) (places.Entity, error) {

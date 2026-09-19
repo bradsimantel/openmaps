@@ -26,6 +26,12 @@ type entityRow struct {
 	AddressContext    string  `parquet:"address_context"`
 }
 
+type entityLocationRow struct {
+	ID  string  `parquet:"id"`
+	Lat float64 `parquet:"lat"`
+	Lng float64 `parquet:"lng"`
+}
+
 type sourceRow struct {
 	EntityID   string `parquet:"entity_id"`
 	SourceKey  string `parquet:"source_key"`
