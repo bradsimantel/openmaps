@@ -1,5 +1,10 @@
 # National autocomplete context qualification
 
+> **Follow-up:** The ordered suite result below was correct, but a later cold,
+> order-independent qualification exposed a cache-dependent Pennsylvania Avenue
+> timeout. Revision `5030e0b491ad1d5112530750a3105f80f9fc43e2` removes that
+> dependency; see [log 0062](0062-autocomplete-context-cold-qualification.md).
+
 **Date:** 2026-09-19
 
 **Baseline revision:** `08aaa01660f1b1049ef69909dbc7f82e07976176`
