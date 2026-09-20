@@ -1,3 +1,4 @@
 /data/
+/bin/
 /public/tiles/*.pmtiles
 .DS_Store

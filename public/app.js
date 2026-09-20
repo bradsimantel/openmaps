@@ -17,13 +17,21 @@ let sessionToken = newSessionToken();
 const mode=document.querySelector('#lookup-mode');
 let queryMarker, selectedMapResult;
 const routing = initializeRouting({getMap:()=>map, getMapLibre:()=>maplibregl, request});
+const basemapMode=new URLSearchParams(location.search).get('basemap');
+const usBasemap=basemapMode==='us';
+if(usBasemap){
+ document.title='Open Maps · United States';
+ document.querySelector('#intro-region').textContent='UNITED STATES / 50 + DC';
+ document.querySelector('#intro-title').textContent='Search across the United States.';
+ document.querySelector('#search-label').textContent='Explore the United States';
+ status.textContent='Search for a US place, street, or address.';
+ document.querySelector('#scope-label').textContent='US preview · Pinned source snapshots';
+}
 
 async function initializeMap() {
 try {
  const libre = await import('https://esm.sh/maplibre-gl@5.0.1?target=es2022');
  maplibregl = libre.default;
- const basemapMode=new URLSearchParams(location.search).get('basemap');
- const usBasemap=basemapMode==='us';
  let style;
  if(basemapMode==='global'){
   style='https://tiles.openfreemap.org/styles/positron';
@@ -68,7 +76,7 @@ function changed() {
  results.replaceChildren();details.hidden=true;welcome.hidden=Boolean(input.value.trim());
  clearMarkers();
  if(mode.value==='address'){status.textContent='Enter a house number and complete street name, then Find address. For example: 50 Bellevue Ave.';return;}
- if(!input.value.trim()){status.textContent='Search downtown Newport and its nearby streets.';return;}
+ if(!input.value.trim()){status.textContent=usBasemap?'Search for a US place, street, or address.':'Search downtown Newport and its nearby streets.';return;}
  status.textContent='Searching…';
  timer=setTimeout(()=>search(current),180);
 }
@@ -130,7 +138,7 @@ async function lookupGeocode(point){
   if(current!==generation)return;
   if(body.status==='INVALID_REQUEST')throw new Error(body.error_message);
   if(body.status==='ZERO_RESULTS'){
-   status.textContent=body.openmaps.outcome==='outside_coverage'?'Outside the Newport preview rectangle. No address selected.':body.openmaps.outcome==='no_nearby_address'?'No supported address point within 100 metres. Coverage may be incomplete.':'No exact address match. Use the complete street name; check context and coverage. No street or locality fallback is used.';return;
+   status.textContent=body.openmaps.outcome==='outside_coverage'?(usBasemap?'Outside supported US coverage. No address selected.':'Outside the Newport preview rectangle. No address selected.'):body.openmaps.outcome==='no_nearby_address'?'No supported address point within 100 metres. Coverage may be incomplete.':'No exact address match. Use the complete street name; check context and coverage. No street or locality fallback is used.';return;
   }
   if(body.status!=='OK')throw new Error(body.error_message||'Geocoding unavailable');
   if(body.openmaps.outcome==='ambiguous'){

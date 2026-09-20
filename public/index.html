@@ -6,17 +6,17 @@
  <title>Open Maps · Newport</title>
  <link rel="stylesheet" href="https://esm.sh/maplibre-gl@5.0.1/dist/maplibre-gl.css">
  <link rel="stylesheet" href="/style.css">
- <script type="module" src="/app.js?v=5"></script>
+ <script type="module" src="/app.js?v=6"></script>
 </head>
 <body>
  <main>
   <section class="panel" aria-label="Place search">
    <header><a class="brand" href="/">◎ <span>Open Maps</span></a><span class="badge">FIRST LOOK</span></header>
-   <div class="intro"><p class="eyebrow">RHODE ISLAND / 01</p><h1>A little more<br> of Newport.</h1><p>Find a local spot, a street, or an address.<br>Choose a result to put it on the map.</p></div>
+   <div class="intro"><p id="intro-region" class="eyebrow">RHODE ISLAND / 01</p><h1 id="intro-title">A little more<br> of Newport.</h1><p>Find a local spot, a street, or an address.<br>Choose a result to put it on the map.</p></div>
    <label for="lookup-mode">Lookup mode</label>
    <select id="lookup-mode"><option value="places">Places autocomplete</option><option value="address">Forward geocoding</option></select>
    <form id="lookup-form">
-   <label for="search">Explore Newport</label>
+   <label id="search-label" for="search">Explore Newport</label>
    <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Place, street, or address" autocomplete="off" aria-controls="results" aria-describedby="search-status"></div>
    <button id="geocode-submit" type="submit" hidden>Find address</button>
    </form>
@@ -38,7 +38,7 @@
     <p id="route-status" role="status">Choose an origin and destination.</p>
     <p class="lookup-hint">Estimated driving time from provider edge speeds on supported public roads. No live traffic, turn delay, ferries or destination-only access. Both coordinates must snap within 100 m of an eligible retained road shape. Off-road gaps and property entrances are unverified. <a href="/attribution.html">© OpenStreetMap contributors</a></p>
    </section>
-   <footer>Lookup data: <a href="/attribution.html">Overture Maps &amp; OpenStreetMap</a><br>Newport preview · Pinned source snapshots</footer>
+   <footer>Lookup data: <a href="/attribution.html">Overture Maps &amp; OpenStreetMap</a><br><span id="scope-label">Newport preview · Pinned source snapshots</span></footer>
   </section>
   <section class="map-wrap" aria-label="Map"><div id="map"></div><div class="map-label"><span class="dot"></span> <span id="map-region">NEWPORT, RI</span> <span id="map-status" role="status">Loading map…</span></div><div class="map-note">An open view of the world.<br><span>MapLibre + Protomaps</span></div></section>
  </main>
