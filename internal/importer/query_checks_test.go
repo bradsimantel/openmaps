@@ -40,6 +40,43 @@ func TestReadQueryChecksRejectsEmptySet(t *testing.T) {
 	}
 }
 
+func TestReadQueryChecksAcceptsSameInputWithDifferentViewports(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queries.json")
+	raw := `[
+{"input":"Main Street","location_bias":{"south":40,"west":-75,"north":41,"east":-74},"first_kind":"street","min_results":1,"first_inside_bias":true},
+{"input":"Main Street","location_bias":{"south":33,"west":-119,"north":35,"east":-117},"first_kind":"street","outside_result_required":true,"distance_ordered_from_bias_center":true}
+]`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	checks, err := ReadQueryChecks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checks) != 2 || checks[0].LocationBias == nil || checks[1].LocationBias == nil || !checks[0].FirstInsideBias || !checks[1].OutsideResultRequired || !checks[1].DistanceOrderedFromBiasCenter {
+		t.Fatalf("unexpected viewport checks: %+v", checks)
+	}
+}
+
+func TestReadQueryChecksRejectsInvalidViewportAssertions(t *testing.T) {
+	for name, raw := range map[string]string{
+		"missing bias":     `[{"input":"Main Street","first_kind":"street","first_inside_bias":true}]`,
+		"invalid bias":     `[{"input":"Main Street","location_bias":{"south":91,"west":0,"north":91,"east":1},"first_kind":"street"}]`,
+		"contradictory":    `[{"input":"Main Street","location_bias":{"south":40,"west":-75,"north":41,"east":-74},"first_kind":"street","first_inside_bias":true,"all_results_outside_bias":true}]`,
+		"too many results": `[{"input":"Main Street","first_kind":"street","min_results":6}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "queries.json")
+			if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReadQueryChecks(path); err == nil {
+				t.Fatal("accepted invalid viewport query check")
+			}
+		})
+	}
+}
+
 func TestNationalQueryChecksCoverMaintainedCategories(t *testing.T) {
 	checks, err := ReadQueryChecks(filepath.Join("..", "..", "config", "us-query-checks.json"))
 	if err != nil {
@@ -59,6 +96,29 @@ func TestNationalQueryChecksCoverMaintainedCategories(t *testing.T) {
 	for category, count := range want {
 		if got[category] != count {
 			t.Fatalf("national category %s = %d, want %d", category, got[category], count)
+		}
+	}
+}
+
+func TestNationalViewportQueryChecksCoverMaintainedCategories(t *testing.T) {
+	checks, err := ReadQueryChecks(filepath.Join("..", "..", "config", "us-viewport-query-checks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"viewport_business": 4, "viewport_street": 2}
+	got := map[string]int{}
+	for _, check := range checks {
+		if check.Category == "" || check.Intent == "" || check.LocationBias == nil {
+			t.Fatalf("viewport query lacks review metadata or bias: %+v", check)
+		}
+		got[check.Category]++
+	}
+	if len(checks) != 6 || len(got) != len(want) {
+		t.Fatalf("viewport coverage shape: %d checks in %v", len(checks), got)
+	}
+	for category, count := range want {
+		if got[category] != count {
+			t.Fatalf("viewport category %s = %d, want %d", category, got[category], count)
 		}
 	}
 }

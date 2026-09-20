@@ -145,46 +145,105 @@ FROM read_parquet(?) b FULL OUTER JOIN read_parquet(?) c USING(id)`, baseEntitie
 		report.Violations = append(report.Violations, "representative query checks are required")
 	}
 	for _, check := range checks {
-		oldResults, queryErr := before.Autocomplete(ctx, check.Input)
+		oldResults, queryErr := autocompleteForCheck(ctx, before, check)
 		if queryErr != nil {
 			return report, queryErr
 		}
-		newResults, queryErr := after.Autocomplete(ctx, check.Input)
+		newResults, queryErr := autocompleteForCheck(ctx, after, check)
 		if queryErr != nil {
 			return report, queryErr
 		}
 		report.Queries = append(report.Queries, QueryComparison{Check: check, Before: oldResults, After: newResults})
-		firstLocation := places.Location{}
-		if check.Near != nil && len(newResults) != 0 {
-			detail, detailErr := after.Details(ctx, newResults[0].ID)
-			if detailErr != nil {
-				return report, detailErr
-			}
-			firstLocation = detail.Location
+		violations, evaluateErr := queryCheckViolations(ctx, after, check, newResults)
+		if evaluateErr != nil {
+			return report, evaluateErr
 		}
-		hasFirstExpectation := check.FirstID != "" || check.FirstKind != "" || check.FirstName != "" || check.Near != nil
-		if strings.TrimSpace(check.Input) == "" || check.Empty && hasFirstExpectation || !check.Empty && !hasFirstExpectation {
-			report.Violations = append(report.Violations, "query requires an expectation: "+check.Input)
-		} else if check.Near != nil && (check.Near.Lat < -90 || check.Near.Lat > 90 || check.Near.Lng < -180 || check.Near.Lng > 180 || check.Near.RadiusMeters <= 0) {
-			report.Violations = append(report.Violations, "query has invalid location expectation: "+check.Input)
-		} else if check.Empty && len(newResults) != 0 || !check.Empty && (len(newResults) == 0 || check.FirstID != "" && newResults[0].ID != check.FirstID || check.FirstKind != "" && newResults[0].Kind != check.FirstKind || check.FirstName != "" && newResults[0].Name != check.FirstName || check.Near != nil && geocoding.DistanceMeters(firstLocation, places.Location{Lat: check.Near.Lat, Lng: check.Near.Lng}) > check.Near.RadiusMeters) {
-			got := places.Entity{}
-			if len(newResults) != 0 {
-				got = newResults[0]
-				got.Location = firstLocation
-			}
-			report.Violations = append(report.Violations, fmt.Sprintf("first result failed: %s: got id=%q kind=%q name=%q lat=%.7f lng=%.7f; want id=%q kind=%q name=%q near=%+v empty=%t", check.Input, got.ID, got.Kind, got.Name, got.Location.Lat, got.Location.Lng, check.FirstID, check.FirstKind, check.FirstName, check.Near, check.Empty))
-		}
-		for _, result := range newResults {
-			detail, detailErr := after.Details(ctx, result.ID)
-			if detailErr != nil {
-				return report, detailErr
-			}
-			projection := places.Entity{ID: detail.ID, Kind: detail.Kind, Name: detail.Name, Address: detail.Address, Subtype: detail.Subtype}
-			if !reflect.DeepEqual(projection, result) {
-				report.Violations = append(report.Violations, "details mismatch: "+result.ID)
-			}
-		}
+		report.Violations = append(report.Violations, violations...)
 	}
 	return report, nil
+}
+
+func autocompleteForCheck(ctx context.Context, store *Store, check importer.QueryCheck) ([]places.Entity, error) {
+	if check.LocationBias != nil {
+		return store.AutocompleteWithBias(ctx, check.Input, check.LocationBias)
+	}
+	return store.Autocomplete(ctx, check.Input)
+}
+
+func queryCheckViolations(ctx context.Context, store *Store, check importer.QueryCheck, results []places.Entity) ([]string, error) {
+	violations := []string{}
+	biasAssertion := check.FirstInsideBias || check.OutsideResultRequired || check.AllResultsOutsideBias || check.DistanceOrderedFromBiasCenter
+	if check.LocationBias == nil && biasAssertion {
+		violations = append(violations, "query has viewport assertion without location bias: "+check.Input)
+	}
+	if check.MinResults < 0 || check.MinResults > 5 {
+		violations = append(violations, "query min_results must be in [0,5]: "+check.Input)
+	}
+	if check.FirstInsideBias && check.AllResultsOutsideBias {
+		violations = append(violations, "query has contradictory viewport assertions: "+check.Input)
+	}
+	details := make([]places.Entity, len(results))
+	for i, result := range results {
+		detail, err := store.Details(ctx, result.ID)
+		if err != nil {
+			return nil, err
+		}
+		details[i] = detail
+		projection := places.Entity{ID: detail.ID, Kind: detail.Kind, Name: detail.Name, Address: detail.Address, Subtype: detail.Subtype}
+		resultProjection := places.Entity{ID: result.ID, Kind: result.Kind, Name: result.Name, Address: result.Address, Subtype: result.Subtype}
+		if !reflect.DeepEqual(projection, resultProjection) {
+			violations = append(violations, "details mismatch: "+result.ID)
+		}
+	}
+
+	firstLocation := places.Location{}
+	if len(details) != 0 {
+		firstLocation = details[0].Location
+	}
+	hasFirstExpectation := check.FirstID != "" || check.FirstKind != "" || check.FirstName != "" || check.Near != nil
+	if strings.TrimSpace(check.Input) == "" || check.Empty && hasFirstExpectation || !check.Empty && !hasFirstExpectation {
+		violations = append(violations, "query requires an expectation: "+check.Input)
+	} else if check.Near != nil && (check.Near.Lat < -90 || check.Near.Lat > 90 || check.Near.Lng < -180 || check.Near.Lng > 180 || check.Near.RadiusMeters <= 0) {
+		violations = append(violations, "query has invalid location expectation: "+check.Input)
+	} else if check.LocationBias != nil && check.LocationBias.Validate() != nil {
+		violations = append(violations, "query has invalid location bias: "+check.Input)
+	} else if check.Empty && len(results) != 0 || !check.Empty && (len(results) == 0 || check.FirstID != "" && results[0].ID != check.FirstID || check.FirstKind != "" && results[0].Kind != check.FirstKind || check.FirstName != "" && results[0].Name != check.FirstName || check.Near != nil && geocoding.DistanceMeters(firstLocation, places.Location{Lat: check.Near.Lat, Lng: check.Near.Lng}) > check.Near.RadiusMeters) {
+		got := places.Entity{}
+		if len(results) != 0 {
+			got = results[0]
+			got.Location = firstLocation
+		}
+		violations = append(violations, fmt.Sprintf("first result failed: %s: got id=%q kind=%q name=%q lat=%.7f lng=%.7f; want id=%q kind=%q name=%q near=%+v empty=%t", check.Input, got.ID, got.Kind, got.Name, got.Location.Lat, got.Location.Lng, check.FirstID, check.FirstKind, check.FirstName, check.Near, check.Empty))
+	}
+	if check.MinResults > 0 && len(results) < check.MinResults {
+		violations = append(violations, fmt.Sprintf("minimum results failed: %s: got %d want at least %d", check.Input, len(results), check.MinResults))
+	}
+	if check.LocationBias == nil {
+		return violations, nil
+	}
+	inside, outside := 0, 0
+	previousDistance := -1.0
+	for _, detail := range details {
+		if check.LocationBias.Contains(detail.Location) {
+			inside++
+		} else {
+			outside++
+		}
+		distance := places.DistanceMeters(check.LocationBias.Center(), detail.Location)
+		if check.DistanceOrderedFromBiasCenter && previousDistance >= 0 && distance+0.001 < previousDistance {
+			violations = append(violations, fmt.Sprintf("viewport distance order failed: %s: %.3fm followed %.3fm", check.Input, distance, previousDistance))
+			break
+		}
+		previousDistance = distance
+	}
+	if check.FirstInsideBias && (len(details) == 0 || !check.LocationBias.Contains(details[0].Location)) {
+		violations = append(violations, "first result is outside location bias: "+check.Input)
+	}
+	if check.OutsideResultRequired && outside == 0 {
+		violations = append(violations, "outside result required by soft bias: "+check.Input)
+	}
+	if check.AllResultsOutsideBias && inside != 0 {
+		violations = append(violations, fmt.Sprintf("all results should be outside location bias: %s: got %d inside", check.Input, inside))
+	}
+	return violations, nil
 }

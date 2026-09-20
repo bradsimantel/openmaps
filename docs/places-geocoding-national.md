@@ -270,6 +270,32 @@ does not redefine those expectations: changes to IDs, kinds, names or stated
 intent require separate review. The [initial national relevance baseline](log/0059-national-places-relevance-baseline.md)
 is historical evidence: the first national research artifact passed only 18 of
 99 expectations and must not be activated without ranking corrections.
+
+Viewport relevance is intentionally scored separately in
+`config/us-viewport-query-checks.json`. Its cases can repeat the same input with
+different rectangles and assert a first ID/name/kind and vicinity, minimum
+result count, first-result containment, required outside results, all results
+outside a tiny empty rectangle, and nondecreasing distance from the viewport
+center. Distance ordering is asserted only for cases whose retained results
+share the same text-relevance class. The rectangle uses the explicit internal
+`south`, `west`, `north`, `east` WGS84 type; longitude intervals may cross the
+antimeridian under the maintained viewport rules.
+
+The generation comparison runner automatically calls viewport-aware
+autocomplete when a check contains `location_bias`. The national artifact can
+also be qualified directly without a second generation:
+
+```sh
+OPENMAPS_NATIONAL_VIEWPORT_ARTIFACT=data/openmaps-us-20260819 \
+OPENMAPS_NATIONAL_VIEWPORT_CHECKS=config/us-viewport-query-checks.json \
+go test ./internal/placesgeocoding/duckdb \
+  -run TestNationalViewportQualification -count=1 -v
+```
+
+The viewport score does not change the denominator or result of the historical
+99-case core set. Forward-geocoding bounds have different matching and response
+semantics and are not scored by this autocomplete dataset.
+
 Autocomplete now interprets supported comma-separated `city, state` and
 `street, city, state` inputs using exact primary names, the retained division
 hierarchy and locality-relative street distance. This runtime behavior is

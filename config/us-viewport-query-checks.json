@@ -1,0 +1,132 @@
+[
+  {
+    "category": "viewport_business",
+    "intent": "Common chain ranks by distance in a Chicago viewport",
+    "input": "ups store",
+    "location_bias": {
+      "south": 41.64,
+      "west": -87.94,
+      "north": 42.02,
+      "east": -87.52
+    },
+    "first_id": "om_6645d46a5a73b0f7ffb3054ff51e69b7",
+    "first_kind": "business",
+    "first_name": "The UPS Store",
+    "near": {
+      "lat": 41.79461032,
+      "lng": -87.77066965,
+      "radius_meters": 100
+    },
+    "min_results": 5,
+    "first_inside_bias": true,
+    "distance_ordered_from_bias_center": true
+  },
+  {
+    "category": "viewport_business",
+    "intent": "Tiny empty Chicago viewport returns nearest outside stores instead of national defaults",
+    "input": "ups store",
+    "location_bias": {
+      "south": 41.88269,
+      "west": -87.61901,
+      "north": 41.88271,
+      "east": -87.61899
+    },
+    "first_id": "om_9361e989091c6520a78d581d98171a8c",
+    "first_kind": "business",
+    "first_name": "The UPS Store",
+    "near": {
+      "lat": 41.88739091,
+      "lng": -87.61951046,
+      "radius_meters": 100
+    },
+    "min_results": 5,
+    "all_results_outside_bias": true,
+    "distance_ordered_from_bias_center": true
+  },
+  {
+    "category": "viewport_business",
+    "intent": "Common chain ranks by distance in a New York viewport",
+    "input": "ups store",
+    "location_bias": {
+      "south": 40.49,
+      "west": -74.27,
+      "north": 40.92,
+      "east": -73.68
+    },
+    "first_id": "om_08e6ade4c2f09c810e6fae5eb610cb68",
+    "first_kind": "business",
+    "first_name": "The UPS Store",
+    "near": {
+      "lat": 40.71936306,
+      "lng": -73.98950858,
+      "radius_meters": 100
+    },
+    "min_results": 5,
+    "first_inside_bias": true,
+    "distance_ordered_from_bias_center": true
+  },
+  {
+    "category": "viewport_business",
+    "intent": "Tiny empty Times Square viewport returns nearest outside stores",
+    "input": "ups store",
+    "location_bias": {
+      "south": 40.75889,
+      "west": -73.98551,
+      "north": 40.75891,
+      "east": -73.98549
+    },
+    "first_id": "om_3924d84f69180ff7826a4ebecdea8572",
+    "first_kind": "business",
+    "first_name": "The UPS Store",
+    "near": {
+      "lat": 40.7572700598272,
+      "lng": -73.9856243133545,
+      "radius_meters": 100
+    },
+    "min_results": 5,
+    "all_results_outside_bias": true,
+    "distance_ordered_from_bias_center": true
+  },
+  {
+    "category": "viewport_street",
+    "intent": "Ambiguous Main Street resolves near New York City",
+    "input": "Main Street",
+    "location_bias": {
+      "south": 40.4774,
+      "west": -74.2591,
+      "north": 40.9176,
+      "east": -73.7002
+    },
+    "first_id": "om_0121d6b5e3c88873ac64519b3ecd3186",
+    "first_kind": "street",
+    "first_name": "Main Street",
+    "near": {
+      "lat": 40.897494000251605,
+      "lng": -74.04012249688166,
+      "radius_meters": 100
+    },
+    "min_results": 5,
+    "first_inside_bias": true
+  },
+  {
+    "category": "viewport_street",
+    "intent": "Ambiguous Main Street resolves near Los Angeles",
+    "input": "Main Street",
+    "location_bias": {
+      "south": 33.70,
+      "west": -118.70,
+      "north": 34.34,
+      "east": -118.15
+    },
+    "first_id": "om_0bb597d681ad0730d11806b288b19d5f",
+    "first_kind": "street",
+    "first_name": "Main Street",
+    "near": {
+      "lat": 34.00963209665348,
+      "lng": -118.49026171878815,
+      "radius_meters": 100
+    },
+    "min_results": 5,
+    "first_inside_bias": true
+  }
+]

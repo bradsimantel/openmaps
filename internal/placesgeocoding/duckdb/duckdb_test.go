@@ -684,6 +684,28 @@ func TestMissingShardInterruptedBuildAndGenerationComparison(t *testing.T) {
 	if err != nil || len(comparison.Violations) != 1 || !strings.HasPrefix(comparison.Violations[0], "first result failed: White:") {
 		t.Fatalf("name expectation was not enforced: %+v: %v", comparison, err)
 	}
+	newportBias := places.Viewport{South: 41.47, West: -71.33, North: 41.51, East: -71.29}
+	comparison, err = placeduckdb.Compare(context.Background(), first, second, []importer.QueryCheck{{
+		Category: "viewport_business", Intent: "fixture viewport", Input: "White", LocationBias: &newportBias,
+		FirstID: importer.PublicID("fixture:place:tavern"), FirstName: "White Horse Tavern", MinResults: 1, FirstInsideBias: true,
+	}})
+	if err != nil || len(comparison.Violations) != 0 {
+		t.Fatalf("viewport expectation failed: %+v: %v", comparison, err)
+	}
+	hawaiiBias := places.Viewport{South: 20, West: -158, North: 22, East: -156}
+	comparison, err = placeduckdb.Compare(context.Background(), first, second, []importer.QueryCheck{{
+		Category: "viewport_business", Intent: "fixture soft bias", Input: "White", LocationBias: &hawaiiBias,
+		FirstID: importer.PublicID("fixture:place:tavern"), AllResultsOutsideBias: true, OutsideResultRequired: true,
+	}})
+	if err != nil || len(comparison.Violations) != 0 {
+		t.Fatalf("soft viewport expectation failed: %+v: %v", comparison, err)
+	}
+	comparison, err = placeduckdb.Compare(context.Background(), first, second, []importer.QueryCheck{{
+		Input: "White", FirstID: importer.PublicID("fixture:place:tavern"), FirstInsideBias: true,
+	}})
+	if err != nil || len(comparison.Violations) != 1 || !strings.Contains(comparison.Violations[0], "without location bias") {
+		t.Fatalf("invalid viewport assertion was not rejected: %+v: %v", comparison, err)
+	}
 	missing := filepath.Join(root, "missing-source.parquet")
 	if err = os.Rename(filepath.Join(second, placeduckdb.SourcesName), missing); err != nil {
 		t.Fatal(err)

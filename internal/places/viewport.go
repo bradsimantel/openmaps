@@ -9,10 +9,10 @@ import (
 // low corner and North/East is the high corner. West greater than East means
 // the rectangle crosses the antimeridian.
 type Viewport struct {
-	South float64
-	West  float64
-	North float64
-	East  float64
+	South float64 `json:"south"`
+	West  float64 `json:"west"`
+	North float64 `json:"north"`
+	East  float64 `json:"east"`
 }
 
 // Validate applies the Google viewport rules used by the supported Places and

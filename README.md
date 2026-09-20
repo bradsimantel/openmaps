@@ -350,6 +350,14 @@ The geocoding milestone also passed a [26-case source-backed benchmark](docs/geo
 against a fresh DuckDB generation, and in-app browser forward/reverse flows
 with ambiguity, errors and rollback. See [historical geocoding verification](docs/log/0009-geocoding-verification.md).
 
+National autocomplete quality is reported in two separately versioned slices:
+the original 99 un-biased expectations and six viewport relevance checks. The
+current national artifact's latest recorded scores are **71/99 core** and
+**6/6 viewport**. Keeping the denominators separate preserves the historical
+core trend while making viewport and distance behavior a release gate. See the
+[national qualification instructions](docs/places-geocoding-national.md) and
+[historical viewport qualification](docs/log/0069-viewport-relevance-gate.md).
+
 Check a real business, address, street and area through autocomplete, details and
 map placement. Also check keyboard selection, empty results, fast input changes,
 mobile layout and JavaScript errors. Blocking esm.sh should leave search and
