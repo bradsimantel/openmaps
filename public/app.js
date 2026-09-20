@@ -20,21 +20,27 @@ const routing = initializeRouting({getMap:()=>map, getMapLibre:()=>maplibregl, r
 
 async function initializeMap() {
 try {
- const [libre, pmtiles, basemaps] = await Promise.all([
-  import('https://esm.sh/maplibre-gl@5.0.1?target=es2022'),
-  import('https://esm.sh/pmtiles@4.2.1?target=es2022&deps=fflate@0.8.2'),
-  import('https://esm.sh/@protomaps/basemaps@5.7.2?target=es2022'),
- ]);
+ const libre = await import('https://esm.sh/maplibre-gl@5.0.1?target=es2022');
  maplibregl = libre.default;
- const protocol = new pmtiles.Protocol();
- maplibregl.addProtocol('pmtiles', protocol.tile);
- map = new maplibregl.Map({
-  container: 'map', center: [-71.312,41.49], zoom: 14,
-  style: {version:8,
+ let style;
+ if(new URLSearchParams(location.search).get('basemap')==='global'){
+  style='https://tiles.openfreemap.org/styles/positron';
+ }else{
+  const [pmtiles,basemaps] = await Promise.all([
+   import('https://esm.sh/pmtiles@4.2.1?target=es2022&deps=fflate@0.8.2'),
+   import('https://esm.sh/@protomaps/basemaps@5.7.2?target=es2022'),
+  ]);
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+  style={version:8,
    glyphs:'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
    sprite:'https://protomaps.github.io/basemaps-assets/sprites/v4/light',
    sources:{protomaps:{type:'vector',url:`pmtiles://${location.origin}/tiles/newport.pmtiles`,attribution:'<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a> · <a href="https://protomaps.com">Protomaps</a>'}},
-   layers:basemaps.layers('protomaps',basemaps.namedFlavor('light'),{lang:'en'})}
+   layers:basemaps.layers('protomaps',basemaps.namedFlavor('light'),{lang:'en'})};
+ }
+ map = new maplibregl.Map({
+  container: 'map', center: [-71.312,41.49], zoom: 14,
+  style
  });
  map.addControl(new maplibregl.NavigationControl(),'top-right');
  map.on('load',()=>{document.querySelector('#map-status').textContent='Map ready';routing.mapReady();if(selectedMapResult)placeMarker(...selectedMapResult);});

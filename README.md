@@ -68,6 +68,11 @@ Open **http://127.0.0.1:8080**. Try `White Horse`, `50 Bellevue`, `Thames`, or
 Enter to select. Names, coordinates, available address and website come from the
 selected entity's details response.
 
+The default demo uses the local Newport PMTiles cutout. Append
+`?basemap=global` to use OpenFreeMap's public global vector style instead; that
+mode sends map tile and viewport requests to OpenFreeMap and requires network
+access.
+
 For geocoding, choose **Forward geocoding**, enter `50 Bellevue Ave`, and press
 **Find address**. Click the map for reverse lookup. The result shows source
 coordinates, approximate precision and reverse distance. `364 Bellevue Avenue`
