@@ -6,7 +6,14 @@ const details = document.querySelector('#details');
 const welcome = document.querySelector('#welcome');
 let timer, controller, generation = 0, marker, map, maplibregl;
 export {map};
-let sessionToken = crypto.randomUUID();
+function newSessionToken() {
+ if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+ const bytes=new Uint8Array(16);
+ if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+ else for(let i=0;i<bytes.length;i++)bytes[i]=Math.floor(Math.random()*256);
+ return Array.from(bytes,byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+let sessionToken = newSessionToken();
 const mode=document.querySelector('#lookup-mode');
 let queryMarker, selectedMapResult;
 const routing = initializeRouting({getMap:()=>map, getMapLibre:()=>maplibregl, request});
@@ -76,7 +83,7 @@ async function select(prediction) {
  try {
   const p=await request(`/v1/${prediction.place}?sessionToken=${encodeURIComponent(sessionToken)}`,{headers:{'X-Goog-FieldMask':'id,displayName,formattedAddress,location,types,websiteUri,attributions'},signal:controller.signal});
   if(current!==generation)return;
-  sessionToken=crypto.randomUUID();results.replaceChildren();details.replaceChildren();details.hidden=false;welcome.hidden=true;
+  sessionToken=newSessionToken();results.replaceChildren();details.replaceChildren();details.hidden=false;welcome.hidden=true;
   details.append(element('div',kind(p.types),'eyebrow'),element('h2',p.displayName.text));
   if(p.formattedAddress)details.append(element('p',p.formattedAddress));
   details.append(element('p',`${p.location.latitude.toFixed(6)}, ${p.location.longitude.toFixed(6)}`,'coords'));
