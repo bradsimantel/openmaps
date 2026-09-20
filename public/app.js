@@ -22,8 +22,10 @@ async function initializeMap() {
 try {
  const libre = await import('https://esm.sh/maplibre-gl@5.0.1?target=es2022');
  maplibregl = libre.default;
+ const basemapMode=new URLSearchParams(location.search).get('basemap');
+ const usBasemap=basemapMode==='us';
  let style;
- if(new URLSearchParams(location.search).get('basemap')==='global'){
+ if(basemapMode==='global'){
   style='https://tiles.openfreemap.org/styles/positron';
  }else{
   const [pmtiles,basemaps] = await Promise.all([
@@ -32,14 +34,16 @@ try {
   ]);
   const protocol = new pmtiles.Protocol();
   maplibregl.addProtocol('pmtiles', protocol.tile);
+  const tiles=usBasemap?'/tiles/us.pmtiles':'/tiles/newport.pmtiles';
   style={version:8,
    glyphs:'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
    sprite:'https://protomaps.github.io/basemaps-assets/sprites/v4/light',
-   sources:{protomaps:{type:'vector',url:`pmtiles://${location.origin}/tiles/newport.pmtiles?v=2`,attribution:'<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a> · <a href="https://protomaps.com">Protomaps</a>'}},
+   sources:{protomaps:{type:'vector',url:`pmtiles://${location.origin}${tiles}`,attribution:'<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a> · <a href="https://protomaps.com">Protomaps</a>'}},
    layers:basemaps.layers('protomaps',basemaps.namedFlavor('light'),{lang:'en'})};
  }
+ if(usBasemap)document.querySelector('#map-region').textContent='UNITED STATES';
  map = new maplibregl.Map({
-  container: 'map', center: [-71.312,41.49], zoom: 14,
+  container: 'map', center: usBasemap?[-98.5,39.8]:[-71.312,41.49], zoom: usBasemap?3.5:14,
   style
  });
  map.addControl(new maplibregl.NavigationControl(),'top-right');

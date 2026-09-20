@@ -71,7 +71,9 @@ selected entity's details response.
 The default demo uses the local Newport PMTiles cutout. Append
 `?basemap=global` to use OpenFreeMap's public global vector style instead; that
 mode sends map tile and viewport requests to OpenFreeMap and requires network
-access.
+access. To serve a self-hosted US archive, expose it as
+`public/tiles/us.pmtiles` and append `?basemap=us`; that mode starts with a
+national viewport while keeping all tile requests on the Open Maps server.
 
 For geocoding, choose **Forward geocoding**, enter `50 Bellevue Ave`, and press
 **Find address**. Click the map for reverse lookup. The result shows source

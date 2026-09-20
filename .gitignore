@@ -1,2 +1,3 @@
 /data/
+/public/tiles/*.pmtiles
 .DS_Store
