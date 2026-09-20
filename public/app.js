@@ -35,7 +35,7 @@ try {
   style={version:8,
    glyphs:'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf',
    sprite:'https://protomaps.github.io/basemaps-assets/sprites/v4/light',
-   sources:{protomaps:{type:'vector',url:`pmtiles://${location.origin}/tiles/newport.pmtiles`,attribution:'<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a> · <a href="https://protomaps.com">Protomaps</a>'}},
+   sources:{protomaps:{type:'vector',url:`pmtiles://${location.origin}/tiles/newport.pmtiles?v=2`,attribution:'<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a> · <a href="https://protomaps.com">Protomaps</a>'}},
    layers:basemaps.layers('protomaps',basemaps.namedFlavor('light'),{lang:'en'})};
  }
  map = new maplibregl.Map({
