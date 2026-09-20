@@ -66,6 +66,27 @@ try {
 initializeMap();
 function element(tag,text,className) { const el=document.createElement(tag);el.textContent=text;if(className)el.className=className;return el; }
 function kind(types) {return types.includes('street_address')?'Address':types.includes('route')?'Street':types.includes('political')?'Area':'Place';}
+function currentViewport(){
+ if(!map)return null;
+ const bounds=map.getBounds();
+ const south=Math.max(-90,bounds.getSouth()),north=Math.min(90,bounds.getNorth());
+ const rawWest=bounds.getWest(),rawEast=bounds.getEast();
+ let west,east;
+ if(rawEast-rawWest>=360){west=-180;east=180;}
+ else{
+  const wrap=longitude=>((longitude+180)%360+360)%360-180;
+  west=wrap(rawWest);east=wrap(rawEast);
+ }
+ return {south,west,north,east};
+}
+function placesLocationBias(){
+ const viewport=currentViewport();if(!viewport)return undefined;
+ return {rectangle:{low:{latitude:viewport.south,longitude:viewport.west},high:{latitude:viewport.north,longitude:viewport.east}}};
+}
+function geocodingBounds(){
+ const viewport=currentViewport();if(!viewport)return '';
+ return `${viewport.south},${viewport.west}|${viewport.north},${viewport.east}`;
+}
 async function request(url,options={}) {
  const response=await fetch(url,options);const body=await response.json();
  if(!response.ok)throw new Error(body.error?.message || body.error_message || 'Request failed');
@@ -83,7 +104,8 @@ function changed() {
 async function search(current) {
  controller=new AbortController();
  try {
-  const body=await request('/v1/places:autocomplete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:input.value,sessionToken}),signal:controller.signal});
+  const locationBias=placesLocationBias();
+  const body=await request('/v1/places:autocomplete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({input:input.value,sessionToken,locationBias}),signal:controller.signal});
   if(current!==generation)return;
   results.replaceChildren();
   for(const suggestion of body.suggestions){
@@ -92,7 +114,7 @@ async function search(current) {
    if(p.structuredFormat.secondaryText)button.append(element('small',p.structuredFormat.secondaryText.text));
    button.addEventListener('click',()=>select(p));li.append(button);results.append(li);
   }
-  status.textContent=body.suggestions.length?`${body.suggestions.length} suggestions. Choose a result to see it on the map.`:'No matches in this region. Try a shorter name or street.';
+  status.textContent=body.suggestions.length?`${body.suggestions.length} suggestions${locationBias?', softly ranked for the visible map':''}. Choose a result to see it on the map.`:'No matches. Try a shorter name or street.';
  }catch(error){if(error.name!=='AbortError'&&current===generation)status.textContent=error.message;}
 }
 async function select(prediction) {
@@ -133,7 +155,8 @@ async function lookupGeocode(point){
  status.textContent=point?'Finding a nearby address…':'Looking up address…';
  if(point&&map){const dot=element('div','','query-marker');queryMarker=new maplibregl.Marker({element:dot}).setLngLat([point.lng,point.lat]).addTo(map);queryMarker.getElement().setAttribute('aria-label','Reverse lookup query point');}
  try{
-  const query=point?`latlng=${point.lat},${point.lng}`:`address=${encodeURIComponent(input.value)}`;
+  const bounds=geocodingBounds();
+  const query=point?`latlng=${point.lat},${point.lng}`:`address=${encodeURIComponent(input.value)}${bounds?`&bounds=${encodeURIComponent(bounds)}`:''}`;
   const body=await request(`/maps/api/geocode/json?${query}`,{signal:controller.signal});
   if(current!==generation)return;
   if(body.status==='INVALID_REQUEST')throw new Error(body.error_message);

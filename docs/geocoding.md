@@ -11,7 +11,7 @@ street-segment geometry as an address fallback.
 
 ## Requests and responses
 
-Supply exactly one query parameter:
+Supply exactly one of `address` or `latlng`:
 
 ```sh
 curl -sSG http://127.0.0.1:8080/maps/api/geocode/json \
@@ -50,10 +50,16 @@ public ID. An outside-rectangle query returns no results even if a point just
 inside is less than 100 metres away. The rectangle is not a municipal boundary.
 
 Optional `language=en` or `en-US` is accepted; there is no translation or
-Accept-Language/IP bias. Optional `key` is accepted but not authenticated, as in
-Places. Duplicate query parameters, malformed queries, empty explicit language,
-bodies and other parameters are rejected. Unsupported parameters include
-`components`, `bounds`, `region`, `result_type`, `location_type`, `place_id`,
+Accept-Language/IP bias. Forward requests may add a soft viewport bias as
+`bounds=southwest_latitude,southwest_longitude|northeast_latitude,northeast_longitude`.
+It reorders otherwise exact candidates but does not exclude outside results.
+Antimeridian crossing and degenerate closed rectangles follow the shared
+[viewport contract](viewport-search.md). `bounds` with reverse `latlng` is
+rejected; reverse lookup continues to use only the clicked point. Optional
+`key` is accepted but not authenticated, as in Places. Duplicate query
+parameters, malformed queries, empty explicit language, bodies and other
+parameters are rejected. Unsupported parameters include
+`components`, `region`, `result_type`, `location_type`, `place_id`,
 `extra_computations`, field masks (`fields`, `$fields`, `X-Goog-FieldMask`) and
 session tokens. XML, v4, Google IDs and Google SDK compatibility are unsupported.
 No parameters that would change a result are silently ignored.
@@ -124,7 +130,9 @@ are not a new persisted attribute or a change to Places responses. See the
 | `INVALID_REQUEST` | Invalid/unsupported request or address syntax, including explicit units |
 | `UNKNOWN_ERROR` | Internal/unavailable geocoder |
 
-Forward ambiguity is ordered by public ID, not confidence; there is no result
+Forward ambiguity without `bounds` is ordered by public ID, not confidence.
+With `bounds`, candidates inside and then nearest the viewport center are
+preferred; public-ID order remains the stable tie break. There is no result
 truncation or arbitrary collapse of distinct address identities. For example,
 `364 Bellevue Avenue` returns eight points and `199 James T Connell Memorial Rd`
 returns twelve in both retained snapshots. A missing unit is never filled or

@@ -381,6 +381,12 @@ func (s *Store) materializeAddress(ctx context.Context, candidate addressCandida
 }
 
 func (s *Store) Forward(ctx context.Context, input string) (geocoding.Response, error) {
+	return s.ForwardWithBias(ctx, input, nil)
+}
+
+// ForwardWithBias retains every exact match and only changes their order. A
+// candidate outside the viewport remains eligible.
+func (s *Store) ForwardWithBias(ctx context.Context, input string, boundsBias *places.Viewport) (geocoding.Response, error) {
 	query, out, err := geocoding.ParseForward(input)
 	if err != nil {
 		return out, err
@@ -415,6 +421,17 @@ FROM address_lookup WHERE address_key=? ORDER BY entity_id`, query.Key)
 		}
 		result.Partial = query.Partial
 		out.Results = append(out.Results, result)
+	}
+	if boundsBias != nil {
+		center := boundsBias.Center()
+		sort.SliceStable(out.Results, func(i, j int) bool {
+			left, right := out.Results[i].Entity.Location, out.Results[j].Entity.Location
+			leftInside, rightInside := boundsBias.Contains(left), boundsBias.Contains(right)
+			if leftInside != rightInside {
+				return leftInside
+			}
+			return places.DistanceMeters(center, left) < places.DistanceMeters(center, right)
+		})
 	}
 	if len(out.Results) > 0 {
 		out.Outcome = "matched"

@@ -35,7 +35,7 @@ func (h Handler) geocode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch k {
-		case "address", "latlng", "key":
+		case "address", "latlng", "key", "bounds":
 		case "language":
 			if v[0] != "en" && v[0] != "en-US" {
 				invalid("Only language=en or en-US is supported")
@@ -53,6 +53,18 @@ func (h Handler) geocode(w http.ResponseWriter, r *http.Request) {
 	if q.Has("address") == q.Has("latlng") {
 		invalid("Supply exactly one of address or latlng")
 		return
+	}
+	var boundsBias *places.Viewport
+	if q.Has("bounds") {
+		if q.Has("latlng") {
+			invalid("bounds is supported only with forward address geocoding")
+			return
+		}
+		boundsBias, err = parseGeocodingBounds(q.Get("bounds"))
+		if err != nil {
+			invalid(err.Error())
+			return
+		}
 	}
 	var probe [1]byte
 	if n, e := r.Body.Read(probe[:]); n != 0 || (e != nil && e != io.EOF) {
@@ -79,7 +91,7 @@ func (h Handler) geocode(w http.ResponseWriter, r *http.Request) {
 		}
 		response, err = h.Geocoding.Reverse(r.Context(), places.Location{Lat: lat, Lng: lng})
 	} else {
-		response, err = h.Geocoding.Forward(r.Context(), q.Get("address"))
+		response, err = h.Geocoding.ForwardWithBias(r.Context(), q.Get("address"), boundsBias)
 	}
 	if err != nil {
 		if response.Outcome == "invalid_input" || response.Outcome == "unsupported_input" {

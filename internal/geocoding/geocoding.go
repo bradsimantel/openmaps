@@ -4,7 +4,6 @@ package geocoding
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -13,7 +12,6 @@ import (
 )
 
 const ReverseLimitMeters = 100.0
-const earthRadius = 6371008.8
 
 type Result struct {
 	Entity         places.Entity
@@ -118,7 +116,5 @@ func ContextMatches(stored, requested string) bool {
 // DistanceMeters uses WGS84 latitude/longitude and the IUGG mean Earth radius.
 // This is spherical straight-line distance, not walking distance or containment.
 func DistanceMeters(a, b places.Location) float64 {
-	rad := math.Pi / 180
-	x := math.Pow(math.Sin((b.Lat-a.Lat)*rad/2), 2) + math.Cos(a.Lat*rad)*math.Cos(b.Lat*rad)*math.Pow(math.Sin((b.Lng-a.Lng)*rad/2), 2)
-	return 2 * earthRadius * math.Asin(math.Sqrt(math.Min(1, math.Max(0, x))))
+	return places.DistanceMeters(a, b)
 }

@@ -98,6 +98,29 @@ func TestAutocompleteDetailsContract(t *testing.T) {
 	}
 }
 
+func TestAutocompleteLocationBiasRequest(t *testing.T) {
+	h, _ := setup(t)
+	valid := `{"input":"Dateline","locationBias":{"rectangle":{"low":{"latitude":-1,"longitude":170},"high":{"latitude":1,"longitude":-170}}}}`
+	if w := call(h, "POST", "/v1/places:autocomplete", valid, ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Dateline") {
+		t.Fatalf("valid antimeridian bias: %d %s", w.Code, w.Body.String())
+	}
+	for name, body := range map[string]string{
+		"circle unsupported":      `{"input":"White","locationBias":{"circle":{"center":{"latitude":0,"longitude":0},"radius":1}}}`,
+		"restriction unsupported": `{"input":"White","locationRestriction":{"rectangle":{"low":{"latitude":0,"longitude":0},"high":{"latitude":1,"longitude":1}}}}`,
+		"missing corner":          `{"input":"White","locationBias":{"rectangle":{"low":{"latitude":0,"longitude":0}}}}`,
+		"unknown coordinate":      `{"input":"White","locationBias":{"rectangle":{"low":{"latitude":0,"longitude":0,"altitude":1},"high":{"latitude":1,"longitude":1}}}}`,
+		"inverted latitude":       `{"input":"White","locationBias":{"rectangle":{"low":{"latitude":2,"longitude":0},"high":{"latitude":1,"longitude":1}}}}`,
+		"empty longitude":         `{"input":"White","locationBias":{"rectangle":{"low":{"latitude":0,"longitude":180},"high":{"latitude":1,"longitude":-180}}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := call(h, "POST", "/v1/places:autocomplete", body, "")
+			if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "INVALID_ARGUMENT") {
+				t.Fatalf("%d %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestAutocompleteExactAddressUsesGeocodingProjection(t *testing.T) {
 	h, _ := setup(t)
 	w := call(h, "POST", "/v1/places:autocomplete", `{"input":"26 Marlborough Street, RI, 02840, US"}`, "")

@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -93,11 +94,14 @@ func TestGeocodingContract(t *testing.T) {
 	h := geocodingHandler(t)
 	for _, tc := range []struct{ query, status string }{
 		{"address=26+Marlborough+St", "OK"}, {"address=99999+Marlborough+Street", "ZERO_RESULTS"},
+		{"address=26+Marlborough+St&bounds=41.47,-71.33%7C41.51,-71.29", "OK"},
 		{"latlng=0,0", "ZERO_RESULTS"}, {"address=26+Marlborough+St&language=en-US&key=ignored", "OK"},
 		{"", "INVALID_REQUEST"}, {"address=", "INVALID_REQUEST"}, {"latlng=NaN,0", "INVALID_REQUEST"}, {"latlng=91,0", "INVALID_REQUEST"}, {"latlng=41,-181", "INVALID_REQUEST"}, {"latlng=41", "INVALID_REQUEST"},
 		{"address=x&latlng=0,0", "INVALID_REQUEST"}, {"address=x&address=y", "INVALID_REQUEST"},
 		{"address=x&language=fr", "INVALID_REQUEST"}, {"address=x&language=", "INVALID_REQUEST"},
 		{"address=26+Marlborough+St+Unit+2", "INVALID_REQUEST"}, {"address=x&region=us", "INVALID_REQUEST"},
+		{"address=x&bounds=bad", "INVALID_REQUEST"}, {"address=x&bounds=42,-71%7C41,-70", "INVALID_REQUEST"},
+		{"address=x&bounds=0,180%7C1,-180", "INVALID_REQUEST"}, {"latlng=41,-71&bounds=40,-72%7C42,-70", "INVALID_REQUEST"},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
 			w := call(h, "GET", "/maps/api/geocode/json?"+tc.query, "", "")
@@ -110,7 +114,7 @@ func TestGeocodingContract(t *testing.T) {
 			}
 		})
 	}
-	for _, parameter := range []string{"bounds", "components", "result_type", "location_type", "place_id", "extra_computations", "fields", "$fields", "region", "sessionToken"} {
+	for _, parameter := range []string{"components", "result_type", "location_type", "place_id", "extra_computations", "fields", "$fields", "region", "sessionToken"} {
 		w := call(h, "GET", "/maps/api/geocode/json?address=x&"+url.QueryEscape(parameter)+"=x", "", "")
 		if !strings.Contains(w.Body.String(), "INVALID_REQUEST") {
 			t.Fatal(w.Body.String())
@@ -150,5 +154,24 @@ func TestGeocodingContract(t *testing.T) {
 		if !strings.Contains(w, "INVALID_REQUEST") {
 			t.Fatal(w)
 		}
+	}
+}
+
+func TestForwardGeocodingBoundsBias(t *testing.T) {
+	h := geocodingHandler(t)
+	w := call(h, "GET", "/maps/api/geocode/json?address=10+Shared+Street&bounds=41.480019,-71.311%7C41.48003,-71.309", "", "")
+	var body struct {
+		Status  string `json:"status"`
+		Results []struct {
+			Geometry struct {
+				Location struct{ Lat, Lng float64 }
+			} `json:"geometry"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusOK || body.Status != "OK" || len(body.Results) != 2 || body.Results[0].Geometry.Location.Lat != 41.48002 {
+		t.Fatalf("bounds bias did not rank the nearby exact match while retaining both: %d %s", w.Code, w.Body.String())
 	}
 }

@@ -6,7 +6,7 @@
  <title>Open Maps · Newport</title>
  <link rel="stylesheet" href="https://esm.sh/maplibre-gl@5.0.1/dist/maplibre-gl.css">
  <link rel="stylesheet" href="/style.css">
- <script type="module" src="/app.js?v=6"></script>
+ <script type="module" src="/app.js?v=7"></script>
 </head>
 <body>
  <main>
@@ -20,7 +20,7 @@
    <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Place, street, or address" autocomplete="off" aria-controls="results" aria-describedby="search-status"></div>
    <button id="geocode-submit" type="submit" hidden>Find address</button>
    </form>
-   <p class="lookup-hint">Click the map for the nearest address within 100 metres. Source points have unknown rooftop, entrance and unit precision.</p>
+   <p class="lookup-hint">The visible map softly biases autocomplete and forward geocoding; matches outside it remain possible. Click the map for the nearest address within 100 metres. Source points have unknown rooftop, entrance and unit precision.</p>
    <a class="lookup-hint" href="#routing">Plan a driving route ↓</a>
    <p id="search-status" class="status" role="status">Search downtown Newport and its nearby streets.</p>
    <ul id="results" aria-label="Search suggestions"></ul>

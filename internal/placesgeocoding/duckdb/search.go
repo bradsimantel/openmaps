@@ -18,6 +18,11 @@ import (
 	"openmaps/internal/places"
 )
 
+const (
+	viewportContextRadiusMeters   = 5_000
+	viewportContextCandidateLimit = 25
+)
+
 func prefixUpperBound(prefix string) (string, bool) {
 	runes := []rune(prefix)
 	for i := len(runes) - 1; i >= 0; i-- {
@@ -35,8 +40,23 @@ func prefixUpperBound(prefix string) (string, bool) {
 }
 
 func (s *Store) Autocomplete(ctx context.Context, input string) ([]places.Entity, error) {
+	return s.AutocompleteWithBias(ctx, input, nil)
+}
+
+// AutocompleteWithBias applies a soft viewport signal after text relevance.
+// It never excludes a text match solely because the entity is outside the
+// viewport.
+func (s *Store) AutocompleteWithBias(ctx context.Context, input string, locationBias *places.Viewport) ([]places.Entity, error) {
+	var (
+		results []places.Entity
+		err     error
+	)
 	if interpreted, ok := places.ParseAutocompleteContext(input); ok {
-		return s.autocompleteContext(ctx, interpreted)
+		results, err = s.autocompleteContext(ctx, interpreted)
+		if err != nil || locationBias == nil {
+			return results, err
+		}
+		return s.applyViewportBias(ctx, input, results, *locationBias)
 	}
 	normalized := places.Normalize(input)
 	if normalized == "" {
@@ -50,18 +70,252 @@ WHERE h.prefix=? ORDER BY h.rank`, normalized)
 			return nil, err
 		}
 		defer rows.Close()
-		out := []places.Entity{}
+		results = []places.Entity{}
 		for rows.Next() {
 			var entity places.Entity
 			if err = rows.Scan(&entity.ID, &entity.Kind, &entity.Name, &entity.Address, &entity.Subtype); err != nil {
 				return nil, err
 			}
 			canonicalizeEntity(&entity)
-			out = append(out, entity)
+			results = append(results, entity)
 		}
-		return out, rows.Err()
+		if err = rows.Err(); err != nil || locationBias == nil {
+			return results, err
+		}
+		return s.applyViewportBias(ctx, input, results, *locationBias)
 	}
-	return s.autocompleteUnstructured(ctx, normalized)
+	if locationBias == nil {
+		return s.autocompleteUnstructured(ctx, normalized)
+	}
+	textContext, err := s.viewportSearchContext(ctx, *locationBias)
+	if err != nil {
+		return nil, err
+	}
+	type searchResult struct {
+		entities []places.Entity
+		err      error
+	}
+	baselineSearch := make(chan searchResult, 1)
+	go func() {
+		entities, searchErr := s.autocompleteUnstructured(ctx, normalized)
+		baselineSearch <- searchResult{entities: entities, err: searchErr}
+	}()
+	var contextualSearch chan searchResult
+	if textContext != "" {
+		contextualSearch = make(chan searchResult, 1)
+		go func() {
+			entities, searchErr := s.autocompletePostingsLimit(ctx, normalized+" "+textContext, viewportContextCandidateLimit)
+			contextualSearch <- searchResult{entities: entities, err: searchErr}
+		}()
+	}
+	type streetResult struct {
+		candidate primaryCandidate
+		ok        bool
+		err       error
+	}
+	var streetSearch chan streetResult
+	if hasExplicitStreetSuffix(normalized) {
+		streetSearch = make(chan streetResult, 1)
+		go func() {
+			candidate, ok, streetErr := s.contextStreet(ctx, normalized, locationBias.Center())
+			streetSearch <- streetResult{candidate: candidate, ok: ok, err: streetErr}
+		}()
+	}
+	baseline := <-baselineSearch
+	if baseline.err != nil {
+		return nil, baseline.err
+	}
+	results = baseline.entities
+	if contextualSearch != nil {
+		contextual := <-contextualSearch
+		if contextual.err != nil {
+			return nil, contextual.err
+		}
+		results = mergeViewportCandidates(contextual.entities, results)
+	}
+	if streetSearch != nil {
+		nearby := <-streetSearch
+		if nearby.err != nil {
+			return nil, nearby.err
+		}
+		if !nearby.ok {
+			return s.applyViewportBias(ctx, input, results, *locationBias)
+		}
+		for i := range results {
+			if results[i].Kind == "street" && places.Normalize(results[i].Name) == normalized {
+				results[i] = nearby.candidate.entity
+				break
+			}
+		}
+	}
+	return s.applyViewportBias(ctx, input, results, *locationBias)
+}
+
+func (s *Store) applyViewportBias(ctx context.Context, input string, results []places.Entity, viewport places.Viewport) ([]places.Entity, error) {
+	if len(results) == 0 {
+		return results, nil
+	}
+	type ranked struct {
+		entity   places.Entity
+		class    int
+		inside   bool
+		distance float64
+	}
+	normalized := places.Normalize(input)
+	center := viewport.Center()
+	rankedResults := make([]ranked, len(results))
+	for i, result := range results {
+		entity, err := s.Details(ctx, result.ID)
+		if err != nil {
+			return nil, err
+		}
+		class := viewportTextMatchClass(normalized, places.Normalize(entity.Name))
+		rankedResults[i] = ranked{entity: entity, class: class, inside: viewport.Contains(entity.Location), distance: places.DistanceMeters(center, entity.Location)}
+	}
+	sort.SliceStable(rankedResults, func(i, j int) bool {
+		left, right := rankedResults[i], rankedResults[j]
+		if left.class != right.class {
+			return left.class < right.class
+		}
+		if left.inside != right.inside {
+			return left.inside
+		}
+		return left.distance < right.distance
+	})
+	for i := range rankedResults {
+		results[i] = rankedResults[i].entity
+	}
+	if len(results) > 5 {
+		results = results[:5]
+	}
+	return results, nil
+}
+
+func viewportTextMatchClass(query, name string) int {
+	if name == query || strings.TrimPrefix(name, "the ") == query {
+		return 0
+	}
+	if strings.HasPrefix(name, query) || strings.HasPrefix(strings.TrimPrefix(name, "the "), query) {
+		return 1
+	}
+	return 2
+}
+
+func mergeViewportCandidates(preferred, baseline []places.Entity) []places.Entity {
+	merged := make([]places.Entity, 0, len(preferred)+len(baseline))
+	seen := make(map[string]bool, len(preferred)+len(baseline))
+	for _, group := range [][]places.Entity{preferred, baseline} {
+		for _, entity := range group {
+			if !seen[entity.ID] {
+				seen[entity.ID] = true
+				merged = append(merged, entity)
+			}
+		}
+	}
+	return merged
+}
+
+// viewportSearchContext resolves the center of a city-scale rectangle through
+// the existing source-backed address spatial projection. It searches a bounded
+// radius around the center so a tightly zoomed viewport does not lose its
+// locality merely because it contains no address point. Final ranking still
+// uses each result's actual coordinates, and ordinary candidates are retained.
+func (s *Store) viewportSearchContext(ctx context.Context, viewport places.Viewport) (string, error) {
+	latitudeSpan := viewport.North - viewport.South
+	longitudeSpan := viewport.East - viewport.West
+	if longitudeSpan < 0 {
+		longitudeSpan += 360
+	}
+	if latitudeSpan <= 0 || longitudeSpan <= 0 || latitudeSpan > 2 || longitudeSpan > 2 {
+		return "", nil
+	}
+	center := viewport.Center()
+	latDelta := viewportContextRadiusMeters / 111195.0
+	cosLatitude := math.Abs(math.Cos(center.Lat * math.Pi / 180))
+	lngDelta := 180.0
+	if cosLatitude > 1e-9 {
+		lngDelta = math.Min(180, latDelta/cosLatitude)
+	}
+	south := math.Max(-90, center.Lat-latDelta)
+	north := math.Min(90, center.Lat+latDelta)
+	west, east := -180.0, 180.0
+	if lngDelta < 180 {
+		west = wrapSearchLongitude(center.Lng - lngDelta)
+		east = wrapSearchLongitude(center.Lng + lngDelta)
+	}
+	minLatCell := int64(math.Floor((south + 90) * 1000))
+	maxLatCell := int64(math.Floor((north + 90) * 1000))
+	predicate := "lat_cell BETWEEN ? AND ? AND lat BETWEEN ? AND ?"
+	args := []any{minLatCell, maxLatCell, south, north}
+	if west <= east {
+		predicate += " AND lng BETWEEN ? AND ?"
+		args = append(args, west, east)
+	} else {
+		predicate += " AND (lng>=? OR lng<=?)"
+		args = append(args, west, east)
+	}
+	query := `SELECT entity_id,lat,lng,context FROM address_spatial
+WHERE ` + predicate + `
+ORDER BY (lat-?)*(lat-?)+least(abs(lng-?),360-abs(lng-?))*least(abs(lng-?),360-abs(lng-?))*?,entity_id
+LIMIT 8`
+	args = append(args, center.Lat, center.Lat, center.Lng, center.Lng, center.Lng, center.Lng, cosLatitude*cosLatitude)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return "", err
+	}
+	candidates := []addressCandidate{}
+	for rows.Next() {
+		candidate, scanErr := scanAddress(rows)
+		if scanErr != nil {
+			rows.Close()
+			return "", scanErr
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return "", err
+	}
+	if err = rows.Close(); err != nil {
+		return "", err
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		left := places.DistanceMeters(center, candidates[i].location)
+		right := places.DistanceMeters(center, candidates[j].location)
+		if left != right {
+			return left < right
+		}
+		return candidates[i].id < candidates[j].id
+	})
+	for _, candidate := range candidates {
+		if places.DistanceMeters(center, candidate.location) > viewportContextRadiusMeters {
+			continue
+		}
+		result, materializeErr := s.materializeAddress(ctx, candidate)
+		if materializeErr != nil {
+			return "", materializeErr
+		}
+		locality := result.Components.Locality
+		if comma := strings.LastIndex(locality, ","); comma >= 0 {
+			locality = locality[comma+1:]
+		}
+		locality = places.Normalize(locality)
+		region := places.Normalize(result.Components.Region)
+		if locality != "" && region != "" {
+			return locality + " " + region, nil
+		}
+	}
+	return "", nil
+}
+
+func wrapSearchLongitude(longitude float64) float64 {
+	for longitude > 180 {
+		longitude -= 360
+	}
+	for longitude < -180 {
+		longitude += 360
+	}
+	return longitude
 }
 
 type primaryCandidate struct {
@@ -1001,6 +1255,13 @@ func (s *Store) contextStreetCandidate(ctx context.Context, candidates []primary
 }
 
 func (s *Store) autocompletePostings(ctx context.Context, normalized string) ([]places.Entity, error) {
+	return s.autocompletePostingsLimit(ctx, normalized, 5)
+}
+
+func (s *Store) autocompletePostingsLimit(ctx context.Context, normalized string, limit int) ([]places.Entity, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("autocomplete postings limit must be positive")
+	}
 	tokens := strings.Fields(normalized)
 	ctes := make([]string, 0, len(tokens)+2)
 	args := make([]any, 0, len(tokens)*2+2)
@@ -1067,8 +1328,8 @@ scored AS (
   FROM scored
 )
 SELECT entity_seq FROM deduplicated
-WHERE street_rank=1 ORDER BY %s LIMIT 5`,
-		strings.Join(ctes, ","), strings.Join(bm25, "+"), strings.Join(joins, " "), order, order)
+WHERE street_rank=1 ORDER BY %s LIMIT %d`,
+		strings.Join(ctes, ","), strings.Join(bm25, "+"), strings.Join(joins, " "), order, order, limit)
 	args = append(args, normalized)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

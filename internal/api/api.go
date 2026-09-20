@@ -24,10 +24,12 @@ import (
 
 type PlacesStore interface {
 	Autocomplete(context.Context, string) ([]places.Entity, error)
+	AutocompleteWithBias(context.Context, string, *places.Viewport) ([]places.Entity, error)
 	Details(context.Context, string) (places.Entity, error)
 }
 type GeocodingStore interface {
 	Forward(context.Context, string) (geocoding.Response, error)
+	ForwardWithBias(context.Context, string, *places.Viewport) (geocoding.Response, error)
 	Reverse(context.Context, places.Location) (geocoding.Response, error)
 }
 type Handler struct {
@@ -164,7 +166,10 @@ func (h Handler) autocomplete(w http.ResponseWriter, r *http.Request) {
 		invalid(w, fmt.Errorf("invalid request JSON: %w", err))
 		return
 	}
-	var req struct{ Input, Language, Token string }
+	var req struct {
+		Input, Language, Token string
+		LocationBias           *places.Viewport
+	}
 	for key, value := range fields {
 		var target *string
 		switch key {
@@ -174,6 +179,13 @@ func (h Handler) autocomplete(w http.ResponseWriter, r *http.Request) {
 			target = &req.Language
 		case "sessionToken":
 			target = &req.Token
+		case "locationBias":
+			req.LocationBias, err = parsePlacesLocationBias(value)
+			if err != nil {
+				invalid(w, err)
+				return
+			}
+			continue
 		default:
 			invalid(w, fmt.Errorf("unsupported request field: %s", key))
 			return
@@ -202,7 +214,7 @@ func (h Handler) autocomplete(w http.ResponseWriter, r *http.Request) {
 	result := []places.Entity{}
 	if h.Geocoding != nil {
 		if _, _, parseErr := geocoding.ParseForward(req.Input); parseErr == nil {
-			response, forwardErr := h.Geocoding.Forward(r.Context(), req.Input)
+			response, forwardErr := h.Geocoding.ForwardWithBias(r.Context(), req.Input, req.LocationBias)
 			if forwardErr != nil {
 				log.Printf("autocomplete exact address: %v", forwardErr)
 				failure(w, 500, "INTERNAL", "Search unavailable")
@@ -217,7 +229,7 @@ func (h Handler) autocomplete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(result) == 0 {
-		result, err = h.Places.Autocomplete(r.Context(), req.Input)
+		result, err = h.Places.AutocompleteWithBias(r.Context(), req.Input, req.LocationBias)
 		if err != nil {
 			log.Printf("autocomplete: %v", err)
 			failure(w, 500, "INTERNAL", "Search unavailable")

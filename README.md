@@ -65,8 +65,11 @@ commands. The regional Newport workflow above is unchanged.
 
 Open **http://127.0.0.1:8080**. Try `White Horse`, `50 Bellevue`, `Thames`, or
 `Newport`. Click a suggestion; keyboard users can press Down from the input and
-Enter to select. Names, coordinates, available address and website come from the
-selected entity's details response.
+Enter to select. Places autocomplete and forward geocoding send the current map
+viewport as a soft ranking bias; matches outside it remain eligible. Names,
+coordinates, available address and website come from the selected entity's
+details response. See the maintained [viewport request and ranking
+contract](docs/viewport-search.md).
 
 The default demo uses the local Newport PMTiles cutout. Append
 `?basemap=global` to use OpenFreeMap's public global vector style instead; that
@@ -143,9 +146,9 @@ curl -sS http://127.0.0.1:8080/v1/places/om_a5e3dc7692e4d3b90b71b94fba66ec5b \
 
 | Endpoint | Supported behavior |
 | --- | --- |
-| `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, and response field mask; up to five place predictions |
+| `POST /v1/places:autocomplete` | Required `input`; optional English `languageCode`, `sessionToken`, rectangle `locationBias`, and response field mask; up to five place predictions |
 | `GET /v1/places/{id}` | Required response field mask; optional English `languageCode` and `sessionToken`; every returned suggestion ID resolves here |
-| `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional English `language` and unauthenticated `key` |
+| `GET /maps/api/geocode/json` | Geocoding v3 JSON subset: exactly one of `address` or `latlng`; optional forward-only `bounds` bias, English `language` and unauthenticated `key` |
 | `POST /directions/v2:computeRoutes` | Routes REST v2 subset: coordinate, Open Maps Place ID, or exact unique address origin/destination; driving, GeoJSON geometry, road distance and estimated duration; requires routing data, lookup data for non-coordinate forms, and a response mask |
 | `GET /healthz` | Process health and routing availability; in selection mode, loaded lookup snapshot identity and reload failures |
 | `GET /tiles/newport.pmtiles` | Separate regional basemap file with HTTP range support |
