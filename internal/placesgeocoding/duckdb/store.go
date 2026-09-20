@@ -12,10 +12,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/parquet-go/parquet-go"
 
 	"openmaps/internal/geocoding"
+	"openmaps/internal/importer"
 	"openmaps/internal/importer/addressdata"
 	"openmaps/internal/places"
 )
@@ -56,17 +58,66 @@ type Evidence struct {
 
 // Open verifies every generation checksum before exposing DuckDB or Parquet.
 func Open(path string) (_ *Store, err error) {
-	manifest, err := Verify(path)
+	store, _, err := OpenWithReference(path, nil)
+	return store, err
+}
+
+// OpenWithReference verifies and opens one generation and returns the manifest
+// reference established by that same verification pass. The observer receives
+// independent validation and open phase durations.
+func OpenWithReference(path string, observe func(string, time.Duration)) (_ *Store, reference Reference, err error) {
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		return nil, err
+		return nil, reference, err
 	}
-	return openVerified(path, manifest)
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil, reference, err
+	}
+	started := time.Now()
+	digest, err := importer.Checksum(filepath.Join(abs, ManifestName))
+	if err != nil {
+		return nil, reference, err
+	}
+	checksumElapsed := time.Since(started)
+	manifest, err := VerifyObserved(abs, observe)
+	if err != nil {
+		return nil, reference, err
+	}
+	started = time.Now()
+	verifiedDigest, err := importer.Checksum(filepath.Join(abs, ManifestName))
+	if err != nil {
+		return nil, reference, err
+	}
+	if verifiedDigest != digest {
+		return nil, reference, fmt.Errorf("manifest changed during verification")
+	}
+	checksumElapsed += time.Since(started)
+	if observe != nil {
+		observe("reference_manifest_checksum", checksumElapsed)
+	}
+	store, err := openVerifiedObserved(abs, manifest, observe)
+	if err != nil {
+		return nil, reference, err
+	}
+	return store, Reference{Path: abs, SHA256: digest}, nil
 }
 
 // openVerified opens an artifact whose checksums and catalog have already been
 // verified by the caller. Snapshot activation uses this to avoid reading every
 // immutable file twice before a generation becomes visible.
 func openVerified(path string, manifest Manifest) (_ *Store, err error) {
+	return openVerifiedObserved(path, manifest, nil)
+}
+
+func openVerifiedObserved(path string, manifest Manifest, observe func(string, time.Duration)) (_ *Store, err error) {
+	phaseStarted := time.Now()
+	phase := func(name string) {
+		if observe != nil {
+			observe(name, time.Since(phaseStarted))
+		}
+		phaseStarted = time.Now()
+	}
 	counts := map[string]int{}
 	roles := map[string]string{}
 	for _, file := range manifest.Files {
@@ -120,9 +171,11 @@ func openVerified(path string, manifest Manifest) (_ *Store, err error) {
 			s.sourceParquet[name] = pf
 		}
 	}
+	phase("open_parquet_metadata")
 	if s.db, err = openDatabase(filepath.Join(path, IndexName)); err != nil {
 		return nil, err
 	}
+	phase("open_catalog")
 	var version, rawManifest string
 	if err = s.db.QueryRow("SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); err != nil || version != "2" {
 		return nil, fmt.Errorf("DuckDB index missing or unsupported schema: %v", err)
@@ -140,9 +193,11 @@ func openVerified(path string, manifest Manifest) (_ *Store, err error) {
 		return nil, fmt.Errorf("DuckDB index has invalid source bounds")
 	}
 	copy(s.bounds[:], scope.BBox)
+	phase("open_catalog_metadata")
 	if s.areaParents, err = loadAreaParents(s.db, path); err != nil {
 		return nil, err
 	}
+	phase("open_parent_area_graph")
 	return s, nil
 }
 

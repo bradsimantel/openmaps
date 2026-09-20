@@ -66,6 +66,8 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 	}
 	add("fixture:place", "portland-or-words", "business", "Portland OR", "", places.Location{Lat: 45.54, Lng: -122.69}, "Portland, OR, US")
 	add("fixture:place", "main-portland-words", "business", "Main Street Portland OR", "", places.Location{Lat: 45.54, Lng: -122.69}, "Portland, OR, US")
+	add("fixture:place", "coffee-roaster", "business", "Coffee Roaster", "", places.Location{Lat: 45.54, Lng: -122.69}, "Portland, OR, US")
+	add("fixture:place", "coffeemaker-roaster", "business", "Coffeemaker Roaster", "", places.Location{Lat: 45.54, Lng: -122.69}, "Portland, OR, US")
 	ambiguousIDs := make([]string, contextAreaLocatorThreshold+5)
 	localAmbiguous := 0
 	for i := range ambiguousIDs {
@@ -153,6 +155,21 @@ func TestStructuredAutocompleteContext(t *testing.T) {
 	results, err = store.Autocomplete(context.Background(), "Portland")
 	if err != nil || len(results) == 0 || results[0].Kind != "area" {
 		t.Fatalf("unstructured type preference regressed: %+v err=%v", results, err)
+	}
+	results, err = store.Autocomplete(context.Background(), "Crowded")
+	if err != nil || len(results) != 5 || results[0].Kind != "area" {
+		t.Fatalf("locator-first unstructured candidates: %+v err=%v", results, err)
+	}
+	results, err = store.Autocomplete(context.Background(), "coffee roast")
+	coffeeID := importer.PublicID("fixture:place:coffee-roaster")
+	coffeemakerID := importer.PublicID("fixture:place:coffeemaker-roaster")
+	if err != nil || len(results) == 0 || results[0].ID != coffeeID {
+		t.Fatalf("completed-token exact match: %+v err=%v", results, err)
+	}
+	for _, result := range results {
+		if result.ID == coffeemakerID {
+			t.Fatalf("completed token broadened to a prefix: %+v", results)
+		}
 	}
 }
 

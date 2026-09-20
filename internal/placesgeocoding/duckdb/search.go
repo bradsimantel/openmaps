@@ -79,12 +79,13 @@ type primaryCandidate struct {
 }
 
 const (
-	contextStreetRadiusMeters      = 100_000
-	contextStreetEarlyAcceptMeters = 25_000
-	contextStreetCandidatePageSize = 1024
-	contextAreaLocatorThreshold    = 64
-	exactDestinationEvidenceLimit  = 64
-	primaryCandidateCacheLimit     = 256
+	contextStreetRadiusMeters        = 100_000
+	contextStreetEarlyAcceptMeters   = 25_000
+	contextStreetCandidatePageSize   = 1024
+	contextAreaLocatorThreshold      = 64
+	exactDestinationEvidenceLimit    = 64
+	primaryCandidateLocatorThreshold = 48
+	primaryCandidateCacheLimit       = 256
 )
 
 func (s *Store) primaryCandidates(ctx context.Context, normalized, kind string) ([]primaryCandidate, error) {
@@ -94,6 +95,21 @@ func (s *Store) primaryCandidates(ctx context.Context, normalized, kind string) 
 	s.primaryCandidateCacheMu.RUnlock()
 	if ok {
 		return append([]primaryCandidate(nil), cached...), nil
+	}
+	sequences, err := s.exactCandidateSequences(ctx, normalized, kind)
+	if err != nil {
+		return nil, err
+	}
+	if len(sequences) >= primaryCandidateLocatorThreshold {
+		candidates, locatorErr := s.candidateLocators(ctx, sequences)
+		if locatorErr != nil {
+			return nil, locatorErr
+		}
+		if locatorErr = s.loadCandidateSearchEntities(ctx, candidates); locatorErr != nil {
+			return nil, locatorErr
+		}
+		s.cachePrimaryCandidates(kind, normalized, candidates)
+		return candidates, nil
 	}
 	tokens := strings.Fields(normalized)
 	if len(tokens) == 0 {
@@ -753,7 +769,8 @@ func (s *Store) candidateLocators(ctx context.Context, sequences []int) ([]prima
 		// one-based search sequence is the locator table's zero-based rowid.
 		args[i] = sequence - 1
 	}
-	locatorRows, err := s.db.QueryContext(ctx, `SELECT rowid+1,id,entity_file,entity_row_group,entity_row
+	locatorRows, err := s.db.QueryContext(ctx, `SELECT rowid+1,id,entity_file,entity_row_group,entity_row,
+       source_file,source_start,source_count
 FROM entity_locator WHERE rowid IN (`+placeholders+") ORDER BY rowid", args...)
 	if err != nil {
 		return nil, err
@@ -763,7 +780,8 @@ FROM entity_locator WHERE rowid IN (`+placeholders+") ORDER BY rowid", args...)
 	for locatorRows.Next() {
 		var candidate primaryCandidate
 		if err = locatorRows.Scan(&candidate.sequence, &candidate.entity.ID, &candidate.entityFile,
-			&candidate.entityRowGroup, &candidate.entityRow); err != nil {
+			&candidate.entityRowGroup, &candidate.entityRow,
+			&candidate.sourceFile, &candidate.sourceStart, &candidate.sourceCount); err != nil {
 			return nil, err
 		}
 		candidates = append(candidates, candidate)
@@ -775,6 +793,47 @@ FROM entity_locator WHERE rowid IN (`+placeholders+") ORDER BY rowid", args...)
 		return nil, fmt.Errorf("candidate locators: got %d want %d", len(candidates), len(sequences))
 	}
 	return candidates, nil
+}
+
+func (s *Store) loadCandidateSearchEntities(ctx context.Context, candidates []primaryCandidate) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(candidates)), ",")
+	args := make([]any, len(candidates))
+	bySequence := make(map[int]*primaryCandidate, len(candidates))
+	for i := range candidates {
+		args[i] = candidates[i].sequence
+		bySequence[candidates[i].sequence] = &candidates[i]
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT entity_seq,id,kind,name,address,subtype
+FROM search_entities WHERE entity_seq IN (`+placeholders+")", args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	loaded := 0
+	for rows.Next() {
+		var sequence int
+		var entity places.Entity
+		if err = rows.Scan(&sequence, &entity.ID, &entity.Kind, &entity.Name, &entity.Address, &entity.Subtype); err != nil {
+			return err
+		}
+		candidate := bySequence[sequence]
+		if candidate == nil || candidate.entity.ID != entity.ID {
+			return fmt.Errorf("search entity locator mismatch for sequence %d", sequence)
+		}
+		canonicalizeEntity(&entity)
+		candidate.entity = entity
+		loaded++
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	if loaded != len(candidates) {
+		return fmt.Errorf("search entities: got %d want %d", loaded, len(candidates))
+	}
+	return nil
 }
 
 func filterLocalityTypes(candidates []primaryCandidate) []primaryCandidate {
@@ -947,14 +1006,19 @@ func (s *Store) autocompletePostings(ctx context.Context, normalized string) ([]
 	args := make([]any, 0, len(tokens)*2+2)
 	bm25 := make([]string, 0, len(tokens))
 	for i, token := range tokens {
-		predicate := "t.token>=?"
+		predicate := "t.token=?"
 		args = append(args, token)
-		if upper, ok := prefixUpperBound(token); ok {
-			predicate += " AND t.token<?"
-			args = append(args, upper)
-		} else {
-			predicate += " AND starts_with(t.token,?)"
-			args = append(args, token)
+		// Completed words constrain exact tokens. Only the final word remains a
+		// prefix, matching how a user extends the current autocomplete token.
+		if i == len(tokens)-1 {
+			predicate = "t.token>=?"
+			if upper, ok := prefixUpperBound(token); ok {
+				predicate += " AND t.token<?"
+				args = append(args, upper)
+			} else {
+				predicate += " AND starts_with(t.token,?)"
+				args = append(args, token)
+			}
 		}
 		metadata := ""
 		if i == 0 {

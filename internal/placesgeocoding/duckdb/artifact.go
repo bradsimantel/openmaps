@@ -210,6 +210,7 @@ func VerifyObserved(path string, observe func(string, time.Duration)) (Manifest,
 	if manifest.Schema != 2 || manifest.CoordinateOrder != "longitude,latitude" || len(manifest.NormalizedSHA256) != 64 || manifest.DataSHA256 != "" && len(manifest.DataSHA256) != 64 || len(manifest.Files) < 7 {
 		return manifest, fmt.Errorf("unsupported DuckDB manifest")
 	}
+	phase("manifest")
 	roleOrder := map[string]int{"entities": 0, "sources": 1, "provenance": 2, "relationships": 3, "rejections": 4, "metadata": 5, "serving": 6}
 	roleBase := map[string]string{"entities": EntitiesName, "sources": SourcesName, "provenance": ProvenanceName, "relationships": RelationshipsName, "rejections": RejectionsName, "metadata": MetadataName, "serving": IndexName}
 	roleCounts := map[string]int{}
@@ -228,25 +229,6 @@ func VerifyObserved(path string, observe func(string, time.Duration)) (Manifest,
 		}
 		lastRole = order
 		roleCounts[file.Role]++
-		if err = importer.Verify(filepath.Join(path, file.Name), file.SHA256); err != nil {
-			return manifest, fmt.Errorf("verify %s: %w", file.Name, err)
-		}
-		if strings.HasSuffix(file.Name, ".parquet") {
-			f, e := os.Open(filepath.Join(path, file.Name))
-			if e != nil {
-				return manifest, e
-			}
-			stat, e := f.Stat()
-			if e != nil {
-				f.Close()
-				return manifest, e
-			}
-			pf, e := parquet.OpenFile(f, stat.Size())
-			f.Close()
-			if e != nil || pf.NumRows() != int64(file.Rows) {
-				return manifest, fmt.Errorf("invalid %s row count: %v", file.Name, e)
-			}
-		}
 		if file.Role == "entities" {
 			entityRows += file.Rows
 		}
@@ -258,6 +240,32 @@ func VerifyObserved(path string, observe func(string, time.Duration)) (Manifest,
 		}
 		seen[file.Name] = true
 	}
+	for _, file := range manifest.Files {
+		if err = importer.Verify(filepath.Join(path, file.Name), file.SHA256); err != nil {
+			return manifest, fmt.Errorf("verify %s: %w", file.Name, err)
+		}
+	}
+	phase("artifact_checksums")
+	for _, file := range manifest.Files {
+		if !strings.HasSuffix(file.Name, ".parquet") {
+			continue
+		}
+		f, e := os.Open(filepath.Join(path, file.Name))
+		if e != nil {
+			return manifest, e
+		}
+		stat, e := f.Stat()
+		if e != nil {
+			f.Close()
+			return manifest, e
+		}
+		pf, e := parquet.OpenFile(f, stat.Size())
+		f.Close()
+		if e != nil || pf.NumRows() != int64(file.Rows) {
+			return manifest, fmt.Errorf("invalid %s row count: %v", file.Name, e)
+		}
+	}
+	phase("parquet_metadata")
 	for role := range roleOrder {
 		if roleCounts[role] == 0 || (role == "metadata" || role == "serving") && roleCounts[role] != 1 {
 			return manifest, fmt.Errorf("missing or duplicated %s artifact", role)
@@ -284,12 +292,13 @@ func VerifyObserved(path string, observe func(string, time.Duration)) (Manifest,
 	// Older schema-2 manifests predate data_sha256. Return the independently
 	// recomputed value so they can still serve as qualification baselines.
 	manifest.DataSHA256 = computedDataSHA256
-	phase("artifact_files")
+	phase("artifact_layout")
 	db, err := openDatabase(filepath.Join(path, IndexName))
 	if err != nil {
 		return manifest, err
 	}
 	defer db.Close()
+	phase("catalog_open")
 	var version string
 	if err = db.QueryRow("SELECT value FROM metadata WHERE key='schema_version'").Scan(&version); err != nil || version != "2" {
 		return manifest, fmt.Errorf("DuckDB index schema: %s: %v", version, err)

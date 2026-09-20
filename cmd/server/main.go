@@ -97,15 +97,14 @@ func newService(parent context.Context, c configuration) (http.Handler, func(), 
 		closers = append(closers, func() { live.Close() })
 		lookup = live
 	} else if c.lookup != "" {
-		store, err := placeduckdb.Open(c.lookup)
+		store, reference, err := placeduckdb.OpenWithReference(c.lookup, func(phase string, elapsed time.Duration) {
+			log.Printf("Lookup startup: phase=%s duration=%s", phase, elapsed)
+		})
 		if err != nil {
 			return fail(err)
 		}
 		closers = append(closers, func() { store.Close() })
-		directReference, err = placeduckdb.Describe(c.lookup)
-		if err != nil {
-			return fail(err)
-		}
+		directReference = reference
 		lookupAPI = api.Handler{Places: store, Geocoding: store}
 		lookup = snapshotHeader(lookupAPI, directReference.SHA256)
 	}

@@ -52,6 +52,44 @@ func store(t *testing.T) (*placeduckdb.Store, string) {
 	return candidate, candidatePath
 }
 
+func TestOpenWithReferenceObservesOneVerifiedStartup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lookup")
+	if err := placeduckdb.Build(context.Background(), path, fixture(t)); err != nil {
+		t.Fatal(err)
+	}
+	phases := map[string]int{}
+	opened, reference, err := placeduckdb.OpenWithReference(path, func(name string, _ time.Duration) {
+		phases[name]++
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	wantDigest, err := importer.Checksum(filepath.Join(path, placeduckdb.ManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reference.Path != wantPath || reference.SHA256 != wantDigest {
+		t.Fatalf("reference=%+v want path=%s digest=%s", reference, wantPath, wantDigest)
+	}
+	for _, phase := range []string{
+		"validation_manifest", "validation_artifact_checksums", "validation_parquet_metadata",
+		"validation_artifact_layout", "validation_catalog_open", "validation_catalog_entities",
+		"validation_catalog_search", "validation_catalog_addresses", "validation_bounded_evidence",
+		"reference_manifest_checksum", "open_parquet_metadata", "open_catalog",
+		"open_catalog_metadata", "open_parent_area_graph",
+	} {
+		if phases[phase] != 1 {
+			t.Fatalf("startup phase %s observed %d times; all phases=%v", phase, phases[phase], phases)
+		}
+	}
+}
+
 func request(handler http.Handler, method, target, body, mask string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	if mask != "" {
