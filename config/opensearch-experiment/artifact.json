@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "version": "3.8.0",
+  "distribution": "opensearch-3.8.0-linux-x64.tar.gz",
+  "url": "https://artifacts.opensearch.org/releases/bundle/opensearch/3.8.0/opensearch-3.8.0-linux-x64.tar.gz",
+  "bytes": 1072637307,
+  "sha512": "cba25b10114e796273fa9399af27fe9c2daaf25a190c37e4b5feb9cfd088e371e0fbd3cddf2bc0fbb753c2e681c0b55f08c0926d11718bf76f77e830017b06ff",
+  "release_page": "https://opensearch.org/artifacts/by-version/#release-v380",
+  "checked": "2026-09-20"
+}

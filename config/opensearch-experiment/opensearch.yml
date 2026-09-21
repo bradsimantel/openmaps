@@ -1,0 +1,17 @@
+cluster.name: openmaps-places-autocomplete-bakeoff
+node.name: openmaps-places-bakeoff-1
+discovery.type: single-node
+
+path.data: ${OPENMAPS_OPENSEARCH_DATA}
+path.logs: ${OPENMAPS_OPENSEARCH_LOGS}
+
+network.host: 127.0.0.1
+http.port: 19200
+transport.port: 19201
+
+plugins.security.disabled: true
+action.auto_create_index: false
+
+# The qualification host already exceeds OpenSearch's documented mmap count.
+# Do not change the host setting for this experiment.
+node.store.allow_mmap: true
