@@ -10,9 +10,10 @@ import (
 // a street for street queries. Region is the normalized full US state or
 // federal-district name used by the source hierarchy.
 type AutocompleteContext struct {
-	Name     string
-	Locality string
-	Region   string
+	Name       string
+	Locality   string
+	Region     string
+	RegionCode string
 }
 
 // ParseAutocompleteContext recognizes "city, state" and
@@ -40,7 +41,7 @@ func ParseAutocompleteContext(input string) (AutocompleteContext, bool) {
 	if name == "" || !containsLetter(parts[0]) {
 		return AutocompleteContext{}, false
 	}
-	context := AutocompleteContext{Name: name, Region: region}
+	context := AutocompleteContext{Name: name, Region: region.Name, RegionCode: region.Code}
 	if len(parts) == 3 {
 		context.Locality = normalizeLocalityContext(parts[1])
 		if context.Locality == "" || !containsLetter(parts[1]) {
@@ -68,7 +69,9 @@ func containsLetter(value string) bool {
 	return false
 }
 
-func usRegion(value string) (string, bool) {
+type usRegionContext struct{ Name, Code string }
+
+func usRegion(value string) (usRegionContext, bool) {
 	normalized := Normalize(value)
 	region, ok := usRegions[normalized]
 	if !ok {
@@ -77,8 +80,8 @@ func usRegion(value string) (string, bool) {
 	return region, ok
 }
 
-var usRegions = func() map[string]string {
-	regions := map[string]string{}
+var usRegions = func() map[string]usRegionContext {
+	regions := map[string]usRegionContext{}
 	for code, name := range map[string]string{
 		"AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
 		"CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
@@ -95,8 +98,9 @@ var usRegions = func() map[string]string {
 		"WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
 	} {
 		normalized := Normalize(name)
-		regions[Normalize(code)] = normalized
-		regions[normalized] = normalized
+		region := usRegionContext{Name: normalized, Code: code}
+		regions[Normalize(code)] = region
+		regions[normalized] = region
 	}
 	return regions
 }()
